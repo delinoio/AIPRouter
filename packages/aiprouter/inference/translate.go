@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 )
 
@@ -42,10 +43,18 @@ func translateRequest(body object, from, to Wire) (object, error) {
 	if from == to {
 		return clone(body), nil
 	}
-	allowed := map[string]bool{"model": true, "stream": true, "messages": true, "input": true, "instructions": true, "system": true, "tools": true, "tool_choice": true, "temperature": true, "top_p": true, "max_tokens": true, "max_completion_tokens": true, "max_output_tokens": true, "parallel_tool_calls": true, "store": true, "previous_response_id": true, "stream_options": true, "metadata": true, "user": true, "reasoning": true, "reasoning_effort": true, "thinking": true, "include": true, "text": true, "response_format": true, "stop": true, "stop_sequences": true}
+	allowed := map[string]bool{"model": true, "stream": true, "messages": true, "input": true, "instructions": true, "system": true, "tools": true, "tool_choice": true, "temperature": true, "top_p": true, "max_tokens": true, "max_completion_tokens": true, "max_output_tokens": true, "parallel_tool_calls": true, "store": true, "previous_response_id": true, "stream_options": true, "metadata": true, "user": true, "reasoning": true, "reasoning_effort": true, "thinking": true, "include": true, "text": true, "response_format": true, "stop": true, "stop_sequences": true, "additional_tools": true, "output_config": true}
 	for k := range body {
 		if !allowed[k] {
 			return nil, unsupportedField()
+		}
+	}
+	catalog := append([]any{}, arr(body["tools"])...)
+	catalog = append(catalog, arr(body["additional_tools"])...)
+	for _, v := range arr(body["input"]) {
+		q := obj(v)
+		if q["type"] == "additional_tools" || q["type"] == "tool_search_output" {
+			catalog = append(catalog, arr(q["tools"])...)
 		}
 	}
 	messages, err := toMessages(body, from)
@@ -103,7 +112,7 @@ func translateRequest(body object, from, to Wire) (object, error) {
 	default:
 		return nil, ErrUnsupported
 	}
-	if tools := arr(body["tools"]); len(tools) > 0 {
+	if tools := catalog; len(tools) > 0 {
 		converted, e := translateTools(tools, from, to)
 		if e != nil {
 			return nil, e
@@ -116,6 +125,26 @@ func translateRequest(body object, from, to Wire) (object, error) {
 			return nil, e
 		}
 		out["tool_choice"] = c
+		if choice := obj(body["tool_choice"]); choice["type"] == "allowed_tools" && to == Anthropic {
+			permitted := map[string]bool{}
+			for _, v := range arr(choice["tools"]) {
+				selected, e := translateChoice(v, from, Anthropic)
+				if e != nil {
+					return nil, e
+				}
+				permitted[str(obj(selected)["name"])] = true
+			}
+			selected := []any{}
+			for _, v := range arr(out["tools"]) {
+				if permitted[str(obj(v)["name"])] {
+					selected = append(selected, v)
+				}
+			}
+			if len(selected) == 0 {
+				return nil, &Error{400, "empty_allowed_tools", 0}
+			}
+			out["tools"] = selected
+		}
 	}
 	if v, ok := body["parallel_tool_calls"]; ok {
 		if to == Anthropic {
@@ -132,45 +161,85 @@ func translateRequest(body object, from, to Wire) (object, error) {
 	return out, nil
 }
 func translateChoice(v any, from, to Wire) (any, error) {
-	s := str(v)
-	name := ""
+	mode := str(v)
+	name, namespace, kind := "", "", "function"
 	if m := obj(v); m != nil {
-		switch from {
-		case Chat:
-			name = str(obj(m["function"])["name"])
-		case Responses:
-			name = str(m["name"])
-		case Anthropic:
-			s = str(m["type"])
-			if s == "tool" {
-				name = str(m["name"])
+		kind = str(m["type"])
+		namespace = str(m["namespace"])
+		if kind == "allowed_tools" {
+			mode = str(m["mode"])
+			if mode == "" {
+				mode = "auto"
 			}
-			if s == "any" {
-				s = "required"
+			if mode != "auto" && mode != "required" {
+				return nil, unsupportedField()
 			}
+			if to == Anthropic {
+				if mode == "required" {
+					mode = "any"
+				}
+				return object{"type": mode}, nil
+			}
+			selected := []any{}
+			for _, v := range arr(m["tools"]) {
+				c, e := translateChoice(v, from, to)
+				if e != nil {
+					return nil, e
+				}
+				selected = append(selected, c)
+			}
+			return object{"type": "allowed_tools", "mode": mode, "tools": selected}, nil
+		}
+		name = str(m["name"])
+		if from == Chat {
+			if f := obj(m["function"]); f != nil {
+				name = str(f["name"])
+			}
+			if f := obj(m["custom"]); f != nil {
+				name = str(f["name"])
+			}
+		}
+		if from == Anthropic {
+			mode = kind
+			if kind == "any" {
+				mode = "required"
+			}
+			kind = "function"
+		}
+		if name == "" && (kind == "tool_search" || kind == "web_search" || kind == "image_generation" || kind == "video_generation") {
+			name = kind
 		}
 	}
 	if name != "" {
+		wireName := name
+		if namespace != "" && namespace != "functions" {
+			wireName = namespace + "__" + name
+		}
 		switch to {
 		case Chat:
-			return object{"type": "function", "function": object{"name": name}}, nil
-		case Responses:
-			return object{"type": "function", "name": name}, nil
+			return object{"type": "function", "function": object{"name": wireName}}, nil
 		case Anthropic:
-			return object{"type": "tool", "name": name}, nil
+			return object{"type": "tool", "name": wireName}, nil
+		case Responses:
+			q := object{"type": kind, "name": name}
+			if namespace != "" {
+				q["namespace"] = namespace
+			}
+			return q, nil
 		}
 	}
-	if s != "auto" && s != "none" && s != "required" {
+	if mode != "auto" && mode != "none" && mode != "required" {
 		return nil, unsupportedField()
 	}
 	if to == Anthropic {
-		if s == "required" {
-			s = "any"
+		if mode == "required" {
+			mode = "any"
 		}
-		return object{"type": s}, nil
+		return object{"type": mode}, nil
 	}
-	return s, nil
+	return mode, nil
 }
+
 func toMessages(b object, w Wire) ([]any, error) {
 	var out []any
 	switch w {
@@ -186,19 +255,26 @@ func toMessages(b object, w Wire) ([]any, error) {
 		for _, v := range arr(b["input"]) {
 			m := obj(v)
 			switch str(m["type"]) {
+			case "additional_tools":
+				continue
 			case "reasoning":
 				msg, e := reasoningMessage(m)
 				if e != nil {
 					return nil, e
 				}
 				out = append(out, msg)
-			case "function_call", "custom_tool_call", "tool_search_call", "web_search_call", "image_generation_call":
+			case "function_call", "custom_tool_call", "tool_search_call", "web_search_call", "image_generation_call", "video_generation_call":
 				out = append(out, object{"role": "assistant", "tool_calls": []any{responseCallToChat(m)}})
 			case "function_call_output", "custom_tool_call_output", "tool_search_output":
 				msg := object{"role": "tool", "tool_call_id": m["call_id"], "content": m["output"]}
 				copyFields(msg, m, "is_error", "extra_content", "provider_metadata", "additional_tools")
 				if m["type"] == "custom_tool_call_output" {
 					msg["custom_result"] = true
+				}
+				if m["type"] == "tool_search_output" {
+					raw, _ := json.Marshal(object{"tools": m["tools"], "status": m["status"]})
+					msg["content"] = string(raw)
+					msg["provider_metadata"] = object{"output_item": clone(m)}
 				}
 				out = append(out, msg)
 			case "", "message":
@@ -242,6 +318,11 @@ func toMessages(b object, w Wire) ([]any, error) {
 			}
 			for _, p := range arr(m["content"]) {
 				q := obj(p)
+				if item := obj(obj(obj(q["extra_content"])["aiprouter"])["hosted_output"]); item != nil {
+					flush()
+					out = append(out, object{"role": "assistant", "_hosted_output": item})
+					continue
+				}
 				switch str(q["type"]) {
 				case "thinking", "redacted_thinking":
 					flush()
@@ -272,7 +353,7 @@ func toMessages(b object, w Wire) ([]any, error) {
 						return nil, e
 					}
 					mm := object{"role": "tool", "tool_call_id": q["tool_use_id"], "content": c}
-					copyFields(mm, q, "is_error", "extra_content")
+					copyFields(mm, q, "is_error", "extra_content", "provider_metadata")
 					out = append(out, mm)
 				default:
 					c, e := contentToChat([]any{p}, w)
@@ -295,6 +376,11 @@ func contentToChat(v any, w Wire) (any, error) {
 		return s, nil
 	}
 	parts := []any{}
+	if v != nil {
+		if _, ok := v.([]any); !ok {
+			return nil, unsupportedField()
+		}
+	}
 	for _, p := range arr(v) {
 		m := obj(p)
 		switch str(m["type"]) {
@@ -323,12 +409,20 @@ func messagesToResponses(msgs []any) ([]any, error) {
 	out := []any{}
 	for _, v := range msgs {
 		m := obj(v)
+		if item := obj(m["_hosted_output"]); item != nil {
+			out = append(out, item)
+			continue
+		}
 		reasoning, e := chatReasoning(m)
 		if e != nil {
 			return nil, e
 		}
 		out = append(out, reasoning...)
 		if str(m["role"]) == "tool" {
+			if item := obj(obj(m["provider_metadata"])["output_item"]); item != nil {
+				out = append(out, clone(item))
+				continue
+			}
 			item := object{"type": "function_call_output", "call_id": m["tool_call_id"], "output": m["content"]}
 			if m["custom_result"] == true {
 				item["type"] = "custom_tool_call_output"
@@ -337,7 +431,11 @@ func messagesToResponses(msgs []any) ([]any, error) {
 			out = append(out, item)
 			continue
 		}
-		if m["content"] != nil || m["extra_content"] != nil && len(reasoning) == 0 {
+		hasContent := m["content"] != nil
+		if (len(reasoning) > 0 || len(arr(m["tool_calls"])) > 0) && str(m["content"]) == "" && len(arr(m["content"])) == 0 {
+			hasContent = false
+		}
+		if hasContent || m["extra_content"] != nil && len(reasoning) == 0 && len(arr(m["tool_calls"])) == 0 {
 			parts := []any{}
 			textType := "input_text"
 			if str(m["role"]) == "assistant" {
@@ -369,6 +467,15 @@ func messagesToResponses(msgs []any) ([]any, error) {
 		}
 		for _, t := range arr(m["tool_calls"]) {
 			c := obj(t)
+			if c["type"] == "custom" {
+				q := obj(c["custom"])
+				args, _ := json.Marshal(object{"input": q["input"]})
+				c = clone(c)
+				c["function"] = object{"name": q["name"], "arguments": string(args)}
+				meta := clone(obj(c["provider_metadata"]))
+				meta["tool_kind"] = "custom"
+				c["provider_metadata"] = meta
+			}
 			item, e := chatCallToResponse(c)
 			if e != nil {
 				return nil, e
@@ -378,7 +485,7 @@ func messagesToResponses(msgs []any) ([]any, error) {
 	}
 	return out, nil
 }
-func messagesToAnthropic(msgs []any) ([]any, []any, error) {
+func messagesToAnthropic(msgs []any, output ...bool) ([]any, []any, error) {
 	out, system := []any{}, []any{}
 	for _, v := range msgs {
 		m := obj(v)
@@ -389,7 +496,7 @@ func messagesToAnthropic(msgs []any) ([]any, []any, error) {
 			return nil, nil, e
 		}
 		for _, v := range reasoning {
-			parts = append(parts, reasoningToAnthropic(obj(v))...)
+			parts = append(parts, reasoningToAnthropic(obj(v), output...)...)
 		}
 		if s, ok := m["content"].(string); ok {
 			parts = append(parts, object{"type": "text", "text": s})
@@ -436,19 +543,19 @@ func messagesToAnthropic(msgs []any) ([]any, []any, error) {
 		if role == "tool" {
 			role = "user"
 			block := object{"type": "tool_result", "tool_use_id": m["tool_call_id"], "content": parts}
-			copyFields(block, m, "is_error", "extra_content")
+			copyFields(block, m, "is_error", "extra_content", "provider_metadata")
 			parts = []any{block}
 		}
 		for _, v := range arr(m["tool_calls"]) {
 			c := obj(v)
 			f := obj(c["function"])
-			var args object
-			if json.Unmarshal([]byte(str(f["arguments"])), &args) != nil {
+			args, err := decode([]byte(str(f["arguments"])))
+			if err != nil {
 				return nil, nil, &Error{400, "invalid_tool_arguments", 0}
 			}
 			block := object{"type": "tool_use", "id": c["id"], "name": f["name"], "input": args}
 			copyFields(block, c, "extra_content", "provider_metadata")
-			if kind := str(obj(c["provider_metadata"])["tool_kind"]); kind == "web_search" || kind == "image_generation" {
+			if kind := str(obj(c["provider_metadata"])["tool_kind"]); kind == "web_search" || kind == "image_generation" || kind == "video_generation" {
 				block["type"] = "server_tool_use"
 			}
 			parts = append(parts, block)
@@ -495,9 +602,17 @@ func readUsage(m object, w Wire) Usage {
 		if v.InputTokens != nil {
 			x := *v.InputTokens
 			if v.CacheReadTokens != nil {
+				if x > math.MaxInt64-*v.CacheReadTokens {
+					v.InputTokens = nil
+					return v
+				}
 				x += *v.CacheReadTokens
 			}
 			if v.CacheWriteTokens != nil {
+				if x > math.MaxInt64-*v.CacheWriteTokens {
+					v.InputTokens = nil
+					return v
+				}
 				x += *v.CacheWriteTokens
 			}
 			v.InputTokens = &x
@@ -632,7 +747,7 @@ func reasoningMessage(item object) (object, error) {
 		for _, red := range e.Redacted {
 			details = append(details, object{"type": "reasoning.encrypted", "data": red, "format": "anthropic-claude-v1"})
 		}
-		if e.Signature != "" {
+		if e.Signature != "" && e.Text == nil {
 			details = append(details, object{"type": "reasoning.text", "text": text, "signature": e.Signature, "format": "anthropic-claude-v1"})
 		}
 		if len(details) > 0 {
@@ -642,6 +757,9 @@ func reasoningMessage(item object) (object, error) {
 	return m, nil
 }
 func chatReasoning(m object) ([]any, error) {
+	if items := arr(obj(obj(m["extra_content"])["openai"])["reasoning_items"]); len(items) > 0 {
+		return items, nil
+	}
 	if item := obj(obj(obj(m["extra_content"])["openai"])["reasoning"]); item != nil {
 		return []any{clone(item)}, nil
 	}
@@ -674,7 +792,7 @@ func chatReasoning(m object) ([]any, error) {
 	}
 	return out, nil
 }
-func reasoningToAnthropic(item object) []any {
+func reasoningToAnthropic(item object, output ...bool) []any {
 	text := reasoningText(item)
 	enc := str(item["encrypted_content"])
 	e := reasoningEnvelope{}
@@ -685,14 +803,15 @@ func reasoningToAnthropic(item object) []any {
 	for _, red := range e.Redacted {
 		out = append(out, object{"type": "redacted_thinking", "data": red})
 	}
-	if e.Text != nil {
+	hiddenOutput := len(output) > 0 && output[0] && e.Text != nil
+	if e.Text != nil && !hiddenOutput {
 		text = *e.Text
 	}
 	if text != "" || e.Signature != "" || e.Kiro != "" || enc != "" || item["extra_content"] != nil {
 		b := object{"type": "thinking", "thinking": text}
 		copyFields(b, item, "extra_content", "provider_metadata")
 		switch {
-		case e.Kiro != "":
+		case e.Kiro != "" || hiddenOutput:
 			b["signature"] = enc
 		case e.Signature != "":
 			b["signature"] = e.Signature
@@ -721,12 +840,22 @@ func responseCallToChat(item object) object {
 		wireName = namespace + "__" + name
 	}
 	args := item["arguments"]
+	if args != nil {
+		if _, ok := args.(string); !ok {
+			b, _ := json.Marshal(args)
+			args = string(b)
+		}
+	}
 	if kind == "custom" {
 		b, _ := json.Marshal(object{"input": item["input"]})
 		args = string(b)
 	}
 	if args == nil {
-		b, _ := json.Marshal(item["action"])
+		action := item["action"]
+		if action == nil {
+			action = object{}
+		}
+		b, _ := json.Marshal(action)
 		args = string(b)
 	}
 	c := object{"id": item["call_id"], "type": "function", "function": object{"name": wireName, "arguments": args}}
@@ -781,8 +910,19 @@ func chatCallToResponse(c object) (object, error) {
 		item["type"] = "custom_tool_call"
 		item["input"] = input
 		delete(item, "arguments")
-	case "tool_search", "web_search", "image_generation":
+	case "tool_search", "web_search", "image_generation", "video_generation":
 		item["type"] = kind + "_call"
+		args, e := decode([]byte(str(f["arguments"])))
+		if e != nil {
+			return nil, &Error{502, "invalid_upstream_tool_arguments", 0}
+		}
+		if kind == "tool_search" {
+			item["arguments"] = args
+			item["execution"] = "client"
+		} else if kind == "web_search" {
+			item["action"] = args
+			delete(item, "arguments")
+		}
 	case "function":
 	default:
 		return nil, unsupportedField()
@@ -817,6 +957,9 @@ func translateTools(tools []any, from, to Wire) ([]any, error) {
 			if kind == "" {
 				kind = "function"
 			}
+			if declared := str(obj(f["provider_metadata"])["tool_kind"]); declared != "" {
+				kind = declared
+			}
 			name := str(f["name"])
 			if name == "" && kind != "function" && kind != "custom" {
 				name = kind
@@ -833,10 +976,25 @@ func translateTools(tools []any, from, to Wire) ([]any, error) {
 				return &Error{400, "ambiguous_tool_catalog", 0}
 			}
 			seen[wireName] = true
+			if kind == "tool_search" && to != Responses {
+				schema := f["parameters"]
+				if schema == nil {
+					schema = object{"type": "object", "properties": object{"query": object{"type": "string"}, "limit": object{"type": "number"}}, "required": []any{"query"}}
+				}
+				fn := object{"name": wireName, "description": f["description"], "parameters": schema, "provider_metadata": object{"tool_kind": "tool_search"}}
+				if to == Chat {
+					out = append(out, object{"type": "function", "function": fn})
+				} else {
+					fn["input_schema"] = schema
+					delete(fn, "parameters")
+					out = append(out, fn)
+				}
+				continue
+			}
 			if kind != "function" && kind != "custom" {
 				// Hosted declarations are not client functions. Keep their discriminator and options.
 				switch kind {
-				case "web_search", "web_search_preview", "tool_search", "image_generation", "file_search", "code_interpreter", "computer", "computer_use_preview", "mcp", "web_search_20250305", "web_search_20260209", "web_fetch_20250910", "bash_20250124", "text_editor_20250728":
+				case "web_search", "web_search_preview", "tool_search", "image_generation", "video_generation", "file_search", "code_interpreter", "computer", "computer_use_preview", "mcp", "web_search_20250305", "web_search_20260209", "web_fetch_20250910", "bash_20250124", "text_editor_20250728":
 					q := clone(t)
 					if to == Anthropic && kind == "web_search" {
 						q["type"] = "web_search_20250305"
@@ -896,6 +1054,9 @@ func translateTools(tools []any, from, to Wire) ([]any, error) {
 func translateOptions(b, out object, from, to Wire) error {
 	effort := b["reasoning_effort"]
 	if effort == nil {
+		effort = obj(b["output_config"])["effort"]
+	}
+	if effort == nil {
 		effort = obj(b["reasoning"])["effort"]
 	}
 	if effort != nil {
@@ -916,6 +1077,9 @@ func translateOptions(b, out object, from, to Wire) error {
 		}
 	}
 	format := b["response_format"]
+	if format == nil {
+		format = obj(b["output_config"])["format"]
+	}
 	if format == nil {
 		format = obj(b["text"])["format"]
 	}
@@ -971,7 +1135,7 @@ func parseResult(m object, w Wire) (result, error) {
 		if err != nil {
 			return r, err
 		}
-		r.Items = items
+		r.Items = append(items, arr(m["hosted_outputs"])...)
 	case Anthropic:
 		r.Stop = str(m["stop_reason"])
 		msgs, err := toMessages(object{"messages": []any{object{"role": "assistant", "content": m["content"], "extra_content": m["extra_content"]}}}, Anthropic)
@@ -990,13 +1154,18 @@ func parseResult(m object, w Wire) (result, error) {
 		q := obj(v)
 		switch str(q["type"]) {
 		case "message":
+			if _, err := contentToChat(q["content"], Responses); err != nil {
+				return r, err
+			}
 			for _, v := range arr(q["content"]) {
 				p := obj(v)
 				if p["type"] == "output_text" {
 					r.Text += str(p["text"])
 				}
 			}
-		case "function_call", "custom_tool_call", "tool_search_call", "web_search_call", "image_generation_call":
+		case "web_search_call", "image_generation_call", "video_generation_call":
+		// Completed hosted output is not a client-executed function call.
+		case "function_call", "custom_tool_call", "tool_search_call":
 			c := responseCallToChat(q)
 			f := obj(c["function"])
 			r.Tools = append(r.Tools, toolCall{str(c["id"]), str(f["name"]), str(f["arguments"])})
@@ -1060,7 +1229,7 @@ func usageObject(u Usage, w Wire) object {
 	if u.CacheWriteTokens != nil {
 		out["cache_creation_input_tokens"] = *u.CacheWriteTokens
 	}
-	if w == Chat && u.InputTokens != nil && u.OutputTokens != nil {
+	if w == Chat && u.InputTokens != nil && u.OutputTokens != nil && *u.InputTokens <= math.MaxInt64-*u.OutputTokens {
 		out["total_tokens"] = *u.InputTokens + *u.OutputTokens
 	}
 	return out
@@ -1073,6 +1242,30 @@ func (r result) response(w Wire) object {
 	usage := usageObject(r.Usage, w)
 	if source := obj(r.Extra["usage"]); source != nil {
 		copyFields(usage, source, "extra_content")
+		inputDetails := obj(source["input_tokens_details"])
+		if inputDetails == nil {
+			inputDetails = obj(source["prompt_tokens_details"])
+		}
+		outputDetails := obj(source["output_tokens_details"])
+		if outputDetails == nil {
+			outputDetails = obj(source["completion_tokens_details"])
+		}
+		if w != Anthropic {
+			inKey, outKey := "input_tokens_details", "output_tokens_details"
+			if w == Chat {
+				inKey, outKey = "prompt_tokens_details", "completion_tokens_details"
+			}
+			if inputDetails != nil {
+				usage[inKey] = clone(inputDetails)
+			}
+			if outputDetails != nil {
+				usage[outKey] = clone(outputDetails)
+			}
+		} else if outputDetails != nil {
+			extra := clone(obj(usage["extra_content"]))
+			extra["openai"] = object{"output_tokens_details": outputDetails}
+			usage["extra_content"] = extra
+		}
 	}
 	incomplete := r.Stop == "length" || r.Stop == "max_tokens"
 	switch w {
@@ -1096,12 +1289,20 @@ func (r result) response(w Wire) object {
 		copyFields(out, r.Extra, "extra_content", "provider_metadata")
 		return out
 	case Anthropic:
-		msgs, _ := toMessages(object{"input": items}, Responses)
-		messages, _, _ := messagesToAnthropic(msgs)
 		content := []any{}
-		for _, v := range messages {
-			content = append(content, arr(obj(v)["content"])...)
+		for _, v := range items {
+			item := obj(v)
+			if hostedItem(item) {
+				content = append(content, hostedAnthropic(item)...)
+				continue
+			}
+			msgs, _ := toMessages(object{"input": []any{item}}, Responses)
+			messages, _, _ := messagesToAnthropic(msgs, true)
+			for _, v := range messages {
+				content = append(content, arr(obj(v)["content"])...)
+			}
 		}
+
 		stop := "end_turn"
 		if len(r.Tools) > 0 {
 			stop = "tool_use"
@@ -1113,11 +1314,20 @@ func (r result) response(w Wire) object {
 		copyFields(out, r.Extra, "extra_content", "provider_metadata")
 		return out
 	default:
-		msgs, _ := toMessages(object{"input": items}, Responses)
+		ordinary, hosted := []any{}, []any{}
+		for _, v := range items {
+			if hostedItem(obj(v)) {
+				hosted = append(hosted, v)
+			} else {
+				ordinary = append(ordinary, v)
+			}
+		}
+		msgs, _ := toMessages(object{"input": ordinary}, Responses)
 		msg := object{"role": "assistant", "content": ""}
 		var parts, calls, details []any
 		reasoning := ""
 		extra := object{}
+		nativeReasoning := []any{}
 		for _, v := range msgs {
 			m := obj(v)
 			if s, ok := m["content"].(string); ok {
@@ -1130,6 +1340,15 @@ func (r result) response(w Wire) object {
 			reasoning += str(m["reasoning_content"])
 			copyFields(msg, m, "reasoning_signature", "kiro_reasoning")
 			mergeExtra(extra, obj(m["extra_content"]))
+			if item := obj(obj(obj(m["extra_content"])["openai"])["reasoning"]); item != nil {
+				nativeReasoning = append(nativeReasoning, item)
+			}
+		}
+		if len(nativeReasoning) > 1 {
+			openai := clone(obj(extra["openai"]))
+			delete(openai, "reasoning")
+			openai["reasoning_items"] = nativeReasoning
+			extra["openai"] = openai
 		}
 		plain := true
 		text := ""
@@ -1164,7 +1383,11 @@ func (r result) response(w Wire) object {
 		if incomplete {
 			stop = "length"
 		}
-		return object{"id": r.ID, "object": "chat.completion", "model": r.Model, "choices": []any{object{"index": 0, "message": msg, "finish_reason": stop}}, "usage": usage}
+		out := object{"id": r.ID, "object": "chat.completion", "model": r.Model, "choices": []any{object{"index": 0, "message": msg, "finish_reason": stop}}, "usage": usage}
+		if len(hosted) > 0 {
+			out["hosted_outputs"] = hosted
+		}
+		return out
 	}
 }
 
@@ -1183,7 +1406,15 @@ func mergeExtra(dst, src object) {
 	}
 }
 func validateTools(r result, body object, w Wire) error {
-	declarations, e := translateTools(arr(body["tools"]), w, Responses)
+	catalog := append([]any{}, arr(body["tools"])...)
+	catalog = append(catalog, arr(body["additional_tools"])...)
+	for _, v := range arr(body["input"]) {
+		q := obj(v)
+		if q["type"] == "tool_search_output" {
+			catalog = append(catalog, arr(q["tools"])...)
+		}
+	}
+	declarations, e := translateTools(catalog, w, Responses)
 	if e != nil {
 		return e
 	}
@@ -1221,6 +1452,16 @@ func validateTools(r result, body object, w Wire) error {
 			name = ns + "__" + name
 		}
 		d := names[name]
+		if d["type"] == "tool_search" {
+			args, e := decode([]byte(str(item["arguments"])))
+			if e != nil {
+				return &Error{502, "invalid_upstream_tool_arguments", 0}
+			}
+			item["type"] = "tool_search_call"
+			item["arguments"] = args
+			item["execution"] = "client"
+			continue
+		}
 		if d["type"] == "custom" || obj(obj(d["extra_content"])["aiprouter"])["custom_tool"] == true {
 			args, e := decode([]byte(str(item["arguments"])))
 			if e != nil {
@@ -1240,4 +1481,69 @@ func validateTools(r result, body object, w Wire) error {
 		}
 	}
 	return nil
+}
+
+// TranslateRequestJSON translates one bounded generation request. This codec does
+// not authorize signed replay, execute tools or send requests. The central handler
+// must admit the translated history using its original owner and account.
+func TranslateRequestJSON(body json.RawMessage, from, to Wire) (json.RawMessage, error) {
+	if len(body) > 32<<20 {
+		return nil, &Error{400, "translation_buffer_limit", 0}
+	}
+	m, e := decode(body)
+	if e != nil {
+		return nil, e
+	}
+	out, e := translateRequest(m, from, to)
+	if e != nil {
+		return nil, e
+	}
+	return json.Marshal(out)
+}
+
+// TranslateResponseJSON preserves typed reasoning and tools in one completed JSON
+// response. Provider tool kinds must come from the admitted request catalog. The
+// caller must validate client tools and materialize hosted artifacts separately.
+func TranslateResponseJSON(body json.RawMessage, from, to Wire) (json.RawMessage, error) {
+	if len(body) > 32<<20 {
+		return nil, &Error{502, "translation_buffer_limit", 0}
+	}
+	m, e := decode(body)
+	if e != nil {
+		return nil, e
+	}
+	if from == to {
+		return json.Marshal(m)
+	}
+	r, e := parseResult(m, from)
+	if e != nil {
+		return nil, e
+	}
+	return json.Marshal(r.response(to))
+}
+
+func hostedItem(item object) bool {
+	switch str(item["type"]) {
+	case "web_search_call", "image_generation_call", "video_generation_call":
+		return true
+	}
+	return false
+}
+func hostedAnthropic(item object) []any {
+	// Messages has no video-generation result cell. Keep the canonical hosted item
+	// in metadata and expose artifact links as text; never invent a client tool call.
+	extra := object{"aiprouter": object{"hosted_output": clone(item)}}
+	if item["type"] == "web_search_call" {
+		return []any{object{"type": "web_search_tool_result", "tool_use_id": item["id"], "content": item["sources"], "extra_content": extra}}
+	}
+	links := []string{}
+	for _, v := range arr(item["artifacts"]) {
+		if url := str(obj(v)["url"]); url != "" {
+			links = append(links, url)
+		}
+	}
+	if result := obj(item["result"]); result["url"] != nil {
+		links = append(links, str(result["url"]))
+	}
+	return []any{object{"type": "text", "text": strings.Join(links, "\n"), "extra_content": extra}}
 }

@@ -180,6 +180,7 @@ func TestTranslationLateSignatureOrdering(t *testing.T) {
 				"data: {\"choices\":[{\"delta\":{\"reasoning_signature\":\"devin-sig1:anthropic:late\"}}]}\n\n"+
 				"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"cache_creation_input_tokens\":3}}\n\ndata: [DONE]\n\n")
 	}, Chat)
+	h.c.ProviderStates = receiptMemory{}
 	out := call(h, "/v1/messages", `{"model":"m","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	body := out.Body.String()
 	if out.Code != 200 {
@@ -257,5 +258,136 @@ func TestTranslationStreamBoundsAndFraming(t *testing.T) {
 	env, e := decodeReasoning(str(obj(items[0])["encrypted_content"]))
 	if e != nil || env.Kiro != "signature:late" {
 		t.Fatal(env, e)
+	}
+}
+
+func TestTranslationMultipleReasoningAndHiddenSummary(t *testing.T) {
+	hidden := "not-visible-signed-text"
+	items := []any{reasoningItem("first", reasoningEnvelope{Signature: "first-signature"}), reasoningItem("", reasoningEnvelope{Signature: "hidden-signature", Text: &hidden}), reasoningItem("last", reasoningEnvelope{Kiro: "opaque-last"})}
+	r, e := parseResult(object{"id": "r", "output": items}, Responses)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, wire := range []Wire{Chat, Anthropic} {
+		out := r.response(wire)
+		raw := translationJSON(out)
+		if strings.Contains(raw, hidden) {
+			t.Fatalf("hidden signed text leaked on %s: %s", wire, raw)
+		}
+		restored, e := parseResult(translationObject(t, raw), wire)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if len(restored.Items) != 3 {
+			t.Fatalf("lost reasoning items on %s: %s", wire, translationJSON(restored.Items))
+		}
+	}
+}
+func TestTranslationToolSearchAndHostedCells(t *testing.T) {
+	body := translationObject(t, `{"model":"m","tools":[{"type":"tool_search"}],"input":[{"type":"tool_search_call","call_id":"search1","arguments":{"query":"network","limit":3}},{"type":"tool_search_output","call_id":"search1","status":"completed","tools":[{"type":"function","name":"fetch","parameters":{"type":"object"}}]}]}`)
+	for _, wire := range []Wire{Chat, Anthropic} {
+		translated, e := translateRequest(body, Responses, wire)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if !strings.Contains(translationJSON(translated), "input_schema") && wire == Anthropic {
+			t.Fatal(translated)
+		}
+		back, e := translateRequest(translated, wire, Responses)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if !strings.Contains(translationJSON(back), `"type":"tool_search_output"`) {
+			t.Fatal(back)
+		}
+	}
+	for _, kind := range []string{"web_search", "image_generation", "video_generation"} {
+		item := object{"type": kind + "_call", "id": "hosted1", "status": "completed", "result": object{"url": "https://artifacts.example/signed-fixture"}}
+		r, e := parseResult(object{"output": []any{item}}, Responses)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, wire := range []Wire{Chat, Anthropic} {
+			out := r.response(wire)
+			back, e := parseResult(translationObject(t, translationJSON(out)), wire)
+			if e != nil {
+				t.Fatal(e)
+			}
+			found := false
+			for _, v := range back.Items {
+				q := obj(v)
+				if q["type"] == kind+"_call" {
+					found = true
+					if translationJSON(q["result"]) != translationJSON(item["result"]) {
+						t.Fatal(q)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("lost hosted %s on %s: %s", kind, wire, translationJSON(back.Items))
+			}
+		}
+	}
+}
+func TestTranslationRichBlocksAndToolErrors(t *testing.T) {
+	body := translationObject(t, `{"messages":[{"role":"assistant","content":[{"type":"text","text":"answer","citations":[{"type":"web_search_result_location","url":"https://example.test","title":"source","encrypted_index":"opaque-citation"}]},{"type":"tool_use","id":"c","name":"read","input":{"n":9007199254740993}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"c","is_error":true,"content":[{"type":"text","text":"failed"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"YWJj"}}]}]}]}`)
+	chat, e := translateRequest(body, Anthropic, Chat)
+	if e != nil {
+		t.Fatal(e)
+	}
+	responses, e := translateRequest(chat, Chat, Responses)
+	if e != nil {
+		t.Fatal(e)
+	}
+	back, e := translateRequest(responses, Responses, Anthropic)
+	if e != nil {
+		t.Fatal(e)
+	}
+	s := translationJSON(back)
+	for _, want := range []string{"opaque-citation", "9007199254740993", `"is_error":true`, "YWJj"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("lost %s: %s", want, s)
+		}
+	}
+}
+func TestAggregateResponseHelpers(t *testing.T) {
+	for _, wire := range []Wire{Chat, Responses, Anthropic} {
+		resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: ioNopCloser(streamFixture(wire))}
+		b, e := AggregateResponse(context.Background(), resp, wire)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if !strings.Contains(string(b), "hello") {
+			t.Fatal(string(b))
+		}
+		for _, to := range []Wire{Chat, Responses, Anthropic} {
+			out, e := TranslateResponseJSON(b, Chat, to)
+			if e != nil || !strings.Contains(string(out), "hello") {
+				t.Fatal(string(out), e)
+			}
+		}
+	}
+	resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: ioNopCloser("data: {\"type\":\"error\",\"usage\":{\"cache_creation_input_tokens\":5}}\n\n")}
+	b, e := AggregateResponse(context.Background(), resp, Chat)
+	if e == nil || !strings.Contains(string(b), `"cache_creation_input_tokens":5`) || strings.Contains(string(b), "choices") {
+		t.Fatal(string(b), e)
+	}
+}
+func TestTranslationNativeReceiptBeforeTerminal(t *testing.T) {
+	h, _, _, _, _ := harness(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"id\":\"native\",\"choices\":[{\"delta\":{\"reasoning_signature\":\"part\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"reasoning_signature\":\"-two\"}}]}\n\ndata: [DONE]\n\n")
+	}, Chat)
+	out := call(h, "/v1/chat/completions", `{"model":"m","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	if strings.Contains(out.Body.String(), "[DONE]") {
+		t.Fatal("terminal success preceded failed receipt save")
+	}
+	h.c.ProviderStates = receiptMemory{}
+	out = call(h, "/v1/chat/completions", `{"model":"m","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	if !strings.Contains(out.Body.String(), "[DONE]") {
+		t.Fatal(out.Body.String())
+	}
+	if len(h.c.ProviderStates.(receiptMemory)) != 1 {
+		t.Fatal("fragmented signature created multiple receipts")
 	}
 }

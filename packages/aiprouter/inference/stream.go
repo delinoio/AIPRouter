@@ -120,8 +120,12 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 	}
 	var terminal bool
 	var final object
+	nativeTerminalEvent := ""
+	var nativeTerminalData []byte
+	nativeDone := false
 	var r = result{ID: newID(), Model: rec.Model, Stop: "stop"}
 	acc := newTranslationStream(t.Wire)
+	receipts := newStreamReceipts(t.Wire)
 	size := 0
 	emitter := &streamEmitter{w: w, wire: in, id: r.ID, model: r.Model}
 	if streaming {
@@ -138,12 +142,9 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 				terminal = true
 			}
 			if native && streaming {
-				_, e := io.WriteString(w, "data: [DONE]\n\n")
-				if f, ok := w.(http.Flusher); ok {
-					f.Flush()
-				}
-				return e
+				nativeDone = true
 			}
+
 			return nil
 		}
 		m, e := decode(data)
@@ -183,6 +184,16 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 			}
 		}
 		if native && streaming {
+			if e := receipts.consume(m); e != nil {
+				return e
+			}
+			typ := str(m["type"])
+			if typ == "message_stop" || typ == "response.completed" || typ == "response.incomplete" {
+				nativeTerminalEvent = event
+				nativeTerminalData = append([]byte{}, data...)
+				return nil
+			}
+
 			if _, e := io.WriteString(w, "event: "+safeEventName(event)+"\ndata: "+strings.ReplaceAll(string(data), "\n", "\ndata: ")+"\n\n"); e != nil {
 				return e
 			}
@@ -206,11 +217,38 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 		return &Error{502, "upstream_stream_incomplete", 0}
 	}
 	if native && streaming {
+		if final != nil {
+			if e := h.CaptureReplayReceipts(ctx, final); e != nil {
+				return e
+			}
+		} else {
+			values, e := receipts.values()
+			if e != nil {
+				return e
+			}
+			if e = h.CaptureReplayReceipts(ctx, values); e != nil {
+				return e
+			}
+		}
 		if in == Responses && final != nil {
 			if e := h.save(ctx, p, b, final, rec); e != nil {
 				h.event(ctx, "continuation_write_failed")
 			}
 		}
+		if nativeTerminalData != nil {
+			if _, e := io.WriteString(w, "event: "+safeEventName(nativeTerminalEvent)+"\ndata: "+strings.ReplaceAll(string(nativeTerminalData), "\n", "\ndata: ")+"\n\n"); e != nil {
+				return e
+			}
+		}
+		if nativeDone {
+			if _, e := io.WriteString(w, "data: [DONE]\n\n"); e != nil {
+				return e
+			}
+		}
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+
 		return nil
 	}
 	if final != nil {
@@ -239,6 +277,9 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 		return err
 	}
 	out := r.response(in)
+	if e := h.CaptureReplayReceipts(ctx, out); e != nil {
+		return e
+	}
 	if in == Responses {
 		if e := h.save(ctx, p, b, out, rec); e != nil {
 			h.event(ctx, "continuation_write_failed")
@@ -336,6 +377,11 @@ func (s *streamEmitter) finish(r result) error {
 		msg := obj(obj(arr(out["choices"])[0])["message"])
 		if e := s.chat(msg, nil); e != nil {
 			return e
+		}
+		if outputs := arr(out["hosted_outputs"]); len(outputs) > 0 {
+			if e := emitSSE(s.w, "", object{"id": s.id, "object": "chat.completion.chunk", "model": s.model, "choices": []any{}, "hosted_outputs": outputs}); e != nil {
+				return e
+			}
 		}
 		if e := s.chat(object{}, obj(arr(out["choices"])[0])["finish_reason"]); e != nil {
 			return e
@@ -553,6 +599,9 @@ func (s *translationStream) consume(m object) error {
 	if model := str(m["model"]); model != "" {
 		s.model = model
 	}
+	if outputs := arr(m["hosted_outputs"]); len(outputs) > 0 {
+		s.extra["hosted_outputs"] = append(arr(s.extra["hosted_outputs"]), outputs...)
+	}
 	if u := obj(m["usage"]); u != nil {
 		usage := clone(obj(s.extra["usage"]))
 		mergeExtra(usage, u)
@@ -769,7 +818,7 @@ func (s *translationStream) result() (result, error) {
 		if e != nil {
 			return result{}, e
 		}
-		m["output"] = items
+		m["output"] = append(items, arr(s.extra["hosted_outputs"])...)
 		m["status"] = "completed"
 		r, e := parseResult(m, Responses)
 		r.Stop = s.stop
@@ -793,4 +842,196 @@ func (s *translationStream) result() (result, error) {
 		m["status"] = "completed"
 	}
 	return parseResult(m, s.wire)
+}
+
+// Native forwarding retains only signed reasoning and tool identity, bounded to
+// 2 MiB. Ordinary visible text remains an unbounded forwarded stream. Exact signed
+// text and canonical tool arguments are needed by the replay receipt verifier.
+type streamReceipts struct {
+	wire Wire
+	acc  *translationStream
+	size int
+}
+
+func newStreamReceipts(w Wire) *streamReceipts {
+	return &streamReceipts{wire: w, acc: newTranslationStream(w)}
+}
+func (s *streamReceipts) consume(m object) error {
+	filtered := object{}
+	switch s.wire {
+	case Chat:
+		choices := []any{}
+		for _, v := range arr(m["choices"]) {
+			c := obj(v)
+			d := obj(c["delta"])
+			delta := object{}
+			copyFields(delta, d, "reasoning_content", "reasoning_signature", "kiro_reasoning", "reasoning_details", "tool_calls")
+			if google := obj(obj(d["extra_content"])["google"]); google["parts"] != nil {
+				delta["extra_content"] = object{"google": object{"parts": google["parts"]}}
+			}
+			if len(delta) > 0 {
+				choices = append(choices, object{"index": c["index"], "delta": delta})
+			}
+		}
+		if len(choices) == 0 {
+			return nil
+		}
+		filtered["choices"] = choices
+	case Anthropic:
+		typ := str(m["type"])
+		i := index(m["index"])
+		if typ == "content_block_start" {
+			block := obj(m["content_block"])
+			switch block["type"] {
+			case "thinking", "redacted_thinking", "tool_use", "server_tool_use":
+				filtered = m
+			default:
+				return nil
+			}
+		} else if typ == "content_block_delta" && s.acc.indexed[i] != nil {
+			filtered = m
+		} else {
+			return nil
+		}
+	default:
+		return nil
+	}
+	b, e := json.Marshal(filtered)
+	if e != nil {
+		return e
+	}
+	s.size += len(b)
+	if s.size > 2<<20 {
+		return &Error{502, "reasoning_receipt_limit", 0}
+	}
+	return s.acc.consume(filtered)
+}
+func (s *streamReceipts) values() ([]any, error) {
+	if s.wire == Anthropic {
+		for _, v := range s.acc.items {
+			block := obj(v)
+			if raw, ok := block["_arguments"].(string); ok {
+				args, e := decode([]byte(raw))
+				if e != nil {
+					return nil, &Error{502, "invalid_upstream_tool_arguments", 0}
+				}
+				block["input"] = args
+				delete(block, "_arguments")
+			}
+		}
+	}
+	return s.acc.items, nil
+}
+
+// AggregateResponse owns and closes the response body. It returns Chat JSON for a
+// completed standard-wire response. On failure it returns only confirmed usage
+// alongside the error; callers must not treat partial content as a completed turn.
+// It performs no sends, replay authorization, persistence or tool execution.
+func AggregateResponse(ctx context.Context, resp *http.Response, wire Wire) (json.RawMessage, error) {
+	return aggregateResponse(ctx, resp, wire, 32<<20)
+}
+func aggregateResponse(ctx context.Context, resp *http.Response, wire Wire, maxBytes int64) (json.RawMessage, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, &Error{502, "missing_upstream_body", 0}
+	}
+	defer resp.Body.Close()
+	stop := context.AfterFunc(ctx, func() { resp.Body.Close() })
+	defer stop()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &Error{resp.StatusCode, "upstream_refused", 0}
+	}
+	if !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+		b, e := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if e != nil {
+			return nil, e
+		}
+		if int64(len(b)) > maxBytes {
+			return nil, &Error{502, "translation_buffer_limit", 0}
+		}
+		return TranslateResponseJSON(b, wire, Chat)
+	}
+	acc := newTranslationStream(wire)
+	usage := Usage{}
+	var final object
+	terminal := false
+	size := 0
+	e := readSSE(resp.Body, func(_ string, b []byte) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		size += len(b)
+		if int64(size) > maxBytes {
+			return &Error{502, "translation_buffer_limit", 0}
+		}
+		if string(b) == "[DONE]" {
+			if wire == Chat {
+				terminal = true
+			}
+			return nil
+		}
+		m, e := decode(b)
+		if e != nil {
+			return &Error{502, "invalid_upstream_event", 0}
+		}
+		mergeUsage(&usage, readUsage(m, wire))
+		if q := obj(m["response"]); q != nil {
+			mergeUsage(&usage, readUsage(q, wire))
+		}
+		if q := obj(m["message"]); q != nil {
+			mergeUsage(&usage, readUsage(q, wire))
+		}
+		typ := str(m["type"])
+		if typ == "error" || typ == "response.failed" || m["error"] != nil {
+			return &Error{502, "upstream_stream_error", 0}
+		}
+		if wire == Responses && (typ == "response.completed" || typ == "response.incomplete") {
+			final = obj(m["response"])
+			terminal = true
+		}
+		if wire == Anthropic && typ == "message_stop" {
+			terminal = true
+		}
+		return acc.consume(m)
+	})
+	if ctx.Err() != nil {
+		e = ctx.Err()
+	}
+	if e == nil && !terminal {
+		e = &Error{502, "upstream_stream_incomplete", 0}
+	}
+	if e != nil {
+		b, _ := json.Marshal(object{"usage": usageObject(usage, Chat)})
+		return b, e
+	}
+	var r result
+	if final != nil {
+		r, e = parseResult(final, wire)
+	} else {
+		r, e = acc.result()
+	}
+	if e != nil {
+		return nil, e
+	}
+	r.Usage = usage
+	return json.Marshal(r.response(Chat))
+}
+
+// HostedCodec satisfies hosted wrappers through structural typing, without a
+// dependency from the core inference package to child provider adapters.
+type HostedCodec struct{}
+
+func (HostedCodec) Request(body json.RawMessage, from, to Wire) (json.RawMessage, error) {
+	return TranslateRequestJSON(body, from, to)
+}
+func (HostedCodec) Collect(ctx context.Context, resp *http.Response, wire Wire, maxBytes int64) (json.RawMessage, error) {
+	if maxBytes <= 0 || maxBytes > 32<<20 {
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
+		}
+		return nil, &Error{400, "invalid_translation_limit", 0}
+	}
+	return aggregateResponse(ctx, resp, wire, maxBytes)
 }
