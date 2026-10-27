@@ -1,0 +1,103 @@
+# AIPRouter client configuration contract
+
+## Scope
+
+Owns planned `cmds/aiprouter`: the Go CLI, device authorization client, client settings integrations, profiles, and user background HTTP relay.
+
+## Runtime and Language
+
+Go in root module `github.com/delinoio/AIPRouter`; platform targets and distribution are defined below.
+
+## Users and Operators
+
+End users connecting clients, including users approving a connection through a separate browser while using SSH.
+
+## Interfaces and Contracts
+
+### CLI configuration, profiles, and loopback relay
+
+#### Distribution
+
+- Executable: **`aiprouter`**.
+- npm package: **`@delino/aiprouter`**.
+- Go standalone binaries with checksums, plus an npm package that installs the matching platform binary.
+- CLI targets: Linux x86_64/ARM64, macOS x86_64/ARM64, Windows x86_64.
+- Support the pinned reference's automatic client configuration targets and document their actual path/format/platform constraints. Do not claim that an external client supports an OS that it does not support.
+- Verify npm scope/publishing access before publication.
+
+The inspected file-export registry includes qoder, qoder-cn, workbuddy, workbuddy-ai, opencode, pi, omp, hermes, openclaw, kimi, gajae, dsh, mcode, zcode, prime, aside, raycast, omo, cline, commandcode, kilo, droid, and gentle-shell. Dedicated native integration paths such as Codex/Claude/Grok must also be inventoried; the file-export registry alone is not the entire integration surface.
+
+JSON, JSON5, YAML, TOML, active profile stores, source-preserving merges, and client-specific ownership checks must follow the relevant reference paths. Preserve their supported capabilities rather than assuming every client uses the same file or remote-key mechanism.
+
+#### Safe settings changes and backups
+
+- Show proposed changes and require confirmation before applying them.
+- Back up original settings and offer restoration on disconnect.
+- If the user changed settings after application, do not overwrite conflicts; explain recovery.
+- Preserve original backup contents with owner-only permissions/Windows ACLs, including where original settings contain secrets.
+- Delete backups after successful disconnect/restoration.
+- If restoration conflicts, still attempt server-key revocation and stop the relay, but preserve conflicting settings and recovery backups for manual restoration.
+- Preserve unrelated settings, profiles, secret values, and user edits.
+- Remote-key placement into client settings requires the separate explicit confirmation described above.
+
+#### Named connection profiles
+
+- Support named server/organization connection profiles with separate credentials.
+- Select an active profile per client.
+- Switching profiles changes settings but retains the prior profile's key.
+- Revoke a profile's key when disconnecting that profile.
+- Run multiple profile relays concurrently on distinct loopback ports.
+- Port conflicts cause an actionable startup failure; never silently choose another port.
+- If the user changes a port, preview affected client settings and obtain confirmation before applying them.
+
+#### HTTP relay lifecycle and trust boundary
+
+- Provide a local HTTP relay only for clients that need it to connect to the remote service.
+- Install as a user background service that starts at login, with status, stop, and removal support.
+- Bind only to loopback.
+- Do not require separate local authentication: other processes on the same computer can call it under the explicitly selected policy.
+- Do not turn this relay into a local provider execution agent.
+
+#### Disconnect
+
+- Attempt to revoke the dedicated key on the server as well as cleaning up locally.
+- If the server is unreachable, continue local cleanup and report that server revocation is incomplete, with web revocation instructions.
+- Apply the separate backup-preservation rule when restoration conflicts.
+
+## Storage
+
+OS credential stores own profile keys. Client settings and protected recovery backups follow the exact settings lifecycle above. Do not use a normal credential file as an OS-store fallback.
+
+## Security
+
+The [service key and device lifecycle](servers-aiprouter-service-contract.md) is normative for the CLI: original ten-minute authorization lifetime, five-second polling, device-secret-authenticated redelivery, storage confirmation, and compensating revocation. Failure to store a key leaves client settings unchanged. A key in client-owned settings requires separate explicit consent. Local relay callers share the selected local-computer trust boundary.
+
+## Logging
+
+Use structured logs and request identifiers. Never log provider secrets, API keys, device secrets, raw prompts, or raw responses. Distinguish unknown usage, write failures, cancellation, limits, and upstream/gateway errors. See the [observability contract](servers-aiprouter-operations-contract.md).
+
+## Build and Test
+
+Follow the release gates and required scenarios in [operations](servers-aiprouter-operations-contract.md). Run root `go test ./...` for Go changes. These commands become applicable when the planned Go module exists; documentation onboarding does not establish runtime acceptance.
+
+Build all listed target platforms and test credential-store, service, permissions/ACL, restore, conflict, offline revocation, and multi-profile behavior through mocks. Builds and mocked OS behavior do not establish actual native OS acceptance.
+
+## Dependencies and Integrations
+
+- [servers-aiprouter-service-contract](servers-aiprouter-service-contract.md)
+- [protos-aiprouter-management-contract](protos-aiprouter-management-contract.md)
+- [packages-aiprouter-libraries-contract](packages-aiprouter-libraries-contract.md)
+- [servers-aiprouter-operations-contract](servers-aiprouter-operations-contract.md)
+
+## Change Triggers
+
+Update this contract, the project index, and affected producer/consumer contracts together when interfaces, ownership, or lifecycle rules change. Follow the [instruction-update policy](README.md#instruction-update-policy); behavior belongs in contracts, not instruction files. Record implementation status, validation results, and unresolved limits in GitHub records or CI artifacts.
+
+## References
+
+- [Project index](project-aiprouter.md)
+- [Repository defaults](repository-defaults.md)
+- [Workflow](repository-workflow-contract.md)
+- [Environment](repository-environment-contract.md)
+- [Licensing](repository-license-contract.md)
+- [Dependency security](repository-dependency-security-contract.md)
