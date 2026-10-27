@@ -28,6 +28,9 @@ func (a *Auth) requestBytes(ctx context.Context, s core.Scope, method, endpoint 
 	var data []byte
 	ct := "application/json"
 	switch b := body.(type) {
+	case []byte:
+		data = b
+		ct = "application/proto"
 	case url.Values:
 		data = []byte(b.Encode())
 		ct = "application/x-www-form-urlencoded"
@@ -47,11 +50,13 @@ func (a *Auth) requestBytes(ctx context.Context, s core.Scope, method, endpoint 
 	if req.Header == nil {
 		req.Header = make(http.Header)
 	}
-	req.Header.Set("Accept", "application/json")
+	if req.Header.Get("Accept") == "" {
+		req.Header.Set("Accept", "application/json")
+	}
 	if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", "AIPRouter")
 	}
-	if body != nil {
+	if body != nil && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", ct)
 	}
 	res, e := a.executor.Do(ctx, s, req)
@@ -77,7 +82,7 @@ func (a *Auth) requestBytes(ctx context.Context, s core.Scope, method, endpoint 
 	if ctx.Err() != nil {
 		return nil, res.StatusCode, nil, ctx.Err()
 	}
-	if e != nil || int64(len(b)) > limit || !utf8.Valid(b) {
+	if e != nil || int64(len(b)) > limit || (req.Header.Get("Accept") != "application/proto" && !utf8.Valid(b)) {
 		return nil, res.StatusCode, nil, ErrResponse
 	}
 	return b, res.StatusCode, res.Header.Clone(), nil

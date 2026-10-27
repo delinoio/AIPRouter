@@ -4,6 +4,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"net/url"
 	"strings"
@@ -54,6 +55,22 @@ func (a *Auth) ValidateRemote(ctx context.Context, s core.Scope, c Connection) (
 	}
 	if c.Credential != nil && c.Credential.Scope != s {
 		return Validation{}, ErrScope
+	}
+	switch c.Provider {
+	case "cursor", "kiro", "google-antigravity", "workbuddy-ai", "devin":
+		catalog, _, err := a.Discover(ctx, s, c)
+		if err != nil {
+			var ae *AuthError
+			if errors.As(err, &ae) && (ae.Status == 401 || ae.Status == 403) {
+				return Validation{State: ValidationRejected}, nil
+			}
+			return Validation{}, err
+		}
+		result := Validation{State: catalog.State}
+		for _, m := range catalog.Models {
+			result.Models = append(result.Models, m.ID)
+		}
+		return result, nil
 	}
 	r, e := Resolve(c, "__validation__", InboundResponses)
 	if e != nil {
