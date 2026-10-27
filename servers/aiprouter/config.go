@@ -84,8 +84,8 @@ func loadConfig(getenv func(string) string) (Config, error) {
 	if (c.SMTPUsername == "") != (c.SMTPPassword == "") {
 		return c, fmt.Errorf("SMTP username and password must be supplied together")
 	}
-	if !validOrigin(c.R2Endpoint) || c.R2Bucket == "" || c.R2AccessKeyID == "" || c.R2SecretAccessKey == "" {
-		return c, fmt.Errorf("R2 endpoint, bucket and credentials are required")
+	if !validOrigin(c.R2Endpoint) || !strings.HasPrefix(c.R2Endpoint, "https://") || c.R2Bucket == "" || strings.ContainsAny(c.R2Bucket, "/\\") || c.R2AccessKeyID == "" || c.R2SecretAccessKey == "" {
+		return c, fmt.Errorf("R2 HTTPS endpoint, valid bucket and credentials are required")
 	}
 	return c, nil
 }

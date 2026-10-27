@@ -13,6 +13,12 @@ func TestConfigValidation(t *testing.T) {
 	if _, e := loadConfig(get); e != nil {
 		t.Fatal(e)
 	}
+	oldEndpoint := env["AIPROUTER_R2_ENDPOINT"]
+	env["AIPROUTER_R2_ENDPOINT"] = "http://127.0.0.1:18090"
+	if _, e := loadConfig(get); e == nil {
+		t.Fatal("HTTP R2 endpoint accepted before artifact startup")
+	}
+	env["AIPROUTER_R2_ENDPOINT"] = oldEndpoint
 	for _, name := range []string{"AIPROUTER_PUBLIC_URL", "AIPROUTER_DATABASE_URL", "AIPROUTER_OIDC_ISSUER", "AIPROUTER_ENCRYPTION_KEYS", "AIPROUTER_SMTP_ADDR", "AIPROUTER_R2_ENDPOINT"} {
 		old := env[name]
 		env[name] = "secret-invalid-value"
