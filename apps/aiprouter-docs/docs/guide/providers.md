@@ -43,6 +43,52 @@ Retries depend on the provider, authentication method, error, and whether an ups
 
 Public HTTPS providers are permitted by default. A local/private HTTP model server needs operator approval. Running Claude CLI, CodeBuddy, Qoder, or another local program as the provider backend is excluded, including execution agents and remote workspace/command dispatch. Configuring such a client to use a supported remote inference interface is a separate capability.
 
+## Native OAuth pools
+
+Native OAuth pool controls apply only when every member belongs to one supported provider family: **OpenAI (Codex)**, **Anthropic**, or **Anthropic 2**. Keep the two Anthropic families in separate pools. These controls govern upstream account selection; they are separate from generic OAuth session affinity and optional desktop TLS compatibility.
+
+In the pool editor, expand **Native OAuth pool settings**, then select **Configure pool-level native settings**. Review **Native pooling** explicitly:
+
+- On creation of a new pool with native settings, Default enables native pooling. Disabled explicitly opts out.
+- For an existing or imported pool, unspecified enablement is disabled. Choose Enabled to opt in; do not assume the creation default is reapplied on an update.
+- Saving replaces the complete pool configuration. Removing pool-level native settings clears them. Empty fields, explicit zero, and explicit Disabled can have different effects.
+
+### Selection and switching
+
+| Control                      | Default and meaning                                                                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Native selection strategy    | Default selects quota. Alternatives are round-robin and fill-first; reset-first is Codex-only. Selection remains subject to current account and model eligibility. |
+| Sticky account limit         | Empty uses 1; accepted values are 1–100. This does not guarantee affinity after revocation, exhaustion, or other ineligibility.                                    |
+| Pool switching threshold (%) | Empty uses 80 percent used quota. Accepted values are 0–100. Zero disables voluntary quota switching, not authorization or hard exhaustion checks.                 |
+| Cache affinity               | Codex-only; Default is enabled. Explicit Disabled turns it off.                                                                                                    |
+| Excluded plans               | Codex-only; one plan per line, up to 100. Plan names are matched without regard to case.                                                                           |
+| Native quota window          | Anthropic-only: five-hour, weekly, or maximum utilization. Default is five-hour. Selecting weekly does not bypass an exhausted five-hour window.                   |
+| Native messages              | Anthropic-only; Default is enabled. Disabled selects legacy translation.                                                                                           |
+
+Review member options separately. An empty member switching threshold inherits the pool value; an explicit member value overrides it. **Use remaining quota** makes that member's effective switching threshold zero. Native priority accepts −100 to 100, with higher values first. It is separate from the ordinary pool order, whose lower priority values come first; leaving native priority empty preserves that ordinary ordering.
+
+Codex members also have **Allow credits**, off by default. Enabling it permits use of available spendable provider credits where supported; it does not grant credits, guarantee availability, or bypass provider/account restrictions. Unknown quota is not a measured zero, and a configured threshold is not an entitlement claim.
+
+### Ordered Anthropic model rules
+
+For an Anthropic native pool, use **Ordered model rules** to restrict which personal pool connections serve matching models. Rules apply only while native pooling is enabled.
+
+1. Give each rule a unique name beginning with a letter or digit and containing only letters, digits, underscores, or hyphens.
+2. Enter a model pattern of at most 128 characters. Use `*` and `?` as wildcards.
+3. Add the allowed connections from this pool and arrange rules in the intended order. The first matching rule wins.
+4. Decide whether to select **Use the full pool only when no listed connection is eligible**. Without this explicit fallback, a matching rule with no eligible listed connection must not widen to the full pool.
+5. Review and save the complete configuration. Resolve unavailable connections rather than assuming they will be replaced.
+
+If no model rule matches, ordinary eligible-pool selection applies. A fallback choice never adds accounts from another user, organization, or provider family. These controls and automated fixtures do not establish complete provider-specific quota behavior or live account acceptance.
+
+## Fast mode policy and model support
+
+In a provider connection's configuration controls, **Fast mode policy** offers Inherit, Enabled, and Disabled. Inherit uses the provider policy; Disabled denies fast mode. Enabled does not guarantee lower latency and cannot create a fast capability for an unsupported model or API format.
+
+Under **Model service-tier support**, add overrides using upstream model IDs, not route aliases. Keep the model's spelling: matching checks an exact ID first, then ignores letter case. Duplicate IDs that differ only by case are rejected. Each row can explicitly enable or disable support. Removing a row restores inherited policy; an explicit false value is not the same as removing the override. A per-model Enabled value cannot override a provider-wide denial or incompatible API format.
+
+Choose an authorized fast entry actually returned by model discovery, when available. Do not manufacture a selector by appending a suffix to an arbitrary model name. Discovery and request admission both check supported capability; changing settings alone does not make an unsupported fast selector usable. Codex fast availability additionally depends on fresh account-specific model evidence, so it can be absent even when an override is enabled. Missing evidence does not establish entitlement. Fast mode and reasoning effort are separate choices, and neither promises a performance or price guarantee.
+
 ## JEV decision routing
 
 JEV selects among your configured targets using a personal decision service or an ordinary personal route. It is a routing decision, not a general inference model or local command executor. Configure it in the selected organization:
@@ -58,6 +104,14 @@ JEV selects among your configured targets using a personal decision service or a
 For each target, expand **Target reasoning and model profile**. Select the allowed reasoning efforts from `low`, `medium`, `high`, `xhigh`, `max`, and `ultra` as appropriate for that target. A checkbox does not establish that a provider/model supports that effort. **Model profile** is an optional description for decisions, limited to 512 characters. Do not include credentials or request content in it.
 
 Choose a decision backend you authorize to receive bounded task, assistant, and tool-result text. The decision exchange does not send credentials or the entire conversation history. Its request and response are bounded to 64 KiB. A failed decision can fall back only to the first eligible configured target, so review target order deliberately. Cancellation and destination restrictions still apply. Automated tests do not establish live decision-service or provider acceptance.
+
+### Advisory quota signals
+
+Expand **Advisory quota signals** in JEV decision settings and select **Enable advisory quota signals** only if you want available quota information shared with the selected decision service. These signals are advisory: they do not authorize a request or replace current target eligibility checks. Missing quota stays unknown, not exhausted.
+
+**Override quota thresholds** changes the used-quota tiers. All values are percentages of quota already used, from 0 to 100; each tier begins at its threshold. Empty Limited uses 70%, and empty Nearly exhausted uses 90%. Moderate is optional: empty means no moderate tier, while explicit zero means that tier starts at 0% used.
+
+Require Moderate (if set) < Limited < Nearly exhausted. Values must be finite. Overrides alone do not enable signals, and configured thresholds must remain valid even when signals are off. These tiers are separate from native pool switching thresholds: sharing a quota tier with a decision service does not change a pool's switching policy.
 
 ## Limits and continuation
 

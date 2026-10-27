@@ -28,6 +28,8 @@ Provider OAuth/refresh and advanced pool/routing selection are implemented, with
 
 [Cursor Private Inference setup](clients.md#cursor-private-inference-manual-gateway-setup) is manual URL/key/model guidance. It is separate from the Cursor network provider and does not include automatic client mutation, installation, or real-app acceptance. Its reasoning/context controls depend on the installed client as well as gateway metadata.
 
+The console exposes [native OAuth pool and fast policy controls](providers.md#native-oauth-pools), plus JEV used-quota tiers. Their presence does not establish live quota/credit availability or faster execution. Native pooling requires a supported homogeneous OAuth pool; optional values retain their documented default, zero, and disabled meanings. Fast discovery and execution require actual supported capability, not only an enabled override.
+
 ## Explicit differences
 
 AIPRouter isolates personal credentials and routing by both organization and user. It requires OIDC, scoped inference keys, bounded encrypted temporary state, and R2 media expiry. Revocation, removal, cancellation, and database outages stop additional sends. Historical cost estimates retain the price used for the request. Local program execution as a provider and associated execution-agent features are excluded.
