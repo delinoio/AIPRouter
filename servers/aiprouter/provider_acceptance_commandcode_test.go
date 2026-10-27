@@ -128,3 +128,40 @@ func TestProviderAcceptanceCommandCodeAuthoritativeEffort(t *testing.T) {
 		t.Fatal("authoritative refusal replayed")
 	}
 }
+
+func TestProviderAcceptanceCommandCodeRevokedBeforeProfile(t *testing.T) {
+	var mu sync.Mutex
+	generations, profiles := 0, 0
+	var f *providerAcceptanceFixture
+	f = newProviderAcceptance(t, "command-code", "glm-5.2", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Host == "commandcode.ai" {
+			profiles++
+			t.Error("revoked key physically fetched a profile")
+			w.WriteHeader(500)
+			return
+		}
+		generations++
+		// Revoke after the admitted model write, before its refusal can trigger a profile send.
+		if err := f.s.RevokeKey(r.Context(), f.scope, f.keyID); err != nil {
+			t.Error("fixture key revocation failed")
+			w.WriteHeader(500)
+			return
+		}
+		w.WriteHeader(422)
+		providerAcceptanceResponse(w, `{"error":{"message":"invalid reasoning_effort"}}`)
+	})
+	w := f.call("/v1/chat/completions", `{"model":"fixture","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"high"}`, nil)
+	providerAcceptanceStatus(t, w, 401)
+	mu.Lock()
+	defer mu.Unlock()
+	if generations != 1 || profiles != 0 {
+		t.Fatal("revocation allowed a profile or model resend")
+	}
+	var count int
+	acceptanceOK(t, f.db.QueryRow(`SELECT count(*) FROM "`+f.schema+`_temp".provider_states WHERE namespace='command-code-efforts'`).Scan(&count))
+	if count != 0 {
+		t.Fatal("revoked request persisted learned policy")
+	}
+}
