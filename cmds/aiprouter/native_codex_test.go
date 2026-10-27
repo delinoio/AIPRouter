@@ -226,6 +226,15 @@ func TestCodexNativeConflictAndHomeSwitch(t *testing.T) {
 func TestCodexNativeExactServiceCapabilities(t *testing.T) {
 	exact := object{"slug": "provider/exact", "display_name": "Exact model", "visibility": "list", "supported_reasoning_levels": []any{object{"effort": "max", "description": "Exact tier"}}, "default_reasoning_level": "max", "context_window": 123456, "auto_compact_token_limit": 111111, "supports_websockets": true, "tool_mode": "code_mode_only", "comp_hash": "authoritative", "base_instructions": "Exact neutral instructions", "service_tiers": []any{object{"name": "priority"}}}
 	model := ClientModel{ID: "provider/exact", CodexCatalog: exact, Context: 1, Efforts: []string{"low"}}
+	r, _, state := codexFixture(t, "", "")
+	changes, planErr := PlanCodexNative(r, state, testProfile(), "KEY", []ClientModel{model})
+	if planErr != nil {
+		t.Fatal(planErr)
+	}
+	config, parseErr := parseDocument(changes[0].After, TOML)
+	if parseErr != nil || mapAt(config, "model_providers", "openai")["supports_websockets"] != true {
+		t.Fatal("authoritative WebSocket capability not enabled")
+	}
 	row, err := codexModelRow(model)
 	if err != nil || !semanticEqual(row, exact) {
 		t.Fatalf("exact capabilities changed: %v", err)

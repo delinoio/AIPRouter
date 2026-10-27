@@ -151,7 +151,13 @@ func PlanCodexNative(resolver Resolver, state State, profile Profile, key string
 	}
 	// Override the built-in openai entry without changing its identifier. Existing
 	// native history stays native; no SQLite, authentication, or history migration.
-	config, err = Patch(config, TOML, []Fragment{frag([]string{"model_providers", "openai"}, object{"name": "AIPRouter", "base_url": strings.TrimRight(profile.Server, "/") + "/v1", "wire_api": "responses", "experimental_bearer_token": key, "requires_openai_auth": false})}, false)
+	provider := object{"name": "AIPRouter", "base_url": strings.TrimRight(profile.Server, "/") + "/v1", "wire_api": "responses", "experimental_bearer_token": key, "requires_openai_auth": false}
+	for _, model := range models {
+		if model.CodexCatalog["supports_websockets"] == true {
+			provider["supports_websockets"] = true
+		}
+	}
+	config, err = Patch(config, TOML, []Fragment{frag([]string{"model_providers", "openai"}, provider)}, false)
 	if err != nil {
 		return nil, err
 	}
