@@ -74,6 +74,7 @@ type ClaudeDesktopModel struct {
 	Prefer1M            *bool  `json:"prefer1m,omitempty"`
 }
 type ClientModel struct {
+	InputModalities []string
 	Desktop         *ClaudeDesktopModel
 	CodexCatalog    map[string]any
 	ID, Name        string

@@ -97,6 +97,13 @@ func (a *ConnectAPI) Models(ctx context.Context, key string) ([]ClientModel, err
 				row.Tools = true
 			case v1.ModelCapability_MODEL_CAPABILITY_IMAGE_INPUT:
 				row.Vision = true
+				row.InputModalities = append(row.InputModalities, "image")
+			case v1.ModelCapability_MODEL_CAPABILITY_TEXT:
+				row.InputModalities = append(row.InputModalities, "text")
+			case v1.ModelCapability_MODEL_CAPABILITY_AUDIO_INPUT:
+				row.InputModalities = append(row.InputModalities, "audio")
+			case v1.ModelCapability_MODEL_CAPABILITY_VIDEO_INPUT:
+				row.InputModalities = append(row.InputModalities, "video")
 			}
 		}
 		for _, effort := range m.ReasoningEfforts {

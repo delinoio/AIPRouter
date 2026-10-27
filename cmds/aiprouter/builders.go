@@ -26,10 +26,7 @@ func selector(key, value string) (string, error) {
 func modelRows(models []ClientModel) []any {
 	rows := []any{}
 	for _, m := range models {
-		input := []string{"text"}
-		if m.Vision {
-			input = append(input, "image")
-		}
+		input := clientInput(m, false)
 		row := object{"id": m.ID, "name": m.Name, "input": input}
 		if m.Context > 0 {
 			row["contextWindow"] = m.Context
@@ -42,6 +39,7 @@ func modelRows(models []ClientModel) []any {
 	return rows
 }
 func contributions(id, path, base, key string, models []ClientModel, doc object) ([]Fragment, error) {
+	models = compatibleClientModels(id, models)
 	if len(models) == 0 {
 		return nil, errors.New("no routed models are available")
 	}
@@ -137,6 +135,17 @@ func contributions(id, path, base, key string, models []ClientModel, doc object)
 		v2 := object{}
 		for _, m := range models {
 			row := object{"name": m.Name, "tool_call": m.Tools, "attachment": m.Vision}
+			if len(m.InputModalities) > 0 {
+				input := clientInput(m, true)
+				attachment := false
+				for _, v := range input {
+					attachment = attachment || v != "text"
+				}
+				if len(input) > 0 {
+					row["attachment"] = attachment
+					row["modalities"] = object{"input": input, "output": []string{"text"}}
+				}
+			}
 			if m.Context > 0 && m.Output > 0 {
 				row["limit"] = object{"context": m.Context, "output": m.Output}
 			}
@@ -148,7 +157,16 @@ func contributions(id, path, base, key string, models []ClientModel, doc object)
 			}
 			row["variants"] = variants
 			catalog[m.ID] = row
-			v2[m.ID] = object{"name": m.Name, "variants": modern, "capabilities": object{"tools": m.Tools}}
+			caps := object{"tools": m.Tools}
+			if len(m.InputModalities) > 0 && len(clientInput(m, true)) > 0 {
+				caps["input"] = clientInput(m, true)
+				caps["output"] = []string{"text"}
+			}
+			modernRow := object{"name": m.Name, "variants": modern, "capabilities": caps}
+			if limit, ok := row["limit"]; ok {
+				modernRow["limit"] = limit
+			}
+			v2[m.ID] = modernRow
 		}
 		connection := object{"baseURL": base, "apiKey": key}
 		f := providerFragment("provider", object{"npm": "@ai-sdk/openai-compatible", "name": "AIPRouter", "options": connection, "models": catalog})
@@ -230,7 +248,7 @@ func contributions(id, path, base, key string, models []ClientModel, doc object)
 		}
 		catalog := object{}
 		for _, m := range models {
-			row := object{"name": m.Name, "modalities": object{"input": []string{"text"}, "output": []string{"text"}}}
+			row := object{"name": m.Name, "modalities": object{"input": clientInput(m, false), "output": []string{"text"}}}
 			if m.Context > 0 {
 				row["limit"] = object{"context": m.Context}
 			}
