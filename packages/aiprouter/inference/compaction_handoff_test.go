@@ -3,6 +3,7 @@ package inference
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -136,5 +137,40 @@ func TestNativeCompactionReceiptFailurePreservesHandoff(t *testing.T) {
 	out := call(h, "/v1/responses/compact", `{"model":"m","input":"task"}`)
 	if out.Code != 503 || handoff.cleared != 0 || len(handoff.captured) != 0 || u.records[0].Sends != 1 {
 		t.Fatalf("%d %s cleared%d", out.Code, out.Body, handoff.cleared)
+	}
+}
+
+func TestCompactionHandoffComparesEffectiveFastModel(t *testing.T) {
+	for _, tc := range []struct {
+		name, currentLogical, nextLogical, currentPhysical, nextPhysical string
+		wantSend                                                         bool
+	}{
+		{"same-logical-new-lane", "logical", "logical", "ordinary", "fast", true},
+		{"different-logical-same-lane", "old-alias", "new-alias", "same", "same", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sends := 0
+			h, s, _, _, _ := harness(t, func(w http.ResponseWriter, r *http.Request) {
+				sends++
+				var body object
+				json.NewDecoder(r.Body).Decode(&body)
+				if body["model"] != tc.nextPhysical {
+					t.Errorf("wrong physical model %v", body["model"])
+				}
+				io.WriteString(w, fixture(Chat))
+			}, Chat)
+			current := Target{Provider: "provider", BaseURL: s.URL, Model: tc.currentLogical, Wire: Chat, Auth: OAuth, Fast: true, FastPolicy: &FastPolicy{Kind: FastModelVariant, Eligible: true, Model: tc.currentPhysical}}
+			next := current
+			next.Model = tc.nextLogical
+			next.FastPolicy = &FastPolicy{Kind: FastModelVariant, Eligible: true, Model: tc.nextPhysical}
+			h.c.CompactionHandoffs = &handoffFixture{next: &CompactionHandoff{Target: next, Credential: Credential{AccountID: "bound", CredentialVersion: "v1", Secret: "secret"}}}
+			out, err := h.tryCompactionHandoff(context.Background(), Principal{}, current, HTTPFailure{Status: 429}, object{"model": "public", "input": "task"}, Route{MaxSends: 2}, &UsageRecord{Sends: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (out != nil) != tc.wantSend || (sends == 1) != tc.wantSend {
+				t.Fatalf("out=%v sends=%d", out != nil, sends)
+			}
+		})
 	}
 }

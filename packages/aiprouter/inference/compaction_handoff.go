@@ -75,10 +75,10 @@ func (h *Handler) tryCompactionHandoff(ctx context.Context, p Principal, t Targe
 	if next == nil {
 		return nil, nil
 	}
-	if next.Target.Provider == t.Provider && next.Target.Model == t.Model && next.Target.BaseURL == t.BaseURL {
+	if next.Target.Provider == t.Provider && compactionServingModel(next.Target) == compactionServingModel(t) && next.Target.BaseURL == t.BaseURL {
 		return nil, nil
 	}
-	if next.Credential.AccountID == "" || next.Credential.CredentialVersion == "" || next.Target.Model == "" || len(utf16.Encode([]rune(next.Target.Model))) > 512 {
+	if next.Credential.AccountID == "" || next.Credential.CredentialVersion == "" || next.Target.Model == "" || len(utf16.Encode([]rune(next.Target.Model))) > 512 || compactionServingModel(next.Target) == "" || len(utf16.Encode([]rune(compactionServingModel(next.Target)))) > 512 {
 		return nil, ErrContinuation
 	}
 	if e = h.guard(ctx, p); e != nil {
@@ -103,4 +103,11 @@ func (h *Handler) tryCompactionHandoff(ctx context.Context, p Principal, t Targe
 		return nil, nil
 	}
 	return output, nil
+}
+
+func compactionServingModel(t Target) string {
+	if t.Fast && t.FastPolicy != nil && t.FastPolicy.Kind == FastModelVariant {
+		return t.FastPolicy.Model
+	}
+	return t.Model
 }
