@@ -566,3 +566,36 @@ test("Vertex project and location preserve optional selection", async () => {
     );
   }
 });
+
+test("reasoning retention keeps omitted settings and explicit source-default zeros", async () => {
+  const {
+    RouteSchema,
+    CreateRouteRequestSchema,
+    UpdateRouteRequestSchema,
+    ReasoningRetentionConfigSchema,
+  } = await import("../src/index.js");
+  assert.equal(create(ReasoningRetentionConfigSchema).enabled, false);
+  for (const reasoningRetention of [
+    undefined,
+    {},
+    { enabled: true, maxContextPercent: 0, maxTokens: 0 },
+    { enabled: true, maxContextPercent: 25, maxTokens: 50000 },
+  ]) {
+    const value = create(RouteSchema, { reasoningRetention });
+    assert.deepEqual(
+      fromBinary(RouteSchema, toBinary(RouteSchema, value)),
+      value,
+    );
+    assert.deepEqual(fromJson(RouteSchema, toJson(RouteSchema, value)), value);
+    assert.deepEqual(
+      create(CreateRouteRequestSchema, { reasoningRetention })
+        .reasoningRetention,
+      value.reasoningRetention,
+    );
+    assert.deepEqual(
+      create(UpdateRouteRequestSchema, { reasoningRetention })
+        .reasoningRetention,
+      value.reasoningRetention,
+    );
+  }
+});

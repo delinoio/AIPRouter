@@ -268,6 +268,17 @@ message RouteTarget {
   // Bounded to 512 characters; safe model description, never credentials or request content.
   string model_profile = 7;
 }
+
+// Opt-in reasoning retention. Runtime context window comes only from trusted model
+// metadata and is deliberately not configurable here.
+message ReasoningRetentionConfig {
+  bool enabled = 1;
+  // Absent or zero uses 20 percent; otherwise finite, greater than 0 and at most 100.
+  optional double max_context_percent = 2;
+  // Absent or zero uses 100000 tokens; otherwise positive.
+  optional uint32 max_tokens = 3;
+}
+
 message Route {
   string id = 1;
   string organization_id = 2;
@@ -277,6 +288,8 @@ message Route {
   bool enabled = 6;
   // Present only for JEV strategy. An absent message means no JEV configuration.
   JevDecisionConfig jev_decision = 7;
+  // Full replacement. Omission disables retention and clears previous settings.
+  ReasoningRetentionConfig reasoning_retention = 8;
 }
 service ProviderService {
   rpc ListProviderCatalog(ListProviderCatalogRequest) returns (ListProviderCatalogResponse) {
@@ -497,6 +510,8 @@ message CreateRouteRequest {
   bool enabled = 5;
   // Present only for JEV strategy. An absent message means no JEV configuration.
   JevDecisionConfig jev_decision = 6;
+  // Omission leaves reasoning retention disabled.
+  ReasoningRetentionConfig reasoning_retention = 7;
 }
 message CreateRouteResponse {
   Route route = 1;
@@ -511,6 +526,8 @@ message UpdateRouteRequest {
   // Present only for JEV strategy. An absent message means no JEV configuration.
   // Route updates replace the complete route; omission clears previous JEV settings.
   JevDecisionConfig jev_decision = 7;
+  // Full replacement. Omission disables retention and clears previous settings.
+  ReasoningRetentionConfig reasoning_retention = 8;
 }
 message UpdateRouteResponse {
   Route route = 1;

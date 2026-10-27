@@ -554,3 +554,37 @@ func TestVertexConfigurationPresence(t *testing.T) {
 		}
 	}
 }
+
+func TestReasoningRetentionPresence(t *testing.T) {
+	for _, config := range []*v1.ReasoningRetentionConfig{nil, {}, {Enabled: true, MaxContextPercent: proto.Float64(0), MaxTokens: proto.Uint32(0)}, {Enabled: true, MaxContextPercent: proto.Float64(25), MaxTokens: proto.Uint32(50000)}} {
+		for _, value := range []proto.Message{&v1.Route{ReasoningRetention: config}, &v1.CreateRouteRequest{ReasoningRetention: config}, &v1.UpdateRouteRequest{ReasoningRetention: config}} {
+			for _, jsonWire := range []bool{false, true} {
+				var wire []byte
+				var err error
+				if jsonWire {
+					wire, err = protojson.Marshal(value)
+				} else {
+					wire, err = proto.Marshal(value)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				decoded := value.ProtoReflect().New().Interface()
+				if jsonWire {
+					err = protojson.Unmarshal(wire, decoded)
+				} else {
+					err = proto.Unmarshal(wire, decoded)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !proto.Equal(value, decoded) {
+					t.Fatalf("retention presence lost: %v", decoded)
+				}
+			}
+		}
+	}
+	if (&v1.ReasoningRetentionConfig{}).ProtoReflect().Descriptor().Fields().ByName("context_window") != nil {
+		t.Fatal("context window must not be user configurable")
+	}
+}
