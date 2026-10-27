@@ -200,6 +200,7 @@ func TestOptionalFiltersPreserveExplicitUnknown(t *testing.T) {
 
 func TestOAuthOptionsAndCollectionRevisionRoundTrip(t *testing.T) {
 	values := []proto.Message{
+		&v1.ProviderDefinition{Id: "native-provider", OauthMethods: []v1.ProviderOAuthMethod{v1.ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_NATIVE_CALLBACK}},
 		&v1.BeginProviderOAuthRequest{Method: v1.ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_NATIVE_CALLBACK.Enum(), RedirectUri: proto.String("aiprouter://callback"), LoginProvider: proto.String("identity-center"), SsoRegion: proto.String("region"), ApiRegion: proto.String("region"), StartUrl: proto.String("https://start.example.test"), BaseUrl: proto.String("https://api.example.test"), AuthBaseUrl: proto.String("https://auth.example.test"), PortalUrl: proto.String("https://portal.example.test"), RegisterUrl: proto.String("https://register.example.test"), ClientId: proto.String("client")},
 		&v1.ProviderOAuth{CallbackState: proto.String("public-correlation-state")},
 		&v1.ListPriceOverridesResponse{Revision: "collection-1"},

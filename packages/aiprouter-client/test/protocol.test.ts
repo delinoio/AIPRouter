@@ -182,3 +182,20 @@ test("OAuth native callback and collection CAS descriptors are available", async
     "2",
   );
 });
+
+test("provider catalog carries typed eligible OAuth methods without client inventory", async () => {
+  const { ProviderDefinitionSchema, ProviderOAuthMethod } =
+    await import("../src/index.js");
+  const provider = create(ProviderDefinitionSchema, {
+    id: "native-provider",
+    oauthMethods: [ProviderOAuthMethod.NATIVE_CALLBACK],
+  });
+  assert.deepEqual(
+    fromBinary(
+      ProviderDefinitionSchema,
+      toBinary(ProviderDefinitionSchema, provider),
+    ).oauthMethods,
+    [ProviderOAuthMethod.NATIVE_CALLBACK],
+  );
+  assert.deepEqual(create(ProviderDefinitionSchema).oauthMethods, []);
+});

@@ -13,6 +13,10 @@ message ProviderDefinition {
   string display_name = 2;
   repeated ProviderAuthKind auth_kinds = 3;
   repeated ApiShape api_shapes = 4;
+  // Authoritative eligible methods from the server provider catalog; never include UNSPECIFIED.
+  // An empty list advertises no explicit method selection. Clients may use the server
+  // default when auth_kinds includes OAUTH, but must not infer methods from provider IDs.
+  repeated ProviderOAuthMethod oauth_methods = 5;
 }
 
 // Metadata only. No read RPC exposes credential values, OAuth codes, or tokens.
