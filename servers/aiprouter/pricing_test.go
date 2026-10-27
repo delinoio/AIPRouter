@@ -3,25 +3,38 @@ package main
 
 import (
 	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/pricing"
 	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
-	"testing"
 )
 
 func TestOverrideValidationPreservesUnknownRates(t *testing.T) {
-	raw, e := json.Marshal([]*v1.PriceOverride{{ProviderId: "custom", ModelId: "fixture", Rates: &v1.PriceRates{Currency: "USD", Input: ptr("0"), Output: ptr("0"), CacheRead: ptr("0"), CacheWrite: ptr("0")}}})
-	if e != nil {
-		t.Fatal(e)
+	id := core.ID()
+	override := &v1.PriceOverride{Id: id, ProviderId: "custom", ModelId: "fixture", Rates: &v1.PriceRates{Currency: "USD", Input: ptr("0"), Output: ptr("0"), CacheRead: ptr("0"), CacheWrite: ptr("0")}}
+	snapshot := func() *pricing.Snapshot {
+		t.Helper()
+		raw, err := json.Marshal(map[string]*v1.PriceOverride{id: override})
+		acceptanceOK(t, err)
+		overrides, err := priceOverrides(raw)
+		acceptanceOK(t, err)
+		result, err := pricing.NewSnapshot(overrides)
+		acceptanceOK(t, err)
+		return result
 	}
-	overrides, e := priceOverrides(raw)
-	if e != nil {
-		t.Fatal(e)
+	request := pricing.Request{Provider: "custom", Model: "fixture", Status: pricing.Reported, Usage: &pricing.Usage{InputTokens: ptr(int64(1)), OutputTokens: ptr(int64(1))}}
+	estimate := snapshot().Estimate(request, time.Now())
+	if !estimate.Known || estimate.Cost.Total != 0 {
+		t.Fatal("confirmed zero rates lost")
 	}
-	if _, e = pricing.NewSnapshot(overrides); e != nil {
-		t.Fatal(e)
+	override.Rates = &v1.PriceRates{Currency: "USD", Input: ptr("0")}
+	estimate = snapshot().Estimate(request, time.Now())
+	if estimate.Known {
+		t.Fatal("missing output rate became known zero")
 	}
-	raw, _ = json.Marshal([]*v1.PriceOverride{{ProviderId: "custom", ModelId: "fixture", Rates: &v1.PriceRates{Currency: "USD", Input: ptr("0")}}})
-	if _, e = priceOverrides(raw); e == nil {
-		t.Fatal("missing rates became known zero")
+	if estimate.EffectiveOptionalRates == nil || estimate.EffectiveOptionalRates.Output != nil {
+		t.Fatal("missing rate presence lost")
 	}
 }

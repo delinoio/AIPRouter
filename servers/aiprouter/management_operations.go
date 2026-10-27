@@ -237,7 +237,7 @@ func usageFilter(r *v1.TimeRange, user, model string, p *v1.PageRequest) (store.
 	if f.Limit == 0 {
 		f.Limit = 100
 	}
-	if f.Limit > 1000 || len(f.After) > 512 {
+	if f.Limit > 1000 || len(f.After) > 2048 {
 		return f, invalid("invalid page")
 	}
 	if r != nil {
