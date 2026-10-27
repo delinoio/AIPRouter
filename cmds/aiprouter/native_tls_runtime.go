@@ -98,6 +98,10 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 	codex := cfg.Policy.mode == NativeCompatibilityCodexObserve || cfg.Policy.mode == NativeCompatibilityCodexAccountUITrial
 	proxyAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("aiprouter:"+NativeProxyPassword(cfg.Token)))
 	matches := func(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
+	control, err := newNativeControlServer(cfg.Token)
+	if err != nil {
+		return errors.New("native listener generation unavailable")
+	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodConnect {
 			if codex && r.URL.Path == pacPath && r.Method == http.MethodGet && r.Header.Get("Origin") == "" {
@@ -110,7 +114,10 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 				io.WriteString(w, script)
 				return
 			}
-			if !nativeControlAuthorize(r, cfg.Token) || r.Header.Get("Origin") != "" {
+			if control.Challenge(w, r) {
+				return
+			}
+			if !control.Authorize(r) || r.Header.Get("Origin") != "" {
 				http.Error(w, "native control authentication required", 403)
 				return
 			}

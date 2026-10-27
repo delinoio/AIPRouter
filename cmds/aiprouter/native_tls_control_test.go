@@ -18,11 +18,15 @@ import (
 func TestNativeControlAuthentication(t *testing.T) {
 	token := strings.Repeat("a", 64)
 	replays := make(chan *http.Request, 1)
+	control, _ := newNativeControlServer(token)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" {
 			t.Error("reusable authorization sent")
 		}
-		if !nativeControlAuthorize(r, token) {
+		if control.Challenge(w, r) {
+			return
+		}
+		if !control.Authorize(r) {
 			http.Error(w, "unauthorized", 401)
 			return
 		}
@@ -35,23 +39,26 @@ func TestNativeControlAuthentication(t *testing.T) {
 		t.Fatal(e)
 	}
 	replay := <-replays
-	if nativeControlAuthorize(replay, token) {
+	if control.Authorize(replay) {
 		t.Fatal("replay accepted")
 	}
 	replay.Header.Set("X-Aiprouter-Time", strconv.FormatInt(time.Now().Add(-time.Minute).Unix(), 10))
-	replay.Header.Set("X-Aiprouter-Proof", nativeControlProof(replay, token, "aiprouter/native/request/v1"))
-	if nativeControlAuthorize(replay, token) {
+	replay.Header.Set("X-Aiprouter-Proof", nativeControlProof(replay, token, "aiprouter/native/request/v2"))
+	if control.Authorize(replay) {
 		t.Fatal("stale request accepted")
 	}
 	if NativeProxyPassword(token) == token {
 		t.Fatal("proxy password not separated")
 	}
-	for _, attack := range []string{"body", "status", "path", "nonce", "redirect", "oversize"} {
+	for _, attack := range []string{"body", "status", "path", "nonce", "generation", "redirect", "oversize"} {
 		t.Run(attack, func(t *testing.T) {
 			foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if control.Challenge(w, r) {
+					return
+				}
 				body := []byte("ok")
 				status := 200
-				proof := nativeControlProof(r, token, "aiprouter/native/response/v1", "200", "ok")
+				proof := nativeControlProof(r, token, "aiprouter/native/response/v2", "200", "ok")
 				switch attack {
 				case "body":
 					body = []byte("evil")
@@ -59,10 +66,13 @@ func TestNativeControlAuthentication(t *testing.T) {
 					status = 201
 				case "path":
 					r.URL.Path = "/other"
-					proof = nativeControlProof(r, token, "aiprouter/native/response/v1", "200", "ok")
+					proof = nativeControlProof(r, token, "aiprouter/native/response/v2", "200", "ok")
 				case "nonce":
 					r.Header.Set("X-Aiprouter-Nonce", strings.Repeat("b", 64))
-					proof = nativeControlProof(r, token, "aiprouter/native/response/v1", "200", "ok")
+					proof = nativeControlProof(r, token, "aiprouter/native/response/v2", "200", "ok")
+				case "generation":
+					r.Header.Set("X-Aiprouter-Generation", strings.Repeat("c", 64))
+					proof = nativeControlProof(r, token, "aiprouter/native/response/v2", "200", "ok")
 				case "redirect":
 					status = 302
 					w.Header().Set("Location", server.URL)

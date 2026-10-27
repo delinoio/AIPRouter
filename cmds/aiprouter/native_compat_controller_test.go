@@ -178,8 +178,12 @@ func TestNativeControllerOwnedReadinessAndStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	record, _, _ := c.load(req.Profile.Name)
+	control, _ := newNativeControlServer(record.Token)
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !nativeControlAuthorize(r, record.Token) {
+		if control.Challenge(w, r) {
+			return
+		}
+		if !control.Authorize(r) {
 			http.Error(w, "unauthorized", 401)
 			return
 		}
