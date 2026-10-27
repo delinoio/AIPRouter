@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"errors"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 // PlanClaudeNative plans gateway configuration without writing files or starting
@@ -91,7 +93,17 @@ func PlanClaudeNative(resolver Resolver, state State, client string, profile Pro
 		replace := false
 		remote := index == 0
 		if client == "claude" && index == 0 {
+			// A pre-existing vendor key must not follow the new gateway origin.
+			// Leave it untouched and require the user to resolve its provenance.
+			if env := mapAt(doc, "env"); env != nil {
+				if value, present := env["ANTHROPIC_API_KEY"]; present && value != "" && value != nil {
+					return nil, errors.New("Claude has an existing API key; resolve its gateway authorization before configuring")
+				}
+			}
 			fragments = []Fragment{frag([]string{"env", "ANTHROPIC_BASE_URL"}, base), frag([]string{"env", "ANTHROPIC_AUTH_TOKEN"}, key)}
+			if _, present := mapAt(doc, "env")["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"]; !present {
+				fragments = append(fragments, frag([]string{"env", "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"}, "1"))
+			}
 		} else if client == "claude" {
 			// This is a disposable native cache, but its prior bytes still belong to
 			// the user. Capture and restore them with the same transaction as settings.
@@ -111,6 +123,9 @@ func PlanClaudeNative(resolver Resolver, state State, client string, profile Pro
 				if model.Name != "" {
 					row["display_name"] = model.Name
 				}
+				if model.Description != "" {
+					row["description"] = model.Description
+				}
 				rows = append(rows, row)
 			}
 			fragments = []Fragment{frag([]string{"baseUrl"}, base), frag([]string{"fetchedAt"}, time.Now().UnixMilli()), frag([]string{"models"}, rows)}
@@ -123,6 +138,14 @@ func PlanClaudeNative(resolver Resolver, state State, client string, profile Pro
 				return nil, errors.New("AIPRouter Desktop profile has a foreign restoration baseline")
 			}
 			fragments = []Fragment{frag([]string{"inferenceProvider"}, "gateway"), frag([]string{"inferenceCredentialKind"}, "static"), frag([]string{"inferenceGatewayBaseUrl"}, base), frag([]string{"inferenceGatewayApiKey"}, key), frag([]string{"modelDiscoveryEnabled"}, true)}
+			catalog, static, err := claudeDesktopCatalog(models)
+			if err != nil {
+				return nil, err
+			}
+			if static {
+				fragments[len(fragments)-1] = frag([]string{"modelDiscoveryEnabled"}, false)
+				fragments = append(fragments, frag([]string{"inferenceModels"}, catalog))
+			}
 		} else {
 			if len(bytes.TrimSpace(source)) == 0 {
 				source = []byte("{\"entries\":[]}\n")
@@ -158,6 +181,9 @@ func PlanClaudeNative(resolver Resolver, state State, client string, profile Pro
 		if e != nil {
 			return nil, e
 		}
+		if len(after) > MaxConfigBytes {
+			return nil, errors.New("Claude configuration exceeds the file size limit")
+		}
 		fields := []string{}
 		for _, fragment := range fragments {
 			fields = append(fields, strings.Join(fragment.Path, "."))
@@ -168,4 +194,59 @@ func PlanClaudeNative(resolver Resolver, state State, client string, profile Pro
 		changes = append(changes, Change{Path: target, Before: before, After: after, Existed: exists, Fields: fields, RemoteKey: remote, Check: check})
 	}
 	return changes, nil
+}
+
+var claudeDesktopID = regexp.MustCompile(`^claude-[a-z0-9-]+$`)
+
+// The remote snapshot owns aliases and capabilities. Never derive an alias from
+// a display label or infer family/1M support from an unrelated provider model.
+func claudeDesktopCatalog(models []ClientModel) ([]any, bool, error) {
+	// A non-nil empty snapshot is authoritative. A nil slice selects discovery
+	// for callers that did not request a static snapshot.
+	static := models != nil && len(models) == 0
+	for _, model := range models {
+		static = static || model.Desktop != nil
+	}
+	if !static {
+		return nil, false, nil
+	}
+	rows := make([]any, 0, len(models))
+	seen := map[string]bool{}
+	defaults := map[string]bool{}
+	for _, model := range models {
+		row := model.Desktop
+		if row == nil || !claudeDesktopID.MatchString(row.Name) || seen[row.Name] {
+			return nil, false, errors.New("invalid, duplicate or incomplete Claude Desktop snapshot")
+		}
+		seen[row.Name] = true
+		switch row.AnthropicFamilyTier {
+		case "opus", "sonnet", "haiku", "fable":
+		default:
+			return nil, false, errors.New("invalid Claude Desktop model family")
+		}
+		if strings.ContainsAny(row.LabelOverride, "[]") || len(utf16.Encode([]rune(row.LabelOverride))) > 80 {
+			return nil, false, errors.New("invalid Claude Desktop model label")
+		}
+		if row.Prefer1M != nil && *row.Prefer1M && (row.Supports1M == nil || !*row.Supports1M) {
+			return nil, false, errors.New("Claude Desktop 1M preference lacks capability")
+		}
+		if row.IsFamilyDefault != nil && *row.IsFamilyDefault {
+			if defaults[row.AnthropicFamilyTier] {
+				return nil, false, errors.New("duplicate Claude Desktop family default")
+			}
+			defaults[row.AnthropicFamilyTier] = true
+		}
+		value := object{"name": row.Name, "labelOverride": row.LabelOverride, "anthropicFamilyTier": row.AnthropicFamilyTier}
+		if row.IsFamilyDefault != nil {
+			value["isFamilyDefault"] = *row.IsFamilyDefault
+		}
+		if row.Supports1M != nil {
+			value["supports1m"] = *row.Supports1M
+		}
+		if row.Prefer1M != nil {
+			value["prefer1m"] = *row.Prefer1M
+		}
+		rows = append(rows, value)
+	}
+	return rows, true, nil
 }

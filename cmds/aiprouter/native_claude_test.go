@@ -31,7 +31,7 @@ func TestClaudeNativeGatewayTransaction(t *testing.T) {
 	writeClaudeFixture(t, path, original)
 	writeClaudeFixture(t, cache, cacheOriginal)
 	state := emptyState()
-	models := []ClientModel{{ID: "claude-routed", Name: "Routed"}, {ID: "unusable-model", Name: "Hidden"}}
+	models := []ClientModel{{ID: "claude-routed", Name: "Routed", Description: "Gateway route"}, {ID: "unusable-model", Name: "Hidden"}}
 	changes, err := PlanClaudeNative(resolver, state, "claude", testProfile(), "PRIVATE_TEST_KEY", models)
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestClaudeNativeGatewayTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := doc["models"].([]any)
-	if len(rows) != 1 || rows[0].(map[string]any)["id"] != "claude-routed" || doc["foreign"] != true {
+	if len(rows) != 1 || rows[0].(map[string]any)["id"] != "claude-routed" || doc["foreign"] != true || rows[0].(map[string]any)["description"] != "Gateway route" {
 		t.Fatal("incorrect native cache")
 	}
 	disk := testDisk(t)
@@ -184,5 +184,103 @@ func TestClaudeNativeUnsafeInputs(t *testing.T) {
 	got, _ := os.ReadFile(target)
 	if string(got) != "{}" {
 		t.Fatal("symlink destination changed")
+	}
+}
+
+func TestClaudeNativeDesktopStaticSnapshot(t *testing.T) {
+	yes, no := true, false
+	resolver := Resolver{Home: realTemp(t), OS: "darwin", Env: map[string]string{}}
+	models := []ClientModel{{ID: "different-route", Desktop: &ClaudeDesktopModel{Name: "claude-opus-4-8-abc", LabelOverride: "Routed model", AnthropicFamilyTier: "opus", IsFamilyDefault: &yes, Supports1M: &yes, Prefer1M: &no}}}
+	changes, err := PlanClaudeNative(resolver, emptyState(), "claude-desktop", testProfile(), "KEY", models)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := parseDocument(changes[0].After, JSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc["modelDiscoveryEnabled"] != false {
+		t.Fatal("static catalog not selected")
+	}
+	rows := doc["inferenceModels"].([]any)
+	row := rows[0].(map[string]any)
+	if row["name"] != "claude-opus-4-8-abc" || row["labelOverride"] != "Routed model" || row["supports1m"] != true || row["prefer1m"] != false || row["isFamilyDefault"] != true {
+		t.Fatal("remote snapshot altered")
+	}
+	disk := testDisk(t)
+	state := emptyState()
+	if err := disk.Apply(&state, "claude-desktop", "test", changes, answer(true)); err != nil {
+		t.Fatal(err)
+	}
+	models[0].Desktop.Name = "claude-opus-4-8-def"
+	changes, err = PlanClaudeNative(resolver, state, "claude-desktop", testProfile(), "KEY", models)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(changes[0].After, []byte("claude-opus-4-8-abc")) {
+		t.Fatal("stale catalog retained")
+	}
+	if err := disk.Apply(&state, "claude-desktop", "test", changes, answer(true)); err != nil {
+		t.Fatal(err)
+	}
+	if err := disk.Restore(&state, "claude-desktop"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClaudeNativeDesktopRejectsInvalidSnapshot(t *testing.T) {
+	yes := true
+	valid := ClaudeDesktopModel{Name: "claude-opus-4-8-abc", LabelOverride: "Routed", AnthropicFamilyTier: "opus"}
+	for name, change := range map[string]func(*ClaudeDesktopModel){
+		"alias":          func(m *ClaudeDesktopModel) { m.Name = "invent-an-alias" },
+		"family":         func(m *ClaudeDesktopModel) { m.AnthropicFamilyTier = "unknown" },
+		"label":          func(m *ClaudeDesktopModel) { m.LabelOverride = "Bad[1m]" },
+		"long-label":     func(m *ClaudeDesktopModel) { m.LabelOverride = strings.Repeat("a", 81) },
+		"unsupported-1m": func(m *ClaudeDesktopModel) { m.Prefer1M = &yes },
+	} {
+		t.Run(name, func(t *testing.T) {
+			row := valid
+			change(&row)
+			if _, _, err := claudeDesktopCatalog([]ClientModel{{Desktop: &row}}); err == nil {
+				t.Fatal("invalid snapshot accepted")
+			}
+		})
+	}
+	if _, _, err := claudeDesktopCatalog([]ClientModel{{Desktop: &valid}, {Desktop: &valid}}); err == nil {
+		t.Fatal("duplicate alias accepted")
+	}
+	if _, _, err := claudeDesktopCatalog([]ClientModel{{Desktop: &valid}, {ID: "no-metadata"}}); err == nil {
+		t.Fatal("partial snapshot accepted")
+	}
+	resolver := Resolver{Home: realTemp(t), OS: "linux", Env: map[string]string{}}
+	path, _ := resolver.Resolve("claude")
+	writeClaudeFixture(t, path, "{\"env\":{\"ANTHROPIC_API_KEY\":\"VENDOR_SECRET\"}}")
+	if _, err := PlanClaudeNative(resolver, emptyState(), "claude", testProfile(), "KEY", nil); err == nil || strings.Contains(err.Error(), "VENDOR_SECRET") {
+		t.Fatal("vendor key not safely refused")
+	}
+}
+
+func TestClaudeNativeEmptySnapshotAndUserDiscoverySetting(t *testing.T) {
+	rows, static, err := claudeDesktopCatalog([]ClientModel{})
+	if err != nil || !static || rows == nil || len(rows) != 0 {
+		t.Fatal("empty authoritative snapshot lost")
+	}
+	if _, static, err := claudeDesktopCatalog(nil); err != nil || static {
+		t.Fatal("discovery fallback changed")
+	}
+	resolver := Resolver{Home: realTemp(t), OS: "linux", Env: map[string]string{}}
+	path, _ := resolver.Resolve("claude")
+	writeClaudeFixture(t, path, "{\"env\":{\"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY\":\"0\",\"ANTHROPIC_DEFAULT_OPUS_MODEL\":\"my-model\",\"ANTHROPIC_DEFAULT_OPUS_MODEL_NAME\":\"My label\"}}")
+	changes, err := PlanClaudeNative(resolver, emptyState(), "claude", testProfile(), "KEY", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := parseDocument(changes[0].After, JSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mapAt(doc, "env")
+	if env["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] != "0" || env["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "my-model" || env["ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"] != "My label" {
+		t.Fatal("user model preferences overwritten")
 	}
 }
