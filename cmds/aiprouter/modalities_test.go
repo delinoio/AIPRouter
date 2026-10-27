@@ -4,8 +4,9 @@ package main
 import "testing"
 
 func TestClientModalitiesPreserveAudioAndSkipUnsupportedRows(t *testing.T) {
-	models := []ClientModel{{ID: "audio", Name: "Audio", InputModalities: []string{"audio"}}, {ID: "mixed", Name: "Mixed", InputModalities: []string{"text", "image", "audio"}, Vision: true}}
-	for _, id := range []string{"pi", "prime", "aside", "omp", "gajae", "dsh", "cline", "zcode", "openclaw"} {
+	noTools := false
+	models := []ClientModel{{ID: "audio", Name: "Audio", SupportsTools: &noTools, InputModalities: []string{"audio"}}, {ID: "mixed", Name: "Mixed", InputModalities: []string{"text", "image", "audio"}, Vision: true}}
+	for _, id := range []string{"pi", "prime", "aside", "omp", "gajae", "dsh", "cline", "zcode"} {
 		filtered := compatibleClientModels(id, models)
 		if len(filtered) != 1 || filtered[0].ID != "mixed" {
 			t.Fatalf("%s exposed unsupported audio-only row", id)

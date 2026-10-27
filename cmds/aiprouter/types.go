@@ -73,15 +73,33 @@ type ClaudeDesktopModel struct {
 	Supports1M          *bool  `json:"supports1m,omitempty"`
 	Prefer1M            *bool  `json:"prefer1m,omitempty"`
 }
+type ClientReasoningInterleaving string
+
+const (
+	ClientInterleavingNone    ClientReasoningInterleaving = "none"
+	ClientInterleavingContent ClientReasoningInterleaving = "reasoning_content"
+)
+
 type ClientModel struct {
-	InputModalities []string
-	Desktop         *ClaudeDesktopModel
-	CodexCatalog    map[string]any
-	ID, Name        string
-	Description     string
-	Context, Output int
-	Tools, Vision   bool
-	Efforts         []string
+	FastRowAvailable           *bool
+	DefaultReasoningEffort     *string
+	SupportsReasoningEffort    *bool
+	SupportsThinkingToggle     *bool
+	DefaultThinkingEnabled     *bool
+	SupportsReasoningSummaries *bool
+	ReasoningInterleaving      *ClientReasoningInterleaving
+	MaxInputTokens             *uint64
+	SupportsReasoning          *bool
+	SupportsTools              *bool
+	ReasoningEffortsKnown      *bool
+	InputModalities            []string
+	Desktop                    *ClaudeDesktopModel
+	CodexCatalog               map[string]any
+	ID, Name                   string
+	Description                string
+	Context, Output            int
+	Tools, Vision              bool
+	Efforts                    []string
 }
 type ClientAPI interface {
 	Begin(context.Context, string) (Device, error)

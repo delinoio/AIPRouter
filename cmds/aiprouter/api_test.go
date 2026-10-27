@@ -38,6 +38,7 @@ func (s *deviceServer) ConfirmDeviceStorage(ctx context.Context, r *connect.Requ
 type clientServer struct {
 	rpc.UnimplementedClientServiceHandler
 	revoked bool
+	models  []*v1.Model
 }
 
 func (s *clientServer) RevokeCLIKey(ctx context.Context, r *connect.Request[v1.RevokeCLIKeyRequest]) (*connect.Response[v1.RevokeCLIKeyResponse], error) {
@@ -50,6 +51,9 @@ func (s *clientServer) RevokeCLIKey(ctx context.Context, r *connect.Request[v1.R
 func (s *clientServer) ListClientModels(ctx context.Context, r *connect.Request[v1.ListClientModelsRequest]) (*connect.Response[v1.ListClientModelsResponse], error) {
 	if r.Header().Get("Authorization") != "Bearer RAW_SECRET" {
 		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+	if s.models != nil {
+		return connect.NewResponse(&v1.ListClientModelsResponse{Models: s.models}), nil
 	}
 	return connect.NewResponse(&v1.ListClientModelsResponse{Models: []*v1.Model{{Id: "v/m", Capabilities: []v1.ModelCapability{v1.ModelCapability_MODEL_CAPABILITY_IMAGE_INPUT}}}}), nil
 }

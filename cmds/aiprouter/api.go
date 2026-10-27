@@ -87,7 +87,30 @@ func (a *ConnectAPI) Models(ctx context.Context, key string) ([]ClientModel, err
 	}
 	var models []ClientModel
 	for _, m := range response.Msg.Models {
-		row := ClientModel{ID: m.Id, Name: m.DisplayName, Context: int(m.GetContextLimit()), Output: int(m.GetOutputLimit())}
+		row := ClientModel{ID: m.Id, Name: m.DisplayName, Context: int(m.GetContextLimit()), Output: int(m.GetOutputLimit()),
+			FastRowAvailable: m.FastRowAvailable, SupportsReasoningEffort: m.SupportsReasoningEffort, SupportsThinkingToggle: m.SupportsThinkingToggle, DefaultThinkingEnabled: m.DefaultThinkingEnabled, SupportsReasoningSummaries: m.SupportsReasoningSummaries, MaxInputTokens: m.MaxInputTokens, SupportsReasoning: m.SupportsReasoning, SupportsTools: m.SupportsTools, ReasoningEffortsKnown: m.ReasoningEffortsKnown}
+		if m.DefaultReasoningEffort != nil && *m.DefaultReasoningEffort != v1.ReasoningEffort_REASONING_EFFORT_UNSPECIFIED {
+			value := strings.ToLower(strings.TrimPrefix(m.DefaultReasoningEffort.String(), "REASONING_EFFORT_"))
+			row.DefaultReasoningEffort = &value
+		}
+		if m.ReasoningInterleaving != nil {
+			var value ClientReasoningInterleaving
+			switch *m.ReasoningInterleaving {
+			case v1.ReasoningInterleaving_REASONING_INTERLEAVING_NONE:
+				value = ClientInterleavingNone
+			case v1.ReasoningInterleaving_REASONING_INTERLEAVING_REASONING_CONTENT:
+				value = ClientInterleavingContent
+			}
+			if value != "" {
+				row.ReasoningInterleaving = &value
+			}
+		}
+		if m.ReasoningEffortsKnown != nil && *m.ReasoningEffortsKnown {
+			row.Efforts = []string{}
+		}
+		if m.ReasoningEffortsKnown != nil && !*m.ReasoningEffortsKnown && len(m.ReasoningEfforts) > 0 {
+			return nil, errors.New("inconsistent client reasoning metadata")
+		}
 		if row.Name == "" {
 			row.Name = row.ID
 		}
@@ -95,6 +118,11 @@ func (a *ConnectAPI) Models(ctx context.Context, key string) ([]ClientModel, err
 			switch c {
 			case v1.ModelCapability_MODEL_CAPABILITY_TOOLS:
 				row.Tools = true
+			case v1.ModelCapability_MODEL_CAPABILITY_REASONING:
+				if row.SupportsReasoning == nil {
+					value := true
+					row.SupportsReasoning = &value
+				}
 			case v1.ModelCapability_MODEL_CAPABILITY_IMAGE_INPUT:
 				row.Vision = true
 				row.InputModalities = append(row.InputModalities, "image")
@@ -110,6 +138,9 @@ func (a *ConnectAPI) Models(ctx context.Context, key string) ([]ClientModel, err
 			if effort != v1.ReasoningEffort_REASONING_EFFORT_UNSPECIFIED {
 				row.Efforts = append(row.Efforts, strings.ToLower(strings.TrimPrefix(effort.String(), "REASONING_EFFORT_")))
 			}
+		}
+		if row.SupportsTools != nil {
+			row.Tools = *row.SupportsTools
 		}
 		models = append(models, row)
 	}

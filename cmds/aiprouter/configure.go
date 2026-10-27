@@ -19,7 +19,7 @@ func PlanSettings(resolver Resolver, s State, id string, p Profile, key string, 
 	case "claude", "claude-desktop":
 		return PlanClaudeNative(resolver, s, id, p, key, models)
 	}
-	models = compatibleClientModels(id, models)
+	models = compatibleClientModels(id, normalizedExportModels(models))
 	if len(models) == 0 {
 		return nil, errors.New("no compatible routed models are available for this client")
 	}
@@ -153,7 +153,10 @@ func planSettingsTarget(resolver Resolver, s State, id, path string, p Profile, 
 			} else {
 				catalog := object{}
 				for _, m := range models {
-					row := object{"name": m.Name, "supportsVision": m.Vision}
+					row := object{"name": m.Name}
+					if len(m.InputModalities) > 0 || m.Vision {
+						row["supportsVision"] = m.Vision
+					}
 					if len(m.InputModalities) > 0 {
 						row["modalities"] = object{"input": clientInput(m, false), "output": []string{"text"}}
 					}
