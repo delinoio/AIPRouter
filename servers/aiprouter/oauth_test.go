@@ -652,3 +652,18 @@ func TestProviderJEVConfigurationPersistsAndClears(t *testing.T) {
 		t.Fatal("missing decision selection accepted")
 	}
 }
+
+func TestProviderExaConnectionUsesPersonalFixedDestination(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	created, err := m.CreateProviderConnection(ctx, connect.NewRequest(&v1.CreateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ProviderId: "exa", Name: "personal search", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, ApiKey: ptr("exa-private-key")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Msg.Connection.BaseUrl != "https://api.exa.ai" || strings.Contains(created.Msg.String(), "exa-private-key") {
+		t.Fatal("unsafe hosted credential metadata")
+	}
+	_, err = m.UpdateProviderConnection(ctx, connect.NewRequest(&v1.UpdateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ConnectionId: created.Msg.Connection.Id, BaseUrl: ptr("https://other.example")}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("Exa credential redirected: %v", err)
+	}
+}
