@@ -363,7 +363,7 @@ func TestGenericPresetExecutionInventory(t *testing.T) {
 		"jev": "credential-only decision service", "exa": "additive credential-only search service",
 		"qoder": "excluded local execution", "qoder-cn": "excluded local execution", "codebuddy": "excluded local execution", "codebuddy-cn": "excluded local execution", "claude-cli": "excluded local execution",
 		"google": "native Build test below", "google-antigravity": "project-bound Build test below",
-		"google-vertex": "Vertex project/location inference adapter acceptance remains outside this generic matrix",
+		"google-vertex": "real handler/TLS coverage in TestVertexHandlerTLSDispatch",
 	}
 	seen := map[string]bool{}
 	for _, tc := range genericRequests {
