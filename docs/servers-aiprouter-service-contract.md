@@ -223,7 +223,7 @@ Sources: [Responses state](https://github.com/lidge-jun/opencodex/blob/88aaa7545
 - Anonymize the user's remaining usage records and actor identity in surviving audit records.
 - Expiry of existing backups remains governed by the operator's backup policy.
 
-### Generated image artifacts and R2
+### Generated media artifacts and R2
 
 Use operator-configured **Cloudflare R2 and signed download URLs**, with organization/user authorization when issuing a URL.
 
@@ -238,6 +238,8 @@ The reference [artifact implementation](https://github.com/lidge-jun/opencodex/b
 - Apply organization/user ownership, expiry, and deletion to artifact metadata and objects. Do not describe a deleted or expired artifact as retrievable.
 - Generated images are temporary output, not an exception permitting indefinite raw-response storage.
 - Document R2 setup and the signed-URL access boundary in the public installation/configuration guidance.
+
+The pinned hosted video helper also uses this temporary R2 boundary. It does not introduce a public `/v1/videos` API. Accept `video/mp4` output with a **200 MiB per-video** limit and a **600 MiB total per helper turn** limit. Keep the image limits above unchanged. Images and videos share the **200-file organization/user quota**, oldest-first eviction, **24-hour TTL**, and signed URL lifetime above. Apply the same authorization, deletion, and publication fences to both media types. Each indirect download must pass the destination policy and the original request's physical-send budget. Return an opaque artifact identifier and an authorized signed download URL; never return a server-local path.
 
 ### Usage, pricing, and audits
 

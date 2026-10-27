@@ -47,7 +47,7 @@ func TestUnknownUsageAndPricePresence(t *testing.T) {
 }
 
 func TestEveryMethodDeclaresAuthenticationScope(t *testing.T) {
-	files := []protoreflect.FileDescriptor{v1.File_aiprouter_v1_organization_proto, v1.File_aiprouter_v1_device_proto, v1.File_aiprouter_v1_provider_proto, v1.File_aiprouter_v1_usage_proto, v1.File_aiprouter_v1_operator_proto}
+	files := []protoreflect.FileDescriptor{v1.File_aiprouter_v1_organization_proto, v1.File_aiprouter_v1_device_proto, v1.File_aiprouter_v1_provider_proto, v1.File_aiprouter_v1_usage_proto, v1.File_aiprouter_v1_operator_proto, v1.File_aiprouter_v1_hosted_proto}
 	for _, file := range files {
 		services := file.Services()
 		for i := 0; i < services.Len(); i++ {
@@ -223,6 +223,38 @@ func TestOAuthOptionsAndCollectionRevisionRoundTrip(t *testing.T) {
 		}
 		if !proto.Equal(value, decoded) {
 			t.Fatalf("new fields lost: %T", value)
+		}
+	}
+}
+
+func TestHostedSettingsPresenceAndIndependentTargets(t *testing.T) {
+	value := &v1.HostedSettings{
+		Search: &v1.HostedSearchSettings{Enabled: proto.Bool(false), Backend: v1.HostedSearchBackend_HOSTED_SEARCH_BACKEND_EXA.Enum(), Target: &v1.HostedHelperTarget{Selection: &v1.HostedHelperTarget_ConnectionId{ConnectionId: "personal-search"}}, XSearch: &v1.HostedXSearchOptions{Enabled: true, AllowedXHandles: []string{"example"}}},
+		Vision: &v1.HostedVisionSettings{Selection: &v1.HostedVisionSettings_RouteModel{RouteModel: "vision-alias"}, Backend: v1.HostedVisionBackend_HOSTED_VISION_BACKEND_ROUTED.Enum(), MaxDescriptionsPerTurn: proto.Uint32(0)},
+		Images: &v1.HostedImageSettings{Target: &v1.HostedHelperTarget{Selection: &v1.HostedHelperTarget_PoolId{PoolId: "personal-media"}}, VideoBridgeEnabled: true},
+	}
+	wire, err := proto.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded := &v1.HostedSettings{}
+	if err = proto.Unmarshal(wire, decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !proto.Equal(value, decoded) {
+		t.Fatal("helper target, option presence or zero value lost")
+	}
+	if decoded.Search.Enabled == nil || decoded.Vision.Enabled != nil {
+		t.Fatal("explicit disable must remain distinct from default")
+	}
+	if decoded.Images.BridgeEnabled {
+		t.Fatal("image bridge must default off independently of video")
+	}
+	for _, message := range []protoreflect.MessageDescriptor{(&v1.GetHostedSettingsRequest{}).ProtoReflect().Descriptor(), (&v1.UpdateHostedSettingsRequest{}).ProtoReflect().Descriptor(), (&v1.HostedHelperTarget{}).ProtoReflect().Descriptor()} {
+		for _, name := range []protoreflect.Name{"user_id", "api_key", "access_token", "parent_credential", "operator_credential"} {
+			if message.Fields().ByName(name) != nil {
+				t.Fatalf("hosted selection widens ownership: %s", name)
+			}
 		}
 	}
 }

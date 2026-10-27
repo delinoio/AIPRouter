@@ -216,3 +216,18 @@ test("pool generic OAuth affinity requires explicit opt-in", async () => {
     );
   }
 });
+
+test("hosted helper settings preserve personal selectors and optional defaults", async () => {
+  const { HostedSettingsSchema, HostedVisionBackend, HostedSettingsService } = await import("../src/index.js");
+  const settings = create(HostedSettingsSchema, {
+    search: { enabled: false, target: { selection: { case: "connectionId", value: "search-connection" } } },
+    vision: { backend: HostedVisionBackend.ROUTED, selection: { case: "routeModel", value: "vision-alias" }, maxDescriptionsPerTurn: 0 },
+    images: { target: { selection: { case: "poolId", value: "media-pool" } }, videoBridgeEnabled: true },
+  });
+  const decoded = fromBinary(HostedSettingsSchema, toBinary(HostedSettingsSchema, settings));
+  assert.deepEqual(decoded, settings);
+  assert.equal(decoded.search?.enabled, false);
+  assert.equal(decoded.vision?.enabled, undefined);
+  assert.equal(decoded.images?.bridgeEnabled, false);
+  assert.equal(HostedSettingsService.method.getHostedSettings.input.typeName, "aiprouter.v1.GetHostedSettingsRequest");
+});

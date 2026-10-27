@@ -6,3 +6,4 @@ export * from "./gen/aiprouter/v1/device_pb.js";
 export * from "./gen/aiprouter/v1/provider_pb.js";
 export * from "./gen/aiprouter/v1/usage_pb.js";
 export * from "./gen/aiprouter/v1/operator_pb.js";
+export * from "./gen/aiprouter/v1/hosted_pb.js";
