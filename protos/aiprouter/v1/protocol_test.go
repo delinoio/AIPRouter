@@ -262,11 +262,17 @@ func TestHostedSettingsPresenceAndIndependentTargets(t *testing.T) {
 func TestProviderPolicyPresenceAndWriteOnlyHeaders(t *testing.T) {
 	policy := &v1.ProviderPolicyOverrides{}
 	fields := policy.ProtoReflect().Descriptor().Fields()
-	if fields.Len() != 17 {
+	if fields.Len() != 19 {
 		t.Fatalf("policy inventory changed: %d", fields.Len())
 	}
 	for i := 0; i < fields.Len(); i++ {
 		field := fields.Get(i)
+		if field.Name() == "model_supports_service_tier" {
+			if field.Number() != 20 || !field.IsMap() || field.MapValue().Kind() != protoreflect.BoolKind {
+				t.Fatal("model service tier overrides must remain a boolean map")
+			}
+			continue
+		}
 		if field.Name() == "responses_item_id_repair" {
 			if field.Number() != 18 || field.Kind() != protoreflect.MessageKind || !field.HasPresence() {
 				t.Fatal("repair policy must be a present message on new field 18")
@@ -415,5 +421,36 @@ func TestJevQuotaTierPresence(t *testing.T) {
 	}
 	if (&v1.JevDecisionConfig{}).GetDecisionQuotaSignals() {
 		t.Fatal("quota signals must default off")
+	}
+}
+
+func TestFastPolicyFalseMapValues(t *testing.T) {
+	value := &v1.ProviderPolicyOverrides{FastEnabled: proto.Bool(false), ModelSupportsServiceTier: map[string]bool{"disabled": false, "enabled": true}}
+	for _, jsonWire := range []bool{false, true} {
+		var wire []byte
+		var err error
+		if jsonWire {
+			wire, err = protojson.Marshal(value)
+		} else {
+			wire, err = proto.Marshal(value)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := &v1.ProviderPolicyOverrides{}
+		if jsonWire {
+			err = protojson.Unmarshal(wire, decoded)
+		} else {
+			err = proto.Unmarshal(wire, decoded)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(value, decoded) {
+			t.Fatalf("explicit false lost: %v", decoded)
+		}
+		if _, ok := decoded.ModelSupportsServiceTier["missing"]; ok {
+			t.Fatal("missing model must stay absent")
+		}
 	}
 }

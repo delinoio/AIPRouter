@@ -50,6 +50,11 @@ message ProviderPolicyOverrides {
   optional bool show_thinking_summary = 16;
   optional bool escape_builtin_tool_names = 17;
   ResponsesItemIdRepair responses_item_id_repair = 18;
+  // Explicit fast-mode opt-in. Absent inherits the matched policy; false disables it.
+  optional bool fast_enabled = 19;
+  // Exact model IDs. Missing keys inherit; present false explicitly disables support.
+  // Preserve false entries when serializing or merging policy overrides.
+  map<string, bool> model_supports_service_tier = 20;
 }
 
 // Safe read metadata. Header secret values are deliberately not part of this message.

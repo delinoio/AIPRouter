@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import assert from "node:assert/strict";
 import test from "node:test";
-import { create, fromBinary, toBinary, toJson } from "@bufbuild/protobuf";
+import {
+  create,
+  fromBinary,
+  fromJson,
+  toBinary,
+  toJson,
+} from "@bufbuild/protobuf";
 import { createClient, type Transport } from "@connectrpc/connect";
 import { createConnectQueryKey } from "@connectrpc/connect-query";
 import {
@@ -419,4 +425,23 @@ test("JEV quota tiers preserve omitted thresholds and explicit zero", async () =
       ...(decisionQuotaTiers === undefined ? {} : { decisionQuotaTiers }),
     });
   }
+});
+
+test("fast policy retains explicit false and per-model false entries", async () => {
+  const { ProviderPolicyOverridesSchema } = await import("../src/index.js");
+  assert.equal(create(ProviderPolicyOverridesSchema).fastEnabled, undefined);
+  const json = {
+    fastEnabled: false,
+    modelSupportsServiceTier: { disabled: false, enabled: true },
+  };
+  const value = fromJson(ProviderPolicyOverridesSchema, json);
+  const decoded = fromBinary(
+    ProviderPolicyOverridesSchema,
+    toBinary(ProviderPolicyOverridesSchema, value),
+  );
+  assert.deepEqual(toJson(ProviderPolicyOverridesSchema, decoded), json);
+  assert.equal(
+    Object.hasOwn(decoded.modelSupportsServiceTier, "missing"),
+    false,
+  );
 });
