@@ -90,7 +90,7 @@ func TestProviderAcceptanceDSHReimport(t *testing.T) {
 		}
 		if reject.Load() {
 			w.WriteHeader(401)
-			providerAcceptanceResponse(w, `{"error":{"message":"fixture expired"}}`)
+			providerAcceptanceResponse(w, `{"error":{"message":"expired `+f.secret+`"}}`)
 			return
 		}
 		providerAcceptanceResponse(w, `{"id":"msg_fixture","type":"message","role":"assistant","model":"deepseek-flash","content":[{"type":"text","text":"fixture ok"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":1}}`)
@@ -122,7 +122,8 @@ func TestProviderAcceptanceCommandCode(t *testing.T) {
 	for _, mode := range []string{"success", "plan", "credits"} {
 		t.Run(mode, func(t *testing.T) {
 			var calls atomic.Int32
-			f := newProviderAcceptance(t, "command-code", "glm-5.2", func(w http.ResponseWriter, r *http.Request) {
+			var f *providerAcceptanceFixture
+			f = newProviderAcceptance(t, "command-code", "glm-5.2", func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
 				if r.Host != "api.commandcode.ai" || r.URL.Path != "/alpha/generate" {
 					t.Error("subscription API endpoint mismatch")
@@ -153,10 +154,10 @@ func TestProviderAcceptanceCommandCode(t *testing.T) {
 				switch mode {
 				case "plan":
 					w.WriteHeader(403)
-					io.WriteString(w, `{"success":false,"error":{"code":"FORBIDDEN","message":"MODEL_NOT_IN_PLAN"}}`)
+					io.WriteString(w, `{"success":false,"error":{"code":"FORBIDDEN","message":"MODEL_NOT_IN_PLAN: `+f.secret+`"}}`)
 				case "credits":
 					w.WriteHeader(400)
-					io.WriteString(w, `{"success":false,"error":{"code":"BAD_REQUEST","message":"You have insufficient credits to make this request."}}`)
+					io.WriteString(w, `{"success":false,"error":{"code":"BAD_REQUEST","message":"You have insufficient credits to make this request. `+f.secret+`"}}`)
 				default:
 					w.Header().Set("Content-Type", "application/x-ndjson")
 					io.WriteString(w, "{\"type\":\"text-delta\",\"text\":\"fixture ok\"}\n{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":2,\"outputTokens\":1}}\n")

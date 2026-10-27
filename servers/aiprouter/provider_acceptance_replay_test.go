@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -18,13 +19,18 @@ const providerAcceptanceReplayNext = `{"model":"fixture","messages":[{"role":"us
 const providerAcceptanceRawThought = "raw fixture thought"
 
 func TestProviderAcceptanceReasoningReplay(t *testing.T) {
-	for _, mode := range []string{"restore", "expire", "revoke", "thread", "organization", "user", "account", "model", "generation", "deleted", "destination", "key"} {
+	for _, mode := range []string{"restore", "stream-restore", "expire", "revoke", "thread", "organization", "user", "account", "model", "generation", "deleted", "destination", "key"} {
 		t.Run(mode, func(t *testing.T) {
 			var calls atomic.Int32
 			f := newProviderAcceptance(t, "custom", "deepseek-v3.2-pro", func(w http.ResponseWriter, r *http.Request) {
 				n := calls.Add(1)
 				b := providerAcceptanceBody(t, r)
 				if n == 1 {
+					if mode == "stream-restore" {
+						w.Header().Set("Content-Type", "text/event-stream")
+						io.WriteString(w, "data: {\"id\":\"chat_replay\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"raw fixture \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_replay\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"thought\",\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_replay\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n")
+						return
+					}
 					providerAcceptanceResponse(w, `{"id":"chat_replay","object":"chat.completion","model":"deepseek-v3.2-pro","choices":[{"index":0,"message":{"role":"assistant","reasoning_content":"raw fixture thought","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":2,"completion_tokens":1}}`)
 					return
 				}
@@ -41,7 +47,11 @@ func TestProviderAcceptanceReasoningReplay(t *testing.T) {
 				providerAcceptanceResponse(w, providerAcceptanceChat)
 			})
 			headers := http.Header{"Thread-Id": {"replay-fixture"}}
-			providerAcceptanceStatus(t, f.call("/v1/chat/completions", providerAcceptanceReplayStart, headers), 200)
+			first := providerAcceptanceReplayStart
+			if mode == "stream-restore" {
+				first = strings.Replace(first, `"model":"fixture"`, `"model":"fixture","stream":true`, 1)
+			}
+			providerAcceptanceStatus(t, f.call("/v1/chat/completions", first, headers), 200)
 			// Assert encrypted durable storage, not a process-local adapter cache.
 			rows, e := f.db.Query(`SELECT value,expires_at>clock_timestamp(),expires_at<=clock_timestamp()+interval '1 hour',quota_entries,quota_bytes,account_id,credential_version FROM "` + f.schema + `_temp".provider_states WHERE namespace='tool-reasoning-replay'`)
 			acceptanceOK(t, e)
@@ -121,7 +131,7 @@ func TestProviderAcceptanceReasoningReplay(t *testing.T) {
 				f.replayRoute("deepseek-v3.2-pro-new")
 			}
 			w := f.call("/v1/chat/completions", providerAcceptanceReplayNext, headers)
-			if mode == "restore" {
+			if mode == "restore" || mode == "stream-restore" {
 				providerAcceptanceStatus(t, w, 200)
 				if calls.Load() != 2 {
 					t.Fatal("restored request not sent")
