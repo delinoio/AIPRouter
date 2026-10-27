@@ -22,7 +22,7 @@ type NativeCompatibilityModel struct {
 
 // Account must be independently verified by the native controller. Intercepted
 // payloads and user-entered identifiers cannot establish this trusted context.
-type NativeCompatibilityAccount struct{ ID, UserID, Plan, Structure string }
+type NativeCompatibilityAccount struct{ ID, UserID, Plan, Structure, CredentialGeneration string }
 type nativeCompatibilityTrial struct {
 	account NativeCompatibilityAccount
 	expires time.Time

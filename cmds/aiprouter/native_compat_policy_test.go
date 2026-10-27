@@ -142,7 +142,7 @@ func nativeTrialFixture(t *testing.T) (NativeCompatibilityPolicy, *time.Time, *b
 	now := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
 	valid := true
 	p := nativePolicyFixture(t, NativeCompatibilityCodexAccountUITrial)
-	p, err := p.WithAccountUITrial(NativeCompatibilityAccount{"account", "user", "plus", "personal"}, now.Add(time.Minute), func() time.Time { return now }, func() bool { return valid })
+	p, err := p.WithAccountUITrial(NativeCompatibilityAccount{ID: "account", UserID: "user", Plan: "plus", Structure: "personal"}, now.Add(time.Minute), func() time.Time { return now }, func() bool { return valid })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestNativeCompatibilityRewriteBudgetAndTrialAdmission(t *testing.T) {
 	}
 	trial := nativePolicyFixture(t, NativeCompatibilityCodexAccountUITrial)
 	now := time.Now()
-	account := NativeCompatibilityAccount{"account", "user", "plus", "personal"}
+	account := NativeCompatibilityAccount{ID: "account", UserID: "user", Plan: "plus", Structure: "personal"}
 	for _, until := range []time.Time{now, now.Add(3*time.Minute + time.Nanosecond)} {
 		if _, err := trial.WithAccountUITrial(account, until, func() time.Time { return now }, func() bool { return true }); err == nil {
 			t.Fatal("unbounded trial")
