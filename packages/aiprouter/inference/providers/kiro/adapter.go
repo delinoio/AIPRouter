@@ -29,6 +29,8 @@ type stateKey struct{}
 type requestState struct {
 	mu          sync.Mutex
 	model       string
+	binding     [32]byte
+	streamID    string
 	aliases     map[string]string
 	completion  bool
 	built       bool
@@ -181,6 +183,7 @@ func (*Adapter) Build(ctx context.Context, in inference.AdapterInput) (inference
 	}
 	state.model, state.aliases, state.completion, state.built = model, registry.advertised, completion, true
 	state.owner, state.definitions = in.Principal, registry.definitions
+	state.binding = inputBinding(in)
 	state.metadata.ConversationID = str(obj(payload["conversationState"])["conversationId"])
 	state.metadata.Tools = append([]ToolDefinition(nil), registry.catalog...)
 	return inference.AdapterRequest{URL: endpoint.String(), Headers: headers, Body: encoded, ResponseWire: inference.Chat, AttemptTimeout: DefaultAttemptTimeout}, nil

@@ -22,9 +22,16 @@ type decodedBody struct {
 	*io.PipeReader
 	closeSource func()
 	stop        func() bool
+	done        <-chan struct{}
 }
 
-func (b *decodedBody) Close() error { b.stop(); b.closeSource(); return b.PipeReader.Close() }
+func (b *decodedBody) Close() error {
+	b.stop()
+	b.closeSource()
+	err := b.PipeReader.Close()
+	<-b.done
+	return err
+}
 
 func (*Adapter) Decode(ctx context.Context, response *http.Response) (*http.Response, error) {
 	if err := ctx.Err(); err != nil {
@@ -62,14 +69,23 @@ func (*Adapter) Decode(ctx context.Context, response *http.Response) (*http.Resp
 	if err != nil {
 		return nil, err
 	}
+	state.mu.Lock()
+	if state.streamID == "" {
+		state.streamID = id
+	} else {
+		id = state.streamID
+	}
+	state.mu.Unlock()
 	reader, writer := io.Pipe()
 	var once sync.Once
 	closeSource := func() { once.Do(func() { response.Body.Close() }) }
 	stop := context.AfterFunc(ctx, func() { closeSource(); writer.CloseWithError(ctx.Err()) })
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		defer stop()
 		defer closeSource()
-		s := streamState{ctx: ctx, out: writer, id: "chatcmpl-" + id, created: time.Now().Unix(), model: model, aliases: aliases, definitions: definitions, request: state, completionRequired: completion, tools: map[string]*streamTool{}, usage: object{}}
+		s := streamState{ctx: ctx, out: writer, id: "chatcmpl-" + id, created: time.Now().Unix(), model: model, aliases: aliases, definitions: definitions, request: state, completionRequired: completion, textFallback: ctx.Value(fallbackKey{}) == true, tools: map[string]*streamTool{}, usage: object{}}
 		err := s.run(response.Body)
 		if ctx.Err() != nil {
 			err = ctx.Err()
@@ -101,7 +117,7 @@ func (*Adapter) Decode(ctx context.Context, response *http.Response) (*http.Resp
 	copy.Header.Del("Content-Length")
 	copy.Header.Del("Content-Encoding")
 	copy.ContentLength = -1
-	copy.Body = &decodedBody{reader, closeSource, stop}
+	copy.Body = &decodedBody{reader, closeSource, stop, done}
 	return &copy, nil
 }
 
@@ -120,6 +136,7 @@ type streamState struct {
 	definitions           map[string]ToolDefinition
 	request               *requestState
 	completionRequired    bool
+	textFallback          bool
 	tools                 map[string]*streamTool
 	order                 []string
 	active                string
@@ -242,7 +259,7 @@ func (s *streamState) run(source io.Reader) error {
 		}
 	} else if len(s.order) > 0 {
 		finish = "tool_calls"
-	} else if s.completionRequired && finish == "stop" {
+	} else if s.completionRequired && !s.textFallback && finish == "stop" {
 		// This requires one centrally admitted fallback send. Returning success
 		// would turn progress commentary into a final answer.
 		if err := s.flushCommentary(); err != nil {
@@ -594,7 +611,11 @@ func (s *streamState) tool(m object) error {
 			break
 		}
 	}
-	return s.chunk(object{"tool_calls": []any{object{"index": index, "id": id, "type": "function", "function": object{"name": s.aliases[t.name], "arguments": arguments}}}}, nil)
+	call := object{"index": index, "id": id, "type": "function", "function": object{"name": s.aliases[t.name], "arguments": arguments}}
+	if definition, ok := s.definitions[t.name]; ok {
+		call["provider_metadata"] = object{"tool_kind": string(definition.Kind), "tool_name": definition.Name, "tool_namespace": definition.Namespace}
+	}
+	return s.chunk(object{"tool_calls": []any{call}}, nil)
 }
 
 // Keep only a possible tag prefix across frames, so split thinking tags do not
