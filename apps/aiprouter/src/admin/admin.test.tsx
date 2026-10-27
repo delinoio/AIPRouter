@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, rs } from "@rstest/core";
 import {
   cleanup,
   render,
@@ -57,13 +57,13 @@ function fixture(
     role,
   });
   const mutations = {
-    remove: vi.fn(),
-    role: vi.fn(),
-    invite: vi.fn(),
-    resend: vi.fn(),
-    delete: vi.fn(),
-    settings: vi.fn(),
-    nominate: vi.fn(),
+    remove: rs.fn(),
+    role: rs.fn(),
+    invite: rs.fn(),
+    resend: rs.fn(),
+    delete: rs.fn(),
+    settings: rs.fn(),
+    nominate: rs.fn(),
   };
   const transport = createRouterTransport((router) => {
     router.service(AccountService, {

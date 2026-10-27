@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { it, expect, vi } from "vitest";
+import { it, expect, rs } from "@rstest/core";
 import { createRouterTransport } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
 import { QueryClient } from "@tanstack/react-query";
@@ -93,7 +93,7 @@ it.each(["", "false"])(
   "creates Codex options preserving enabled %s and member zero/false values",
   async (enabled) => {
     const user = userEvent.setup(),
-      mutation = vi.fn((_r: unknown) => ({}));
+      mutation = rs.fn((_r: unknown) => ({}));
     mount(undefined, "openai", mutation);
     await start(user);
     await user.selectOptions(screen.getByLabelText("Native pooling"), enabled);
@@ -185,7 +185,7 @@ const saved = create(PoolSchema, {
   },
 });
 it("preserves imported absent enablement, false native messages and rule/member order on edit", async () => {
-  const mutation = vi.fn((_r: unknown) => ({}));
+  const mutation = rs.fn((_r: unknown) => ({}));
   mount(saved, "anthropic2", mutation);
   await userEvent.click(
     await screen.findByRole("button", { name: "Edit pool" }),
@@ -210,7 +210,7 @@ it("preserves imported absent enablement, false native messages and rule/member 
 });
 it("clears native pool and member options without changing generic affinity", async () => {
   const user = userEvent.setup(),
-    mutation = vi.fn((_r: unknown) => ({}));
+    mutation = rs.fn((_r: unknown) => ({}));
   mount(saved, "anthropic", mutation);
   await user.click(await screen.findByRole("button", { name: "Edit pool" }));
   await user.click(screen.getByText("Native OAuth pool settings"));
@@ -231,7 +231,7 @@ it("clears native pool and member options without changing generic affinity", as
 });
 it("creates ordered Anthropic model rules and rejects duplicate patterns", async () => {
   const user = userEvent.setup(),
-    mutation = vi.fn((_r: unknown) => ({}));
+    mutation = rs.fn((_r: unknown) => ({}));
   mount(undefined, "anthropic", mutation);
   await start(user);
   expect(screen.queryByLabelText("Upstream failover threshold")).toBeNull();
@@ -278,7 +278,7 @@ it("creates ordered Anthropic model rules and rejects duplicate patterns", async
 });
 it("blocks mixed-provider native settings until explicitly cleared", async () => {
   const user = userEvent.setup(),
-    mutation = vi.fn((_r: unknown) => ({}));
+    mutation = rs.fn((_r: unknown) => ({}));
   mount(undefined, "openai", mutation);
   await start(user);
   await user.selectOptions(screen.getByLabelText("Add a connection"), "other");
@@ -298,7 +298,7 @@ it.each(["preserve", "clear"])(
   "%s optional Codex health settings during full replacement",
   async (mode) => {
     const user = userEvent.setup(),
-      mutation = vi.fn((_r: unknown) => ({}));
+      mutation = rs.fn((_r: unknown) => ({}));
     const pool = create(PoolSchema, {
       ...saved,
       nativeOptions: create(NativePoolOptionsSchema, {
@@ -342,7 +342,7 @@ it.each(["preserve", "clear"])(
 );
 it("blocks out-of-range health settings", async () => {
   const user = userEvent.setup(),
-    mutation = vi.fn((_r: unknown) => ({}));
+    mutation = rs.fn((_r: unknown) => ({}));
   mount(undefined, "openai", mutation);
   await start(user);
   await user.type(screen.getByLabelText("Upstream failover threshold"), "21");
@@ -356,7 +356,7 @@ it("blocks out-of-range health settings", async () => {
 });
 it("rejects explicit Codex health zero/false/unspecified in an Anthropic pool until cleared", async () => {
   const user = userEvent.setup(),
-    mutation = vi.fn((_r: unknown) => ({}));
+    mutation = rs.fn((_r: unknown) => ({}));
   const pool = create(PoolSchema, {
     ...saved,
     nativeOptions: create(NativePoolOptionsSchema, {

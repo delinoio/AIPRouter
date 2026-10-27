@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, rs } from "@rstest/core";
 import {
   createRouterTransport,
   ConnectError,
@@ -92,7 +92,7 @@ describe("provider configuration mutations", () => {
     "sends Vertex configuration with %s presence through Connect",
     async (mode) => {
       const user = userEvent.setup();
-      const update = vi.fn((_request: unknown) => {
+      const update = rs.fn((_request: unknown) => {
         if (mode === "empty")
           throw new ConnectError(
             "Vertex project must not be empty",
@@ -169,7 +169,7 @@ describe("provider configuration mutations", () => {
 
   it("preserves fast false and exact model false overrides during unrelated full configuration replacement", async () => {
     const user = userEvent.setup(),
-      update = vi.fn((_request: unknown) => ({}));
+      update = rs.fn((_request: unknown) => ({}));
     const source = create(ProviderConnectionSchema, {
       ...connection,
       configuration: create(ProviderConfigurationSchema, {
@@ -203,7 +203,7 @@ describe("provider configuration mutations", () => {
   });
   it("edits fast tri-state and model support without lowercasing, rejects duplicate folded IDs", async () => {
     const user = userEvent.setup(),
-      update = vi.fn((_request: unknown) => ({}));
+      update = rs.fn((_request: unknown) => ({}));
     mount(
       <ProvidersPage organization={organization} session={session} />,
       (r) => providerRoutes(r, update),
@@ -259,7 +259,7 @@ describe("provider configuration mutations", () => {
     "sends nested item ID repair policy with %s semantics",
     async (mode) => {
       const user = userEvent.setup();
-      const update = vi.fn((_request: unknown) => ({}));
+      const update = rs.fn((_request: unknown) => ({}));
       const source = create(ProviderConnectionSchema, {
         ...connection,
         configuration: create(ProviderConfigurationSchema, {
@@ -343,7 +343,7 @@ describe("provider configuration mutations", () => {
 
   it("preserves hidden header values and configuration when only the name changes", async () => {
     const user = userEvent.setup(),
-      update = vi.fn((_request: unknown) => ({}));
+      update = rs.fn((_request: unknown) => ({}));
     mount(
       <ProvidersPage organization={organization} session={session} />,
       (r) => providerRoutes(r, update),
@@ -366,7 +366,7 @@ describe("provider configuration mutations", () => {
   });
   it("sends typed exact model formats, explicit false policy, and masked replacement headers", async () => {
     const user = userEvent.setup(),
-      update = vi.fn((_request: unknown) => ({}));
+      update = rs.fn((_request: unknown) => ({}));
     mount(
       <ProvidersPage organization={organization} session={session} />,
       (r) => providerRoutes(r, update),
@@ -425,7 +425,7 @@ describe("provider configuration mutations", () => {
   });
   it("resets configuration separately from explicit header clearing", async () => {
     const user = userEvent.setup(),
-      update = vi.fn((_request: unknown) => ({}));
+      update = rs.fn((_request: unknown) => ({}));
     mount(
       <ProvidersPage organization={organization} session={session} />,
       (r) => providerRoutes(r, update),
@@ -484,7 +484,7 @@ describe("personal hosted settings", () => {
   }
   it("preserves false, zero and unrelated sections while replacing complete settings", async () => {
     const user = userEvent.setup(),
-      update = vi.fn((_request: unknown) => ({ settings }));
+      update = rs.fn((_request: unknown) => ({ settings }));
     mount(<HostedHelpers organizationId="org" />, (r) => routes(r, update));
     await user.click(
       screen.getByRole("button", { name: "Configure hosted helpers" }),
@@ -515,7 +515,7 @@ describe("personal hosted settings", () => {
   });
   it("retains failed drafts and sends routed vision without a connection target", async () => {
     const user = userEvent.setup(),
-      update = vi.fn((_request: unknown) => {
+      update = rs.fn((_request: unknown) => {
         throw new ConnectError("invalid target", Code.InvalidArgument);
       });
     mount(<HostedHelpers organizationId="org" />, (r) => routes(r, update));

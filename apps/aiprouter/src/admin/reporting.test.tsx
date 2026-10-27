@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, rs } from "@rstest/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
@@ -58,9 +58,9 @@ function mount(children: ReactNode, routes: (router: ConnectRouter) => void) {
 describe("server-side reporting filters", () => {
   it("applies provider and outcome to requests, summaries and daily data; resets cursors", async () => {
     const calls = {
-      list: vi.fn<(request: ListUsageRequest) => void>(),
-      summary: vi.fn<(request: GetUsageSummaryRequest) => void>(),
-      daily: vi.fn<(request: ListDailyUsageRequest) => void>(),
+      list: rs.fn<(request: ListUsageRequest) => void>(),
+      summary: rs.fn<(request: GetUsageSummaryRequest) => void>(),
+      daily: rs.fn<(request: ListDailyUsageRequest) => void>(),
     };
     mount(<OrganizationUsage />, (router) => {
       router.service(UsageService, {
@@ -164,8 +164,8 @@ describe("server-side reporting filters", () => {
   it.each([false, true])(
     "sends conjunctive audit filters to the correct scope (operator=%s)",
     async (operator) => {
-      const org = vi.fn<(request: ListOrganizationAuditRequest) => void>(),
-        instance = vi.fn<(request: ListInstanceAuditRequest) => void>();
+      const org = rs.fn<(request: ListOrganizationAuditRequest) => void>(),
+        instance = rs.fn<(request: ListInstanceAuditRequest) => void>();
       mount(<Audit operator={operator} />, (router) => {
         router.service(AuditService, {
           listOrganizationAudit: (request) => {
@@ -269,9 +269,9 @@ function priceFixture({
   pageConflict = false,
 }: { revisionMissing?: boolean; pageConflict?: boolean } = {}) {
   let revision = "1";
-  const set = vi.fn(),
-    remove = vi.fn(),
-    list = vi.fn();
+  const set = rs.fn(),
+    remove = rs.fn(),
+    list = rs.fn();
   const price = {
     id: "override",
     providerId: "provider-a",

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, rs } from "@rstest/core";
 import { createRouterTransport, ConnectError, Code } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
 import { QueryClient } from "@tanstack/react-query";
@@ -110,7 +110,7 @@ describe("JEV routing payloads", () => {
     "retention edit %s preserves generated payload presence",
     async (mode) => {
       const user = userEvent.setup(),
-        mutate = vi.fn((_request: unknown) => ({}));
+        mutate = rs.fn((_request: unknown) => ({}));
       mount(
         create(RouteSchema, {
           ...configured,
@@ -153,7 +153,7 @@ describe("JEV routing payloads", () => {
   );
   it("creates enabled retention with default limits and validates numeric bounds", async () => {
     const user = userEvent.setup(),
-      mutate = vi.fn((_request: unknown) => ({}));
+      mutate = rs.fn((_request: unknown) => ({}));
     mount(undefined, mutate);
     await screen.findByRole("heading", { name: "decision-alias" });
     await user.click(screen.getByRole("button", { name: "Create route" }));
@@ -199,7 +199,7 @@ describe("JEV routing payloads", () => {
 
   it("validates effective quota order while signals are off and allows explicit override removal", async () => {
     const user = userEvent.setup(),
-      mutate = vi.fn((_request: unknown) => ({}));
+      mutate = rs.fn((_request: unknown) => ({}));
     mount(configured, mutate);
     await edit();
     await user.click(screen.getByText("Advisory quota signals"));
@@ -231,7 +231,7 @@ describe("JEV routing payloads", () => {
   it.each([NaN, Infinity, -1, 101])(
     "rejects invalid saved quota threshold %s until repaired",
     async (value) => {
-      const mutate = vi.fn((_request: unknown) => ({}));
+      const mutate = rs.fn((_request: unknown) => ({}));
       mount(
         create(RouteSchema, {
           ...configured,
@@ -256,7 +256,7 @@ describe("JEV routing payloads", () => {
   it.each([true, false])(
     "preserves existing optional quota thresholds with signals %s on full route replacement",
     async (signals) => {
-      const mutate = vi.fn((_request: unknown) => ({}));
+      const mutate = rs.fn((_request: unknown) => ({}));
       const route = create(RouteSchema, {
         ...configured,
         jevDecision: create(JevDecisionConfigSchema, {
@@ -298,7 +298,7 @@ describe("JEV routing payloads", () => {
 
   it("creates explicit personal decision configuration and target hints with bounds", async () => {
     const user = userEvent.setup(),
-      mutate = vi.fn((_request: unknown) => ({}));
+      mutate = rs.fn((_request: unknown) => ({}));
     mount(undefined, mutate);
     await user.click(screen.getByRole("button", { name: "Create route" }));
     await user.type(screen.getByLabelText("Model alias"), "new-smart");
@@ -369,7 +369,7 @@ describe("JEV routing payloads", () => {
     });
   });
   it("preserves existing decision config, target hints and profiles on edit", async () => {
-    const mutate = vi.fn((_request: unknown) => ({}));
+    const mutate = rs.fn((_request: unknown) => ({}));
     mount(configured, mutate);
     await edit();
     await userEvent.click(screen.getByRole("button", { name: "Save routing" }));
@@ -386,7 +386,7 @@ describe("JEV routing payloads", () => {
   });
   it("omits decision config when replacing a JEV route with an ordinary strategy", async () => {
     const user = userEvent.setup(),
-      mutate = vi.fn((_request: unknown) => ({}));
+      mutate = rs.fn((_request: unknown) => ({}));
     mount(configured, mutate);
     await edit();
     await user.selectOptions(
@@ -409,7 +409,7 @@ describe("JEV routing payloads", () => {
   });
   it("clears stale decision fields when changing source and preserves a server-rejected draft", async () => {
     const user = userEvent.setup(),
-      mutate = vi.fn((_request: unknown) => {
+      mutate = rs.fn((_request: unknown) => {
         throw new ConnectError(
           "decision route chain rejected",
           Code.FailedPrecondition,
@@ -441,7 +441,7 @@ describe("JEV routing payloads", () => {
   });
   it("does not restore invalid decision config when toggling away and back to JEV", async () => {
     const user = userEvent.setup(),
-      mutate = vi.fn((_request: unknown) => ({}));
+      mutate = rs.fn((_request: unknown) => ({}));
     mount(configured, mutate);
     await edit();
     await user.selectOptions(

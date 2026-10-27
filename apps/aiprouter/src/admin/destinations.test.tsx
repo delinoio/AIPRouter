@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { expect, it, vi } from "vitest";
+import { expect, it, rs } from "@rstest/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
@@ -21,7 +21,7 @@ function fixture(
   failure?: Code,
 ) {
   let revision = "1";
-  const update = vi.fn<(r: UpdateInstanceSettingsRequest) => void>();
+  const update = rs.fn<(r: UpdateInstanceSettingsRequest) => void>();
   const settings = () => ({
     revision,
     requestLimits: { requestsPerMinute: 120, concurrentRequests: 10 },
