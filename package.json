@@ -6,9 +6,13 @@
   "scripts": {
     "dev": "turbo run dev",
     "prepare": "./scripts/install-git-hooks.sh",
-    "test": "node --test scripts/ci/*.test.mjs",
+    "test": "turbo run test test:tooling",
     "format": "node scripts/ci/format-changed.mjs --write",
-    "format:check": "node scripts/ci/format-changed.mjs"
+    "format:check": "node scripts/ci/format-changed.mjs",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test:tooling": "node --test scripts/ci/*.test.mjs"
   },
   "devDependencies": {
     "lefthook": "2.2.2",
