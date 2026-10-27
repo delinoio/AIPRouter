@@ -210,6 +210,20 @@ func validateProviderConfiguration(provider string, config *v1.ProviderConfigura
 	if config == nil {
 		return nil
 	}
+	if config.VertexProject != nil || config.VertexLocation != nil {
+		if provider != "google-vertex" {
+			return invalid("Vertex project and location require Google Vertex")
+		}
+		if config.VertexProject != nil {
+			project := *config.VertexProject
+			if !validConfiguredModel(project) || project == "." || project == ".." || strings.ContainsAny(project, "/\\?#% \t\n\r") {
+				return invalid("invalid Vertex project")
+			}
+		}
+		if config.VertexLocation != nil && !selectedVertexLocation.MatchString(*config.VertexLocation) {
+			return invalid("invalid Vertex location")
+		}
+	}
 	configurable := provider == "custom"
 	if p, ok := providers.Lookup(provider); ok {
 		configurable = genericProviderWire(p.Wire)
@@ -301,6 +315,11 @@ func applyProviderConfiguration(d *providerData, config *v1.ProviderConfiguratio
 	}
 	if err := validateProviderConfiguration(d.Metadata.ProviderId, d.Metadata.Configuration); err != nil {
 		return err
+	}
+	if config := d.Metadata.Configuration; config != nil && config.VertexProject != nil && strings.EqualFold(*config.VertexProject, "auto") {
+		if d.Metadata.AuthKind != v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY || *config.VertexProject != "auto" {
+			return invalid("Vertex auto project requires API key authentication")
+		}
 	}
 	if headers != nil {
 		var err error

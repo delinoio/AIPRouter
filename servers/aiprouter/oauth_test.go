@@ -932,3 +932,60 @@ func TestProviderPoolNativeHealthPresenceAndBounds(t *testing.T) {
 		t.Fatal("replacement retained old health values")
 	}
 }
+
+func TestProviderConfigurationVertexProjectLocation(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	created, err := m.CreateProviderConnection(ctx, connect.NewRequest(&v1.CreateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ProviderId: "google-vertex", Name: "key auto", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, ApiKey: ptr("private-key"), Configuration: &v1.ProviderConfiguration{VertexProject: ptr("auto"), VertexLocation: ptr("us-central1")}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved providerData
+	if err = m.get(ctx, sc, providerKind, created.Msg.Connection.Id, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Credential != nil || saved.Metadata.Configuration.GetVertexProject() != "auto" || saved.Metadata.Configuration.GetVertexLocation() != "us-central1" {
+		t.Fatal("key-only explicit Vertex config not persisted")
+	}
+	for _, config := range []*v1.ProviderConfiguration{{VertexProject: ptr("")}, {VertexLocation: ptr("")}, {VertexProject: ptr("../project")}, {VertexProject: ptr("project?other")}, {VertexLocation: ptr("https://other.example")}, {VertexLocation: ptr("US-central1")}} {
+		_, e := m.UpdateProviderConnection(ctx, connect.NewRequest(&v1.UpdateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ConnectionId: saved.Metadata.Id, Configuration: config}))
+		if connect.CodeOf(e) != connect.CodeInvalidArgument {
+			t.Fatalf("invalid Vertex configuration accepted: %v", e)
+		}
+	}
+	oauth := oauthSavedProvider(t, m, ctx, sc)
+	oauth.Metadata.ProviderId = "google-vertex"
+	oauth.Metadata.BaseUrl = "https://aiplatform.googleapis.com"
+	oauth.Credential.Provider = "google-vertex"
+	oauth.Credential.ProjectID = "credential-project"
+	oauth.Credential.Metadata = map[string]string{"location": "us-central1"}
+	oauth.Credential.Google = &providers.GoogleCredential{Type: providers.GoogleAuthorizedUser, ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh", ProjectID: "credential-project"}
+	if err = m.put(ctx, sc, providerKind, oauth.Metadata.Id, oauth); err != nil {
+		t.Fatal(err)
+	}
+	for _, auto := range []string{"auto", "AUTO", "Auto"} {
+		_, e := m.UpdateProviderConnection(ctx, connect.NewRequest(&v1.UpdateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ConnectionId: oauth.Metadata.Id, Configuration: &v1.ProviderConfiguration{VertexProject: ptr(auto)}}))
+		if connect.CodeOf(e) != connect.CodeInvalidArgument {
+			t.Fatalf("OAuth auto accepted: %v", e)
+		}
+	}
+	updated, err := m.UpdateProviderConnection(ctx, connect.NewRequest(&v1.UpdateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ConnectionId: oauth.Metadata.Id, Configuration: &v1.ProviderConfiguration{VertexProject: ptr("configured-project"), VertexLocation: ptr("europe-west1")}}))
+	if err != nil || updated.Msg.Connection.Configuration.GetVertexProject() != "configured-project" || updated.Msg.Connection.Configuration.GetVertexLocation() != "europe-west1" {
+		t.Fatalf("OAuth explicit overrides not persisted: %v", err)
+	}
+	_, err = m.UpdateProviderConnection(ctx, connect.NewRequest(&v1.UpdateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ConnectionId: oauth.Metadata.Id, ResetConfiguration: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reset providerData
+	if err = m.get(ctx, sc, providerKind, oauth.Metadata.Id, &reset); err != nil {
+		t.Fatal(err)
+	}
+	if reset.Metadata.Configuration != nil || reset.Credential.ProjectID != "credential-project" || reset.Credential.Metadata["location"] != "us-central1" {
+		t.Fatal("reset changed explicit credential configuration")
+	}
+	other := oauthSavedProvider(t, m, ctx, sc)
+	_, err = m.UpdateProviderConnection(ctx, connect.NewRequest(&v1.UpdateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ConnectionId: other.Metadata.Id, Configuration: &v1.ProviderConfiguration{VertexProject: ptr("project")}}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("non-Vertex field accepted: %v", err)
+	}
+}
