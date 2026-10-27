@@ -134,6 +134,15 @@ func (h *Handler) liveCall(ctx context.Context, w http.ResponseWriter, r *http.R
 	}
 	path := "/realtime/calls?intent=quicksilver&architecture=avas"
 	if t.Auth == OAuth {
+		if t.Provider != "openai" && t.Provider != "chatgpt" {
+			return ErrUnsupported
+		}
+		base, err := url.Parse(t.BaseURL)
+		if err != nil {
+			return ErrDestination
+		}
+		base.Path = "/backend-api"
+		t.BaseURL = base.String()
 		offer = object{"sdp": offer["sdp"]}
 		if session != nil {
 			offer["session"] = session
@@ -253,7 +262,7 @@ func (h *Handler) ServeRealtimeSocket(ctx context.Context, token, path string, q
 		}
 		switch path {
 		case "/v1/audio/transcriptions/stream":
-			if t.Auth != OAuth {
+			if t.Auth != OAuth || (t.Provider != "openai" && t.Provider != "chatgpt") {
 				return ErrUnsupported
 			}
 			u, _ := url.Parse(t.BaseURL)
@@ -271,6 +280,16 @@ func (h *Handler) ServeRealtimeSocket(ctx context.Context, token, path string, q
 				suffix += "&intent=quicksilver"
 			}
 		}
+	}
+	if t.Auth == OAuth && path != "/v1/audio/transcriptions/stream" {
+		if t.Provider != "openai" && t.Provider != "chatgpt" {
+			return ErrUnsupported
+		}
+		base, _ := url.Parse(t.BaseURL)
+		if base.Hostname() != "chatgpt.com" {
+			return ErrDestination
+		}
+		t.BaseURL = "https://api.openai.com/v1"
 	}
 	client, _, e := h.c.Destinations.client(t.BaseURL)
 	if e != nil {

@@ -16,14 +16,15 @@ type Adapter interface {
 	Decode(context.Context, *http.Response) (*http.Response, error)
 }
 type AdapterInput struct {
-	RequestID     string
-	ClientHeaders http.Header
-	Principal     Principal
-	Target        Target
-	Credential    Credential
-	Operation     Operation
-	Wire          Wire
-	Body          json.RawMessage
+	RequestID          string
+	PreviousResponseID string
+	ClientHeaders      http.Header
+	Principal          Principal
+	Target             Target
+	Credential         Credential
+	Operation          Operation
+	Wire               Wire
+	Body               json.RawMessage
 }
 type AdapterRequest struct {
 	AttemptTimeout time.Duration
@@ -64,4 +65,12 @@ type ContextPreparer interface {
 // Returning a stream does not release its state: Close must cancel/join all producers.
 type ExecutingAdapter interface {
 	Execute(context.Context, AdapterInput, AdapterExecutor, AdapterStateStore) (*http.Response, Wire, error)
+}
+
+// StatefulAdapter binds provider continuation metadata to this exact request/account.
+// RestoreState must use the supplied scoped store; it cannot fall back to another owner.
+// CaptureState runs only after a successful response and current authorization check.
+type StatefulAdapter interface {
+	RestoreState(context.Context, AdapterInput, AdapterStateStore) (context.Context, error)
+	CaptureState(context.Context, AdapterInput, string, AdapterStateStore) error
 }

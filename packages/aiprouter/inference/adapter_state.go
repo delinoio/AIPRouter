@@ -55,7 +55,13 @@ func (s scopedAdapterState) Save(ctx context.Context, id string, data []byte, tt
 	if s.h.c.ProviderStates == nil {
 		return ErrContinuation
 	}
-	if len(data) > 16<<20 || ttl <= 0 || ttl > 15*time.Minute {
+	maxBytes := 32 << 20
+	maxTTL := 24 * time.Hour
+	if s.t.Wire == Wire("cursor-agent") {
+		maxBytes = 16 << 20
+		maxTTL = 15 * time.Minute
+	}
+	if len(data) > maxBytes || ttl <= 0 || ttl > maxTTL {
 		return &Error{400, "invalid_provider_state", 0}
 	}
 	if e := s.h.guard(ctx, s.p); e != nil {

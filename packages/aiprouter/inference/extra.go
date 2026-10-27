@@ -368,6 +368,9 @@ func (h *Handler) transcribe(ctx context.Context, w http.ResponseWriter, r *http
 	}
 	path := "/audio/transcriptions"
 	if t.Auth == OAuth {
+		if t.Provider != "openai" && t.Provider != "chatgpt" {
+			return ErrUnsupported
+		}
 		if input.model != "gpt-4o-transcribe" {
 			return &Error{400, "unsupported_transcription_model", 0}
 		}

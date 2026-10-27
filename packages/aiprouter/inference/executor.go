@@ -77,7 +77,7 @@ func (x *requestExecutor) Do(ctx context.Context, r AdapterRequest) (*http.Respo
 		}
 		return nil, e
 	}
-	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 && resp.StatusCode != 304 {
 		resp.Body.Close()
 		return nil, ErrDestination
 	}

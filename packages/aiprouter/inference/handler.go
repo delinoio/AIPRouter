@@ -300,6 +300,7 @@ func (h *Handler) restore(ctx context.Context, p Principal, b object) (*Continua
 	}
 	b["input"] = append(old, arr(input)...)
 	delete(b, "previous_response_id")
+	c.ResponseID = id
 	return &c, nil
 }
 
@@ -314,6 +315,7 @@ type BoundCredentials interface {
 }
 
 func (h *Handler) save(ctx context.Context, p Principal, b, out object, rec *UsageRecord) error {
+	rec.ResponseID = str(out["id"])
 	if b["store"] == false {
 		return nil
 	}
@@ -466,6 +468,16 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					adapterInput.RequestID = meta.id
 					adapterInput.ClientHeaders = meta.headers.Clone()
 				}
+				if previous, ok := ctx.Value(continuationKey{}).(Continuation); ok {
+					adapterInput.PreviousResponseID = previous.ResponseID
+				}
+				if stateful, ok := adapter.(StatefulAdapter); ok {
+					restored, err := stateful.RestoreState(attemptCtx, adapterInput, scopedAdapterState{h: h, p: p, t: t, c: cred})
+					if err != nil {
+						return err
+					}
+					attemptCtx = restored
+				}
 				if pre, ok := adapter.(PreparingAdapter); ok {
 					prepared, err := pre.Prepare(attemptCtx, adapterInput, &requestExecutor{h: h, p: p, target: t, record: rec, maxSends: route.MaxSends})
 					if err != nil {
@@ -490,6 +502,9 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					responseTarget.Wire = responseWire
 					rec.Status = response.StatusCode
 					err = h.deliver(executionCtx, w, p, in, op, b, responseTarget, local, response, rec, stop)
+					if err == nil {
+						h.captureAdapterState(executionCtx, p, adapter, adapterInput, t, cred, rec, b)
+					}
 					response.Body.Close()
 					stop()
 					return err
@@ -564,6 +579,25 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				cancel()
 				return e
 			}
+			if t.Transport == WebSocketTransport {
+				if adapter != nil || op != Generate {
+					cancel()
+					return ErrUnsupported
+				}
+				rec.Provider = t.Provider
+				rec.Model = str(payload["model"])
+				rec.AccountID = cred.AccountID
+				resp, err := h.responsesSocket(sendCtx, p, t, req.Header, payload, rec)
+				if err != nil {
+					cancel()
+					return err
+				}
+				rec.Status = resp.StatusCode
+				err = h.deliver(sendCtx, w, p, in, op, b, t, local, resp, rec, cancel)
+				resp.Body.Close()
+				cancel()
+				return err
+			}
 			transientSends++
 			rec.Provider = t.Provider
 			rec.Model = str(payload["model"])
@@ -598,7 +632,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			if resp.StatusCode >= 500 {
 				rec.UnmeasuredAttempts++
 			}
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if (resp.StatusCode >= 200 && resp.StatusCode < 300) || resp.StatusCode == 304 {
 				if adapter != nil {
 					original := resp
 					var decoded *http.Response
@@ -621,6 +655,9 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					resp = decoded
 				}
 				err := h.deliver(sendCtx, w, p, in, op, b, responseTarget, local, resp, rec, cancel)
+				if err == nil {
+					h.captureAdapterState(sendCtx, p, adapter, adapterInput, t, cred, rec, b)
+				}
 				resp.Body.Close()
 				if err != nil && sendCtx.Err() != nil {
 					err = sendCtx.Err()
@@ -835,6 +872,10 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 	return ErrNoCredential
 }
 func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principal, in Wire, op Operation, b object, t Target, local bool, resp *http.Response, rec *UsageRecord, cancel context.CancelFunc) error {
+	if resp.StatusCode == 204 || resp.StatusCode == 205 || resp.StatusCode == 304 {
+		w.WriteHeader(resp.StatusCode)
+		return nil
+	}
 	stall := 300 * time.Second
 	if local {
 		stall = 0
@@ -864,6 +905,7 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 	if e != nil {
 		return &Error{502, "invalid_upstream_json", 0}
 	}
+	rec.ResponseID = str(out["id"])
 	rec.Usage = readUsage(out, t.Wire)
 	if op == Generate && in != t.Wire {
 		r, e := parseResult(out, t.Wire)
@@ -1015,5 +1057,20 @@ func (w *trackedWriter) Flush() {
 	w.started = true
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
+	}
+}
+
+func (h *Handler) captureAdapterState(ctx context.Context, p Principal, a Adapter, in AdapterInput, t Target, c Credential, rec *UsageRecord, b object) {
+	stateful, ok := a.(StatefulAdapter)
+	if !ok || b["store"] == false {
+		return
+	}
+	if e := h.guard(ctx, p); e != nil {
+		h.event(ctx, "provider_state_write_failed")
+		return
+	}
+	if e := stateful.CaptureState(ctx, in, rec.ResponseID, scopedAdapterState{h: h, p: p, t: t, c: c}); e != nil {
+		h.event(ctx, "provider_state_write_failed")
+		h.c.Logger.WarnContext(ctx, "inference provider state not saved", "request_id", rec.RequestID)
 	}
 }

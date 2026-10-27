@@ -4,6 +4,7 @@ package inference
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -109,4 +110,51 @@ func TestResponseSocketCancelAbortsUpstream(t *testing.T) {
 	}
 	s.Close()
 	<-done
+}
+
+type fixtureDialer struct{ s Socket }
+
+func (d fixtureDialer) Dial(context.Context, string, http.Header, *http.Client) (Socket, error) {
+	return d.s, nil
+}
+func TestNativeResponsesSocketSendAndAmbiguity(t *testing.T) {
+	for _, ambiguous := range []bool{false, true} {
+		t.Run(fmt.Sprint(ambiguous), func(t *testing.T) {
+			h, _, _, _, u := harness(t, func(http.ResponseWriter, *http.Request) { t.Error("websocket fell back to HTTP") }, Responses)
+			up := newFixtureSocket()
+			h.c.SocketDialer = fixtureDialer{up}
+			rt := h.c.Router.(testRouter)
+			rt.route.Targets[0].Transport = WebSocketTransport
+			rt.route.Targets[0].Retry.FallbackOn5xx = true
+			rt.route.Targets = append(rt.route.Targets, rt.route.Targets[0])
+			h.c.Router = rt
+			sent := make(chan struct{})
+			go func() {
+				defer close(sent)
+				b := <-up.out
+				var m object
+				json.Unmarshal(b, &m)
+				if str(m["type"]) != "response.create" {
+					t.Error(string(b))
+				}
+				if ambiguous {
+					up.Close()
+					return
+				}
+				up.in <- []byte(`{"type":"response.completed","response":` + fixture(Responses) + `}`)
+			}()
+			w := call(h, "/v1/responses", `{"model":"m","input":"hi"}`)
+			<-sent
+			if ambiguous {
+				if w.Code != 429 || w.Header().Get("x-should-retry") != "false" {
+					t.Fatalf("%d %s", w.Code, w.Body.String())
+				}
+			} else if w.Code != 200 {
+				t.Fatalf("%d %s", w.Code, w.Body.String())
+			}
+			if u.records[0].Sends != 1 {
+				t.Fatal("wrong physical budget")
+			}
+		})
+	}
 }

@@ -63,6 +63,7 @@ type Route struct {
 	MaxSends int
 }
 type Target struct {
+	Transport                Transport
 	AttemptTimeout           time.Duration
 	Provider, BaseURL, Model string
 	Wire                     Wire
@@ -95,6 +96,7 @@ type FailureReporter interface {
 	Failed(context.Context, Principal, Target, Credential, int, time.Duration) error
 }
 type Continuation struct {
+	ResponseID          string
 	Provider, AccountID string
 	Model               string
 	Input               json.RawMessage
@@ -114,6 +116,7 @@ type Usage struct {
 	CacheWriteTokens *int64 `json:"cache_write_tokens,omitempty"`
 }
 type UsageRecord struct {
+	ResponseID                            string
 	UnmeasuredAttempts                    int
 	RequestID, Provider, Model, AccountID string
 	Status, Sends                         int
