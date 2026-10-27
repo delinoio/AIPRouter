@@ -7,6 +7,60 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/delinoio/AIPRouter/protos/aiprouter/v1;aiprouterv1";
 
+// User-configurable generic wires only. Specialized preset adapters remain server-owned.
+enum ProviderWire {
+  PROVIDER_WIRE_UNSPECIFIED = 0;
+  PROVIDER_WIRE_CHAT = 1;
+  PROVIDER_WIRE_RESPONSES = 2;
+  PROVIDER_WIRE_ANTHROPIC = 3;
+  PROVIDER_WIRE_GOOGLE = 4;
+}
+
+// Each absent field inherits the destination-matched preset policy. Explicit false
+// disables that policy. Do not serialize with defaults or collapse pointer presence.
+message ProviderPolicyOverrides {
+  optional bool fold_developer_role_to_system = 1;
+  optional bool drop_responses_reasoning_items = 2;
+  optional bool preserve_responses_reasoning_content = 3;
+  optional bool requires_adjacent_responses_tool_results = 4;
+  optional bool requires_paired_responses_tool_results = 5;
+  optional bool stateless_responses = 6;
+  optional bool annotate_empty_tool_outputs = 7;
+  optional bool parallel_tool_calls = 8;
+  optional bool prompt_cache_key = 9;
+  optional bool chat_service_tier = 10;
+  optional bool supports_service_tier = 11;
+  optional bool supports_verbosity = 12;
+  optional bool supports_responses_custom_tools = 13;
+  optional bool supports_open_ai_web_search_tool_fields = 14;
+  optional bool responses_item_id_repair = 15;
+  optional bool show_thinking_summary = 16;
+  optional bool escape_builtin_tool_names = 17;
+}
+
+// Safe read metadata. Header secret values are deliberately not part of this message.
+message ProviderConfiguration {
+  // Absent inherits the preset; custom connections retain the legacy CHAT default.
+  // Explicit UNSPECIFIED is invalid.
+  optional ProviderWire wire = 1;
+  // Exact model IDs only; validate wire support for the selected provider.
+  map<string, ProviderWire> model_wires = 2;
+  // Origin-relative endpoint paths only: reject schemes, hosts, fragments and credentials.
+  optional string responses_path = 3;
+  optional string chat_completions_path = 4;
+  ProviderPolicyOverrides policy = 5;
+  // Optional positive Azure output-budget floor. Apply the same effective budget at
+  // admission and serialization. This is not permission to bypass request limits.
+  optional int64 min_max_output_tokens = 6;
+}
+
+// WRITE ONLY. Encrypt values with the personal connection; never echo, log, or trace.
+// Reject invalid names/newlines, forbidden transport headers and provider-reserved
+// authentication overrides before generic credential synthesis (including DSH).
+message ProviderCustomHeaders {
+  map<string, string> values = 1;
+}
+
 // Provider IDs are catalog identifiers from the pinned compatibility inventory, not a closed vendor enum.
 message ProviderDefinition {
   string id = 1;
@@ -31,6 +85,9 @@ message ProviderConnection {
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp cooldown_until = 9;
   optional uint32 stall_timeout_seconds = 10;
+  ProviderConfiguration configuration = 11;
+  // Names only; values remain write-only even for the owner.
+  repeated string custom_header_names = 12;
 }
 message ProviderOAuth {
   string id = 1;
@@ -127,6 +184,8 @@ message CreateProviderConnectionRequest {
   ProviderAuthKind auth_kind = 5;
   optional string api_key = 6;
   optional uint32 stall_timeout_seconds = 7;
+  ProviderConfiguration configuration = 8;
+  ProviderCustomHeaders custom_headers = 9;
 }
 message CreateProviderConnectionResponse {
   ProviderConnection connection = 1;
@@ -140,6 +199,14 @@ message UpdateProviderConnectionRequest {
   optional bool enabled = 6;
   optional uint32 stall_timeout_seconds = 7;
   bool reset_stall_timeout = 8;
+  // Absent preserves configuration; present replaces the complete configuration.
+  // An empty message clears overrides and restores preset/custom defaults.
+  ProviderConfiguration configuration = 9;
+  // Explicit reset alternative. Reject when configuration is also present.
+  // Does not clear headers; supply an empty custom_headers message for that.
+  bool reset_configuration = 10;
+  // Absent preserves headers; present replaces all values; empty clears all headers.
+  ProviderCustomHeaders custom_headers = 11;
 }
 message UpdateProviderConnectionResponse {
   ProviderConnection connection = 1;

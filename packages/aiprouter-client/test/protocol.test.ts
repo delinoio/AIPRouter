@@ -250,3 +250,51 @@ test("hosted helper settings preserve personal selectors and optional defaults",
     "aiprouter.v1.GetHostedSettingsRequest",
   );
 });
+
+test("provider config preserves explicit false, replacement, and write-only header clearing", async () => {
+  const {
+    ProviderConfigurationSchema,
+    ProviderPolicyOverridesSchema,
+    ProviderConnectionSchema,
+    ProviderWire,
+    UpdateProviderConnectionRequestSchema,
+  } = await import("../src/index.js");
+  const policy = create(ProviderPolicyOverridesSchema, {
+    dropResponsesReasoningItems: false,
+  });
+  const configuration = create(ProviderConfigurationSchema, {
+    wire: ProviderWire.RESPONSES,
+    modelWires: { model: ProviderWire.ANTHROPIC },
+    responsesPath: "/custom/responses",
+    minMaxOutputTokens: 1024n,
+    policy,
+  });
+  assert.deepEqual(
+    fromBinary(
+      ProviderConfigurationSchema,
+      toBinary(ProviderConfigurationSchema, configuration),
+    ),
+    configuration,
+  );
+  assert.equal(configuration.policy?.foldDeveloperRoleToSystem, undefined);
+  assert.equal(configuration.policy?.dropResponsesReasoningItems, false);
+  const absent = create(UpdateProviderConnectionRequestSchema);
+  const clear = create(UpdateProviderConnectionRequestSchema, {
+    configuration: {},
+    customHeaders: {},
+  });
+  assert.equal(absent.configuration, undefined);
+  assert.equal(absent.customHeaders, undefined);
+  const decoded = fromBinary(
+    UpdateProviderConnectionRequestSchema,
+    toBinary(UpdateProviderConnectionRequestSchema, clear),
+  );
+  assert.ok(decoded.configuration);
+  assert.deepEqual(decoded.customHeaders?.values, {});
+  assert.equal(
+    ProviderConnectionSchema.fields.some(
+      (field) => field.name === "custom_headers",
+    ),
+    false,
+  );
+});

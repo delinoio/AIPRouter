@@ -4,8 +4,8 @@
 // @generated from file aiprouter/v1/provider.proto (package aiprouter.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { ApiShape, ConnectionState, Model, OAuthState, PageRequest, PageResponse, PoolStrategy, ProviderAuthKind, ProviderOAuthMethod, RoutingStrategy } from "./common_pb.js";
 import { file_aiprouter_v1_common } from "./common_pb.js";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
@@ -16,7 +16,182 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aiprouter/v1/provider.proto.
  */
 export const file_aiprouter_v1_provider: GenFile = /*@__PURE__*/
-  fileDesc("ChthaXByb3V0ZXIvdjEvcHJvdmlkZXIucHJvdG8SDGFpcHJvdXRlci52MSLQAQoSUHJvdmlkZXJEZWZpbml0aW9uEgoKAmlkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIyCgphdXRoX2tpbmRzGAMgAygOMh4uYWlwcm91dGVyLnYxLlByb3ZpZGVyQXV0aEtpbmQSKgoKYXBpX3NoYXBlcxgEIAMoDjIWLmFpcHJvdXRlci52MS5BcGlTaGFwZRI4Cg1vYXV0aF9tZXRob2RzGAUgAygOMiEuYWlwcm91dGVyLnYxLlByb3ZpZGVyT0F1dGhNZXRob2Qi8QIKElByb3ZpZGVyQ29ubmVjdGlvbhIKCgJpZBgBIAEoCRIXCg9vcmdhbml6YXRpb25faWQYAiABKAkSEwoLcHJvdmlkZXJfaWQYAyABKAkSDAoEbmFtZRgEIAEoCRIQCghiYXNlX3VybBgFIAEoCRIxCglhdXRoX2tpbmQYBiABKA4yHi5haXByb3V0ZXIudjEuUHJvdmlkZXJBdXRoS2luZBIsCgVzdGF0ZRgHIAEoDjIdLmFpcHJvdXRlci52MS5Db25uZWN0aW9uU3RhdGUSLgoKY3JlYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMgoOY29vbGRvd25fdW50aWwYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiIKFXN0YWxsX3RpbWVvdXRfc2Vjb25kcxgKIAEoDUgAiAEBQhgKFl9zdGFsbF90aW1lb3V0X3NlY29uZHMiugIKDVByb3ZpZGVyT0F1dGgSCgoCaWQYASABKAkSJwoFc3RhdGUYAiABKA4yGC5haXByb3V0ZXIudjEuT0F1dGhTdGF0ZRIZChFhdXRob3JpemF0aW9uX3VybBgDIAEoCRIuCgpleHBpcmVzX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg1jb25uZWN0aW9uX2lkGAUgASgJEhYKCXVzZXJfY29kZRgGIAEoCUgAiAEBEiIKFXBvbGxfaW50ZXJ2YWxfc2Vjb25kcxgHIAEoDUgBiAEBEhsKDmNhbGxiYWNrX3N0YXRlGAggASgJSAKIAQFCDAoKX3VzZXJfY29kZUIYChZfcG9sbF9pbnRlcnZhbF9zZWNvbmRzQhEKD19jYWxsYmFja19zdGF0ZSJFCgpQb29sTWVtYmVyEhUKDWNvbm5lY3Rpb25faWQYASABKAkSEAoIcHJpb3JpdHkYAiABKA0SDgoGd2VpZ2h0GAMgASgNIqwBCgRQb29sEgoKAmlkGAEgASgJEhcKD29yZ2FuaXphdGlvbl9pZBgCIAEoCRIMCgRuYW1lGAMgASgJEiwKCHN0cmF0ZWd5GAQgASgOMhouYWlwcm91dGVyLnYxLlBvb2xTdHJhdGVneRIpCgdtZW1iZXJzGAUgAygLMhguYWlwcm91dGVyLnYxLlBvb2xNZW1iZXISGAoQYWZmaW5pdHlfZW5hYmxlZBgGIAEoCCJ3CgtSb3V0ZVRhcmdldBIXCg1jb25uZWN0aW9uX2lkGAEgASgJSAASEQoHcG9vbF9pZBgCIAEoCUgAEhAKCG1vZGVsX2lkGAMgASgJEhAKCHByaW9yaXR5GAQgASgNEg4KBndlaWdodBgFIAEoDUIICgZ0YXJnZXQirAEKBVJvdXRlEgoKAmlkGAEgASgJEhcKD29yZ2FuaXphdGlvbl9pZBgCIAEoCRIQCghtb2RlbF9pZBgDIAEoCRIvCghzdHJhdGVneRgEIAEoDjIdLmFpcHJvdXRlci52MS5Sb3V0aW5nU3RyYXRlZ3kSKgoHdGFyZ2V0cxgFIAMoCzIZLmFpcHJvdXRlci52MS5Sb3V0ZVRhcmdldBIPCgdlbmFibGVkGAYgASgIIhwKGkxpc3RQcm92aWRlckNhdGFsb2dSZXF1ZXN0IlIKG0xpc3RQcm92aWRlckNhdGFsb2dSZXNwb25zZRIzCglwcm92aWRlcnMYASADKAsyIC5haXByb3V0ZXIudjEuUHJvdmlkZXJEZWZpbml0aW9uImIKHkxpc3RQcm92aWRlckNvbm5lY3Rpb25zUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSJwoEcGFnZRgCIAEoCzIZLmFpcHJvdXRlci52MS5QYWdlUmVxdWVzdCKCAQofTGlzdFByb3ZpZGVyQ29ubmVjdGlvbnNSZXNwb25zZRI1Cgtjb25uZWN0aW9ucxgBIAMoCzIgLmFpcHJvdXRlci52MS5Qcm92aWRlckNvbm5lY3Rpb24SKAoEcGFnZRgCIAEoCzIaLmFpcHJvdXRlci52MS5QYWdlUmVzcG9uc2UiggIKH0NyZWF0ZVByb3ZpZGVyQ29ubmVjdGlvblJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhMKC3Byb3ZpZGVyX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSEAoIYmFzZV91cmwYBCABKAkSMQoJYXV0aF9raW5kGAUgASgOMh4uYWlwcm91dGVyLnYxLlByb3ZpZGVyQXV0aEtpbmQSFAoHYXBpX2tleRgGIAEoCUgAiAEBEiIKFXN0YWxsX3RpbWVvdXRfc2Vjb25kcxgHIAEoDUgBiAEBQgoKCF9hcGlfa2V5QhgKFl9zdGFsbF90aW1lb3V0X3NlY29uZHMiWAogQ3JlYXRlUHJvdmlkZXJDb25uZWN0aW9uUmVzcG9uc2USNAoKY29ubmVjdGlvbhgBIAEoCzIgLmFpcHJvdXRlci52MS5Qcm92aWRlckNvbm5lY3Rpb24isAIKH1VwZGF0ZVByb3ZpZGVyQ29ubmVjdGlvblJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhUKDWNvbm5lY3Rpb25faWQYAiABKAkSEQoEbmFtZRgDIAEoCUgAiAEBEhUKCGJhc2VfdXJsGAQgASgJSAGIAQESFAoHYXBpX2tleRgFIAEoCUgCiAEBEhQKB2VuYWJsZWQYBiABKAhIA4gBARIiChVzdGFsbF90aW1lb3V0X3NlY29uZHMYByABKA1IBIgBARIbChNyZXNldF9zdGFsbF90aW1lb3V0GAggASgIQgcKBV9uYW1lQgsKCV9iYXNlX3VybEIKCghfYXBpX2tleUIKCghfZW5hYmxlZEIYChZfc3RhbGxfdGltZW91dF9zZWNvbmRzIlgKIFVwZGF0ZVByb3ZpZGVyQ29ubmVjdGlvblJlc3BvbnNlEjQKCmNvbm5lY3Rpb24YASABKAsyIC5haXByb3V0ZXIudjEuUHJvdmlkZXJDb25uZWN0aW9uIlEKH0RlbGV0ZVByb3ZpZGVyQ29ubmVjdGlvblJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhUKDWNvbm5lY3Rpb25faWQYAiABKAkiIgogRGVsZXRlUHJvdmlkZXJDb25uZWN0aW9uUmVzcG9uc2Ui5gQKGUJlZ2luUHJvdmlkZXJPQXV0aFJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhMKC3Byb3ZpZGVyX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSGgoNY29ubmVjdGlvbl9pZBgEIAEoCUgAiAEBEjYKBm1ldGhvZBgFIAEoDjIhLmFpcHJvdXRlci52MS5Qcm92aWRlck9BdXRoTWV0aG9kSAGIAQESGQoMcmVkaXJlY3RfdXJpGAYgASgJSAKIAQESGwoObG9naW5fcHJvdmlkZXIYByABKAlIA4gBARIXCgpzc29fcmVnaW9uGAggASgJSASIAQESFwoKYXBpX3JlZ2lvbhgJIAEoCUgFiAEBEhYKCXN0YXJ0X3VybBgKIAEoCUgGiAEBEhUKCGJhc2VfdXJsGAsgASgJSAeIAQESGgoNYXV0aF9iYXNlX3VybBgMIAEoCUgIiAEBEhcKCnBvcnRhbF91cmwYDSABKAlICYgBARIZCgxyZWdpc3Rlcl91cmwYDiABKAlICogBARIWCgljbGllbnRfaWQYDyABKAlIC4gBAUIQCg5fY29ubmVjdGlvbl9pZEIJCgdfbWV0aG9kQg8KDV9yZWRpcmVjdF91cmlCEQoPX2xvZ2luX3Byb3ZpZGVyQg0KC19zc29fcmVnaW9uQg0KC19hcGlfcmVnaW9uQgwKCl9zdGFydF91cmxCCwoJX2Jhc2VfdXJsQhAKDl9hdXRoX2Jhc2VfdXJsQg0KC19wb3J0YWxfdXJsQg8KDV9yZWdpc3Rlcl91cmxCDAoKX2NsaWVudF9pZCJQChpCZWdpblByb3ZpZGVyT0F1dGhSZXNwb25zZRIyCg1hdXRob3JpemF0aW9uGAEgASgLMhsuYWlwcm91dGVyLnYxLlByb3ZpZGVyT0F1dGgiTAoXR2V0UHJvdmlkZXJPQXV0aFJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhgKEGF1dGhvcml6YXRpb25faWQYAiABKAkiTgoYR2V0UHJvdmlkZXJPQXV0aFJlc3BvbnNlEjIKDWF1dGhvcml6YXRpb24YASABKAsyGy5haXByb3V0ZXIudjEuUHJvdmlkZXJPQXV0aCJuChxDb21wbGV0ZVByb3ZpZGVyT0F1dGhSZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRIYChBhdXRob3JpemF0aW9uX2lkGAIgASgJEgwKBGNvZGUYAyABKAkSDQoFc3RhdGUYBCABKAkiVQodQ29tcGxldGVQcm92aWRlck9BdXRoUmVzcG9uc2USNAoKY29ubmVjdGlvbhgBIAEoCzIgLmFpcHJvdXRlci52MS5Qcm92aWRlckNvbm5lY3Rpb24iTwoaQ2FuY2VsUHJvdmlkZXJPQXV0aFJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhgKEGF1dGhvcml6YXRpb25faWQYAiABKAkiHQobQ2FuY2VsUHJvdmlkZXJPQXV0aFJlc3BvbnNlIksKGUxpc3RQcm92aWRlck1vZGVsc1JlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhUKDWNvbm5lY3Rpb25faWQYAiABKAkiQQoaTGlzdFByb3ZpZGVyTW9kZWxzUmVzcG9uc2USIwoGbW9kZWxzGAEgAygLMhMuYWlwcm91dGVyLnYxLk1vZGVsIlQKEExpc3RQb29sc1JlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEicKBHBhZ2UYAiABKAsyGS5haXByb3V0ZXIudjEuUGFnZVJlcXVlc3QiYAoRTGlzdFBvb2xzUmVzcG9uc2USIQoFcG9vbHMYASADKAsyEi5haXByb3V0ZXIudjEuUG9vbBIoCgRwYWdlGAIgASgLMhouYWlwcm91dGVyLnYxLlBhZ2VSZXNwb25zZSKtAQoRQ3JlYXRlUG9vbFJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSLAoIc3RyYXRlZ3kYAyABKA4yGi5haXByb3V0ZXIudjEuUG9vbFN0cmF0ZWd5EikKB21lbWJlcnMYBCADKAsyGC5haXByb3V0ZXIudjEuUG9vbE1lbWJlchIYChBhZmZpbml0eV9lbmFibGVkGAUgASgIIjYKEkNyZWF0ZVBvb2xSZXNwb25zZRIgCgRwb29sGAEgASgLMhIuYWlwcm91dGVyLnYxLlBvb2wivgEKEVVwZGF0ZVBvb2xSZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRIPCgdwb29sX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSLAoIc3RyYXRlZ3kYBCABKA4yGi5haXByb3V0ZXIudjEuUG9vbFN0cmF0ZWd5EikKB21lbWJlcnMYBSADKAsyGC5haXByb3V0ZXIudjEuUG9vbE1lbWJlchIYChBhZmZpbml0eV9lbmFibGVkGAYgASgIIjYKElVwZGF0ZVBvb2xSZXNwb25zZRIgCgRwb29sGAEgASgLMhIuYWlwcm91dGVyLnYxLlBvb2wiPQoRRGVsZXRlUG9vbFJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEg8KB3Bvb2xfaWQYAiABKAkiFAoSRGVsZXRlUG9vbFJlc3BvbnNlIlUKEUxpc3RSb3V0ZXNSZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRInCgRwYWdlGAIgASgLMhkuYWlwcm91dGVyLnYxLlBhZ2VSZXF1ZXN0ImMKEkxpc3RSb3V0ZXNSZXNwb25zZRIjCgZyb3V0ZXMYASADKAsyEy5haXByb3V0ZXIudjEuUm91dGUSKAoEcGFnZRgCIAEoCzIaLmFpcHJvdXRlci52MS5QYWdlUmVzcG9uc2UirQEKEkNyZWF0ZVJvdXRlUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSEAoIbW9kZWxfaWQYAiABKAkSLwoIc3RyYXRlZ3kYAyABKA4yHS5haXByb3V0ZXIudjEuUm91dGluZ1N0cmF0ZWd5EioKB3RhcmdldHMYBCADKAsyGS5haXByb3V0ZXIudjEuUm91dGVUYXJnZXQSDwoHZW5hYmxlZBgFIAEoCCI5ChNDcmVhdGVSb3V0ZVJlc3BvbnNlEiIKBXJvdXRlGAEgASgLMhMuYWlwcm91dGVyLnYxLlJvdXRlIr8BChJVcGRhdGVSb3V0ZVJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhAKCHJvdXRlX2lkGAIgASgJEhAKCG1vZGVsX2lkGAMgASgJEi8KCHN0cmF0ZWd5GAQgASgOMh0uYWlwcm91dGVyLnYxLlJvdXRpbmdTdHJhdGVneRIqCgd0YXJnZXRzGAUgAygLMhkuYWlwcm91dGVyLnYxLlJvdXRlVGFyZ2V0Eg8KB2VuYWJsZWQYBiABKAgiOQoTVXBkYXRlUm91dGVSZXNwb25zZRIiCgVyb3V0ZRgBIAEoCzITLmFpcHJvdXRlci52MS5Sb3V0ZSI/ChJEZWxldGVSb3V0ZVJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhAKCHJvdXRlX2lkGAIgASgJIhUKE0RlbGV0ZVJvdXRlUmVzcG9uc2UytQkKD1Byb3ZpZGVyU2VydmljZRJwChNMaXN0UHJvdmlkZXJDYXRhbG9nEiguYWlwcm91dGVyLnYxLkxpc3RQcm92aWRlckNhdGFsb2dSZXF1ZXN0GikuYWlwcm91dGVyLnYxLkxpc3RQcm92aWRlckNhdGFsb2dSZXNwb25zZSIEyPMYAhJ8ChdMaXN0UHJvdmlkZXJDb25uZWN0aW9ucxIsLmFpcHJvdXRlci52MS5MaXN0UHJvdmlkZXJDb25uZWN0aW9uc1JlcXVlc3QaLS5haXByb3V0ZXIudjEuTGlzdFByb3ZpZGVyQ29ubmVjdGlvbnNSZXNwb25zZSIEyPMYAxJ/ChhDcmVhdGVQcm92aWRlckNvbm5lY3Rpb24SLS5haXByb3V0ZXIudjEuQ3JlYXRlUHJvdmlkZXJDb25uZWN0aW9uUmVxdWVzdBouLmFpcHJvdXRlci52MS5DcmVhdGVQcm92aWRlckNvbm5lY3Rpb25SZXNwb25zZSIEyPMYAxJ/ChhVcGRhdGVQcm92aWRlckNvbm5lY3Rpb24SLS5haXByb3V0ZXIudjEuVXBkYXRlUHJvdmlkZXJDb25uZWN0aW9uUmVxdWVzdBouLmFpcHJvdXRlci52MS5VcGRhdGVQcm92aWRlckNvbm5lY3Rpb25SZXNwb25zZSIEyPMYAxJ/ChhEZWxldGVQcm92aWRlckNvbm5lY3Rpb24SLS5haXByb3V0ZXIudjEuRGVsZXRlUHJvdmlkZXJDb25uZWN0aW9uUmVxdWVzdBouLmFpcHJvdXRlci52MS5EZWxldGVQcm92aWRlckNvbm5lY3Rpb25SZXNwb25zZSIEyPMYAxJtChJCZWdpblByb3ZpZGVyT0F1dGgSJy5haXByb3V0ZXIudjEuQmVnaW5Qcm92aWRlck9BdXRoUmVxdWVzdBooLmFpcHJvdXRlci52MS5CZWdpblByb3ZpZGVyT0F1dGhSZXNwb25zZSIEyPMYAxJnChBHZXRQcm92aWRlck9BdXRoEiUuYWlwcm91dGVyLnYxLkdldFByb3ZpZGVyT0F1dGhSZXF1ZXN0GiYuYWlwcm91dGVyLnYxLkdldFByb3ZpZGVyT0F1dGhSZXNwb25zZSIEyPMYAxJ2ChVDb21wbGV0ZVByb3ZpZGVyT0F1dGgSKi5haXByb3V0ZXIudjEuQ29tcGxldGVQcm92aWRlck9BdXRoUmVxdWVzdBorLmFpcHJvdXRlci52MS5Db21wbGV0ZVByb3ZpZGVyT0F1dGhSZXNwb25zZSIEyPMYAxJwChNDYW5jZWxQcm92aWRlck9BdXRoEiguYWlwcm91dGVyLnYxLkNhbmNlbFByb3ZpZGVyT0F1dGhSZXF1ZXN0GikuYWlwcm91dGVyLnYxLkNhbmNlbFByb3ZpZGVyT0F1dGhSZXNwb25zZSIEyPMYAxJtChJMaXN0UHJvdmlkZXJNb2RlbHMSJy5haXByb3V0ZXIudjEuTGlzdFByb3ZpZGVyTW9kZWxzUmVxdWVzdBooLmFpcHJvdXRlci52MS5MaXN0UHJvdmlkZXJNb2RlbHNSZXNwb25zZSIEyPMYAzLmAgoLUG9vbFNlcnZpY2USUgoJTGlzdFBvb2xzEh4uYWlwcm91dGVyLnYxLkxpc3RQb29sc1JlcXVlc3QaHy5haXByb3V0ZXIudjEuTGlzdFBvb2xzUmVzcG9uc2UiBMjzGAMSVQoKQ3JlYXRlUG9vbBIfLmFpcHJvdXRlci52MS5DcmVhdGVQb29sUmVxdWVzdBogLmFpcHJvdXRlci52MS5DcmVhdGVQb29sUmVzcG9uc2UiBMjzGAMSVQoKVXBkYXRlUG9vbBIfLmFpcHJvdXRlci52MS5VcGRhdGVQb29sUmVxdWVzdBogLmFpcHJvdXRlci52MS5VcGRhdGVQb29sUmVzcG9uc2UiBMjzGAMSVQoKRGVsZXRlUG9vbBIfLmFpcHJvdXRlci52MS5EZWxldGVQb29sUmVxdWVzdBogLmFpcHJvdXRlci52MS5EZWxldGVQb29sUmVzcG9uc2UiBMjzGAMy9QIKDlJvdXRpbmdTZXJ2aWNlElUKCkxpc3RSb3V0ZXMSHy5haXByb3V0ZXIudjEuTGlzdFJvdXRlc1JlcXVlc3QaIC5haXByb3V0ZXIudjEuTGlzdFJvdXRlc1Jlc3BvbnNlIgTI8xgDElgKC0NyZWF0ZVJvdXRlEiAuYWlwcm91dGVyLnYxLkNyZWF0ZVJvdXRlUmVxdWVzdBohLmFpcHJvdXRlci52MS5DcmVhdGVSb3V0ZVJlc3BvbnNlIgTI8xgDElgKC1VwZGF0ZVJvdXRlEiAuYWlwcm91dGVyLnYxLlVwZGF0ZVJvdXRlUmVxdWVzdBohLmFpcHJvdXRlci52MS5VcGRhdGVSb3V0ZVJlc3BvbnNlIgTI8xgDElgKC0RlbGV0ZVJvdXRlEiAuYWlwcm91dGVyLnYxLkRlbGV0ZVJvdXRlUmVxdWVzdBohLmFpcHJvdXRlci52MS5EZWxldGVSb3V0ZVJlc3BvbnNlIgTI8xgDQj9aPWdpdGh1Yi5jb20vZGVsaW5vaW8vQUlQUm91dGVyL3Byb3Rvcy9haXByb3V0ZXIvdjE7YWlwcm91dGVydjFiBnByb3RvMw", [file_aiprouter_v1_common, file_google_protobuf_timestamp]);
+  fileDesc("ChthaXByb3V0ZXIvdjEvcHJvdmlkZXIucHJvdG8SDGFpcHJvdXRlci52MSLxCQoXUHJvdmlkZXJQb2xpY3lPdmVycmlkZXMSKgodZm9sZF9kZXZlbG9wZXJfcm9sZV90b19zeXN0ZW0YASABKAhIAIgBARIrCh5kcm9wX3Jlc3BvbnNlc19yZWFzb25pbmdfaXRlbXMYAiABKAhIAYgBARIxCiRwcmVzZXJ2ZV9yZXNwb25zZXNfcmVhc29uaW5nX2NvbnRlbnQYAyABKAhIAogBARI1CihyZXF1aXJlc19hZGphY2VudF9yZXNwb25zZXNfdG9vbF9yZXN1bHRzGAQgASgISAOIAQESMwomcmVxdWlyZXNfcGFpcmVkX3Jlc3BvbnNlc190b29sX3Jlc3VsdHMYBSABKAhIBIgBARIgChNzdGF0ZWxlc3NfcmVzcG9uc2VzGAYgASgISAWIAQESKAobYW5ub3RhdGVfZW1wdHlfdG9vbF9vdXRwdXRzGAcgASgISAaIAQESIAoTcGFyYWxsZWxfdG9vbF9jYWxscxgIIAEoCEgHiAEBEh0KEHByb21wdF9jYWNoZV9rZXkYCSABKAhICIgBARIeChFjaGF0X3NlcnZpY2VfdGllchgKIAEoCEgJiAEBEiIKFXN1cHBvcnRzX3NlcnZpY2VfdGllchgLIAEoCEgKiAEBEh8KEnN1cHBvcnRzX3ZlcmJvc2l0eRgMIAEoCEgLiAEBEiwKH3N1cHBvcnRzX3Jlc3BvbnNlc19jdXN0b21fdG9vbHMYDSABKAhIDIgBARI0CidzdXBwb3J0c19vcGVuX2FpX3dlYl9zZWFyY2hfdG9vbF9maWVsZHMYDiABKAhIDYgBARIlChhyZXNwb25zZXNfaXRlbV9pZF9yZXBhaXIYDyABKAhIDogBARIiChVzaG93X3RoaW5raW5nX3N1bW1hcnkYECABKAhID4gBARImChllc2NhcGVfYnVpbHRpbl90b29sX25hbWVzGBEgASgISBCIAQFCIAoeX2ZvbGRfZGV2ZWxvcGVyX3JvbGVfdG9fc3lzdGVtQiEKH19kcm9wX3Jlc3BvbnNlc19yZWFzb25pbmdfaXRlbXNCJwolX3ByZXNlcnZlX3Jlc3BvbnNlc19yZWFzb25pbmdfY29udGVudEIrCilfcmVxdWlyZXNfYWRqYWNlbnRfcmVzcG9uc2VzX3Rvb2xfcmVzdWx0c0IpCidfcmVxdWlyZXNfcGFpcmVkX3Jlc3BvbnNlc190b29sX3Jlc3VsdHNCFgoUX3N0YXRlbGVzc19yZXNwb25zZXNCHgocX2Fubm90YXRlX2VtcHR5X3Rvb2xfb3V0cHV0c0IWChRfcGFyYWxsZWxfdG9vbF9jYWxsc0ITChFfcHJvbXB0X2NhY2hlX2tleUIUChJfY2hhdF9zZXJ2aWNlX3RpZXJCGAoWX3N1cHBvcnRzX3NlcnZpY2VfdGllckIVChNfc3VwcG9ydHNfdmVyYm9zaXR5QiIKIF9zdXBwb3J0c19yZXNwb25zZXNfY3VzdG9tX3Rvb2xzQioKKF9zdXBwb3J0c19vcGVuX2FpX3dlYl9zZWFyY2hfdG9vbF9maWVsZHNCGwoZX3Jlc3BvbnNlc19pdGVtX2lkX3JlcGFpckIYChZfc2hvd190aGlua2luZ19zdW1tYXJ5QhwKGl9lc2NhcGVfYnVpbHRpbl90b29sX25hbWVzIssDChVQcm92aWRlckNvbmZpZ3VyYXRpb24SLQoEd2lyZRgBIAEoDjIaLmFpcHJvdXRlci52MS5Qcm92aWRlcldpcmVIAIgBARJICgttb2RlbF93aXJlcxgCIAMoCzIzLmFpcHJvdXRlci52MS5Qcm92aWRlckNvbmZpZ3VyYXRpb24uTW9kZWxXaXJlc0VudHJ5EhsKDnJlc3BvbnNlc19wYXRoGAMgASgJSAGIAQESIgoVY2hhdF9jb21wbGV0aW9uc19wYXRoGAQgASgJSAKIAQESNQoGcG9saWN5GAUgASgLMiUuYWlwcm91dGVyLnYxLlByb3ZpZGVyUG9saWN5T3ZlcnJpZGVzEiIKFW1pbl9tYXhfb3V0cHV0X3Rva2VucxgGIAEoA0gDiAEBGk0KD01vZGVsV2lyZXNFbnRyeRILCgNrZXkYASABKAkSKQoFdmFsdWUYAiABKA4yGi5haXByb3V0ZXIudjEuUHJvdmlkZXJXaXJlOgI4AUIHCgVfd2lyZUIRCg9fcmVzcG9uc2VzX3BhdGhCGAoWX2NoYXRfY29tcGxldGlvbnNfcGF0aEIYChZfbWluX21heF9vdXRwdXRfdG9rZW5zIocBChVQcm92aWRlckN1c3RvbUhlYWRlcnMSPwoGdmFsdWVzGAEgAygLMi8uYWlwcm91dGVyLnYxLlByb3ZpZGVyQ3VzdG9tSGVhZGVycy5WYWx1ZXNFbnRyeRotCgtWYWx1ZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBItABChJQcm92aWRlckRlZmluaXRpb24SCgoCaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEjIKCmF1dGhfa2luZHMYAyADKA4yHi5haXByb3V0ZXIudjEuUHJvdmlkZXJBdXRoS2luZBIqCgphcGlfc2hhcGVzGAQgAygOMhYuYWlwcm91dGVyLnYxLkFwaVNoYXBlEjgKDW9hdXRoX21ldGhvZHMYBSADKA4yIS5haXByb3V0ZXIudjEuUHJvdmlkZXJPQXV0aE1ldGhvZCLKAwoSUHJvdmlkZXJDb25uZWN0aW9uEgoKAmlkGAEgASgJEhcKD29yZ2FuaXphdGlvbl9pZBgCIAEoCRITCgtwcm92aWRlcl9pZBgDIAEoCRIMCgRuYW1lGAQgASgJEhAKCGJhc2VfdXJsGAUgASgJEjEKCWF1dGhfa2luZBgGIAEoDjIeLmFpcHJvdXRlci52MS5Qcm92aWRlckF1dGhLaW5kEiwKBXN0YXRlGAcgASgOMh0uYWlwcm91dGVyLnYxLkNvbm5lY3Rpb25TdGF0ZRIuCgpjcmVhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIyCg5jb29sZG93bl91bnRpbBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASIgoVc3RhbGxfdGltZW91dF9zZWNvbmRzGAogASgNSACIAQESOgoNY29uZmlndXJhdGlvbhgLIAEoCzIjLmFpcHJvdXRlci52MS5Qcm92aWRlckNvbmZpZ3VyYXRpb24SGwoTY3VzdG9tX2hlYWRlcl9uYW1lcxgMIAMoCUIYChZfc3RhbGxfdGltZW91dF9zZWNvbmRzIroCCg1Qcm92aWRlck9BdXRoEgoKAmlkGAEgASgJEicKBXN0YXRlGAIgASgOMhguYWlwcm91dGVyLnYxLk9BdXRoU3RhdGUSGQoRYXV0aG9yaXphdGlvbl91cmwYAyABKAkSLgoKZXhwaXJlc19hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFQoNY29ubmVjdGlvbl9pZBgFIAEoCRIWCgl1c2VyX2NvZGUYBiABKAlIAIgBARIiChVwb2xsX2ludGVydmFsX3NlY29uZHMYByABKA1IAYgBARIbCg5jYWxsYmFja19zdGF0ZRgIIAEoCUgCiAEBQgwKCl91c2VyX2NvZGVCGAoWX3BvbGxfaW50ZXJ2YWxfc2Vjb25kc0IRCg9fY2FsbGJhY2tfc3RhdGUiRQoKUG9vbE1lbWJlchIVCg1jb25uZWN0aW9uX2lkGAEgASgJEhAKCHByaW9yaXR5GAIgASgNEg4KBndlaWdodBgDIAEoDSKsAQoEUG9vbBIKCgJpZBgBIAEoCRIXCg9vcmdhbml6YXRpb25faWQYAiABKAkSDAoEbmFtZRgDIAEoCRIsCghzdHJhdGVneRgEIAEoDjIaLmFpcHJvdXRlci52MS5Qb29sU3RyYXRlZ3kSKQoHbWVtYmVycxgFIAMoCzIYLmFpcHJvdXRlci52MS5Qb29sTWVtYmVyEhgKEGFmZmluaXR5X2VuYWJsZWQYBiABKAgidwoLUm91dGVUYXJnZXQSFwoNY29ubmVjdGlvbl9pZBgBIAEoCUgAEhEKB3Bvb2xfaWQYAiABKAlIABIQCghtb2RlbF9pZBgDIAEoCRIQCghwcmlvcml0eRgEIAEoDRIOCgZ3ZWlnaHQYBSABKA1CCAoGdGFyZ2V0IqwBCgVSb3V0ZRIKCgJpZBgBIAEoCRIXCg9vcmdhbml6YXRpb25faWQYAiABKAkSEAoIbW9kZWxfaWQYAyABKAkSLwoIc3RyYXRlZ3kYBCABKA4yHS5haXByb3V0ZXIudjEuUm91dGluZ1N0cmF0ZWd5EioKB3RhcmdldHMYBSADKAsyGS5haXByb3V0ZXIudjEuUm91dGVUYXJnZXQSDwoHZW5hYmxlZBgGIAEoCCIcChpMaXN0UHJvdmlkZXJDYXRhbG9nUmVxdWVzdCJSChtMaXN0UHJvdmlkZXJDYXRhbG9nUmVzcG9uc2USMwoJcHJvdmlkZXJzGAEgAygLMiAuYWlwcm91dGVyLnYxLlByb3ZpZGVyRGVmaW5pdGlvbiJiCh5MaXN0UHJvdmlkZXJDb25uZWN0aW9uc1JlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEicKBHBhZ2UYAiABKAsyGS5haXByb3V0ZXIudjEuUGFnZVJlcXVlc3QiggEKH0xpc3RQcm92aWRlckNvbm5lY3Rpb25zUmVzcG9uc2USNQoLY29ubmVjdGlvbnMYASADKAsyIC5haXByb3V0ZXIudjEuUHJvdmlkZXJDb25uZWN0aW9uEigKBHBhZ2UYAiABKAsyGi5haXByb3V0ZXIudjEuUGFnZVJlc3BvbnNlIvsCCh9DcmVhdGVQcm92aWRlckNvbm5lY3Rpb25SZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRITCgtwcm92aWRlcl9pZBgCIAEoCRIMCgRuYW1lGAMgASgJEhAKCGJhc2VfdXJsGAQgASgJEjEKCWF1dGhfa2luZBgFIAEoDjIeLmFpcHJvdXRlci52MS5Qcm92aWRlckF1dGhLaW5kEhQKB2FwaV9rZXkYBiABKAlIAIgBARIiChVzdGFsbF90aW1lb3V0X3NlY29uZHMYByABKA1IAYgBARI6Cg1jb25maWd1cmF0aW9uGAggASgLMiMuYWlwcm91dGVyLnYxLlByb3ZpZGVyQ29uZmlndXJhdGlvbhI7Cg5jdXN0b21faGVhZGVycxgJIAEoCzIjLmFpcHJvdXRlci52MS5Qcm92aWRlckN1c3RvbUhlYWRlcnNCCgoIX2FwaV9rZXlCGAoWX3N0YWxsX3RpbWVvdXRfc2Vjb25kcyJYCiBDcmVhdGVQcm92aWRlckNvbm5lY3Rpb25SZXNwb25zZRI0Cgpjb25uZWN0aW9uGAEgASgLMiAuYWlwcm91dGVyLnYxLlByb3ZpZGVyQ29ubmVjdGlvbiLGAwofVXBkYXRlUHJvdmlkZXJDb25uZWN0aW9uUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSFQoNY29ubmVjdGlvbl9pZBgCIAEoCRIRCgRuYW1lGAMgASgJSACIAQESFQoIYmFzZV91cmwYBCABKAlIAYgBARIUCgdhcGlfa2V5GAUgASgJSAKIAQESFAoHZW5hYmxlZBgGIAEoCEgDiAEBEiIKFXN0YWxsX3RpbWVvdXRfc2Vjb25kcxgHIAEoDUgEiAEBEhsKE3Jlc2V0X3N0YWxsX3RpbWVvdXQYCCABKAgSOgoNY29uZmlndXJhdGlvbhgJIAEoCzIjLmFpcHJvdXRlci52MS5Qcm92aWRlckNvbmZpZ3VyYXRpb24SGwoTcmVzZXRfY29uZmlndXJhdGlvbhgKIAEoCBI7Cg5jdXN0b21faGVhZGVycxgLIAEoCzIjLmFpcHJvdXRlci52MS5Qcm92aWRlckN1c3RvbUhlYWRlcnNCBwoFX25hbWVCCwoJX2Jhc2VfdXJsQgoKCF9hcGlfa2V5QgoKCF9lbmFibGVkQhgKFl9zdGFsbF90aW1lb3V0X3NlY29uZHMiWAogVXBkYXRlUHJvdmlkZXJDb25uZWN0aW9uUmVzcG9uc2USNAoKY29ubmVjdGlvbhgBIAEoCzIgLmFpcHJvdXRlci52MS5Qcm92aWRlckNvbm5lY3Rpb24iUQofRGVsZXRlUHJvdmlkZXJDb25uZWN0aW9uUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSFQoNY29ubmVjdGlvbl9pZBgCIAEoCSIiCiBEZWxldGVQcm92aWRlckNvbm5lY3Rpb25SZXNwb25zZSLmBAoZQmVnaW5Qcm92aWRlck9BdXRoUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSEwoLcHJvdmlkZXJfaWQYAiABKAkSDAoEbmFtZRgDIAEoCRIaCg1jb25uZWN0aW9uX2lkGAQgASgJSACIAQESNgoGbWV0aG9kGAUgASgOMiEuYWlwcm91dGVyLnYxLlByb3ZpZGVyT0F1dGhNZXRob2RIAYgBARIZCgxyZWRpcmVjdF91cmkYBiABKAlIAogBARIbCg5sb2dpbl9wcm92aWRlchgHIAEoCUgDiAEBEhcKCnNzb19yZWdpb24YCCABKAlIBIgBARIXCgphcGlfcmVnaW9uGAkgASgJSAWIAQESFgoJc3RhcnRfdXJsGAogASgJSAaIAQESFQoIYmFzZV91cmwYCyABKAlIB4gBARIaCg1hdXRoX2Jhc2VfdXJsGAwgASgJSAiIAQESFwoKcG9ydGFsX3VybBgNIAEoCUgJiAEBEhkKDHJlZ2lzdGVyX3VybBgOIAEoCUgKiAEBEhYKCWNsaWVudF9pZBgPIAEoCUgLiAEBQhAKDl9jb25uZWN0aW9uX2lkQgkKB19tZXRob2RCDwoNX3JlZGlyZWN0X3VyaUIRCg9fbG9naW5fcHJvdmlkZXJCDQoLX3Nzb19yZWdpb25CDQoLX2FwaV9yZWdpb25CDAoKX3N0YXJ0X3VybEILCglfYmFzZV91cmxCEAoOX2F1dGhfYmFzZV91cmxCDQoLX3BvcnRhbF91cmxCDwoNX3JlZ2lzdGVyX3VybEIMCgpfY2xpZW50X2lkIlAKGkJlZ2luUHJvdmlkZXJPQXV0aFJlc3BvbnNlEjIKDWF1dGhvcml6YXRpb24YASABKAsyGy5haXByb3V0ZXIudjEuUHJvdmlkZXJPQXV0aCJMChdHZXRQcm92aWRlck9BdXRoUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSGAoQYXV0aG9yaXphdGlvbl9pZBgCIAEoCSJOChhHZXRQcm92aWRlck9BdXRoUmVzcG9uc2USMgoNYXV0aG9yaXphdGlvbhgBIAEoCzIbLmFpcHJvdXRlci52MS5Qcm92aWRlck9BdXRoIm4KHENvbXBsZXRlUHJvdmlkZXJPQXV0aFJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhgKEGF1dGhvcml6YXRpb25faWQYAiABKAkSDAoEY29kZRgDIAEoCRINCgVzdGF0ZRgEIAEoCSJVCh1Db21wbGV0ZVByb3ZpZGVyT0F1dGhSZXNwb25zZRI0Cgpjb25uZWN0aW9uGAEgASgLMiAuYWlwcm91dGVyLnYxLlByb3ZpZGVyQ29ubmVjdGlvbiJPChpDYW5jZWxQcm92aWRlck9BdXRoUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSGAoQYXV0aG9yaXphdGlvbl9pZBgCIAEoCSIdChtDYW5jZWxQcm92aWRlck9BdXRoUmVzcG9uc2UiSwoZTGlzdFByb3ZpZGVyTW9kZWxzUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSFQoNY29ubmVjdGlvbl9pZBgCIAEoCSJBChpMaXN0UHJvdmlkZXJNb2RlbHNSZXNwb25zZRIjCgZtb2RlbHMYASADKAsyEy5haXByb3V0ZXIudjEuTW9kZWwiVAoQTGlzdFBvb2xzUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSJwoEcGFnZRgCIAEoCzIZLmFpcHJvdXRlci52MS5QYWdlUmVxdWVzdCJgChFMaXN0UG9vbHNSZXNwb25zZRIhCgVwb29scxgBIAMoCzISLmFpcHJvdXRlci52MS5Qb29sEigKBHBhZ2UYAiABKAsyGi5haXByb3V0ZXIudjEuUGFnZVJlc3BvbnNlIq0BChFDcmVhdGVQb29sUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSDAoEbmFtZRgCIAEoCRIsCghzdHJhdGVneRgDIAEoDjIaLmFpcHJvdXRlci52MS5Qb29sU3RyYXRlZ3kSKQoHbWVtYmVycxgEIAMoCzIYLmFpcHJvdXRlci52MS5Qb29sTWVtYmVyEhgKEGFmZmluaXR5X2VuYWJsZWQYBSABKAgiNgoSQ3JlYXRlUG9vbFJlc3BvbnNlEiAKBHBvb2wYASABKAsyEi5haXByb3V0ZXIudjEuUG9vbCK+AQoRVXBkYXRlUG9vbFJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEg8KB3Bvb2xfaWQYAiABKAkSDAoEbmFtZRgDIAEoCRIsCghzdHJhdGVneRgEIAEoDjIaLmFpcHJvdXRlci52MS5Qb29sU3RyYXRlZ3kSKQoHbWVtYmVycxgFIAMoCzIYLmFpcHJvdXRlci52MS5Qb29sTWVtYmVyEhgKEGFmZmluaXR5X2VuYWJsZWQYBiABKAgiNgoSVXBkYXRlUG9vbFJlc3BvbnNlEiAKBHBvb2wYASABKAsyEi5haXByb3V0ZXIudjEuUG9vbCI9ChFEZWxldGVQb29sUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSDwoHcG9vbF9pZBgCIAEoCSIUChJEZWxldGVQb29sUmVzcG9uc2UiVQoRTGlzdFJvdXRlc1JlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEicKBHBhZ2UYAiABKAsyGS5haXByb3V0ZXIudjEuUGFnZVJlcXVlc3QiYwoSTGlzdFJvdXRlc1Jlc3BvbnNlEiMKBnJvdXRlcxgBIAMoCzITLmFpcHJvdXRlci52MS5Sb3V0ZRIoCgRwYWdlGAIgASgLMhouYWlwcm91dGVyLnYxLlBhZ2VSZXNwb25zZSKtAQoSQ3JlYXRlUm91dGVSZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRIQCghtb2RlbF9pZBgCIAEoCRIvCghzdHJhdGVneRgDIAEoDjIdLmFpcHJvdXRlci52MS5Sb3V0aW5nU3RyYXRlZ3kSKgoHdGFyZ2V0cxgEIAMoCzIZLmFpcHJvdXRlci52MS5Sb3V0ZVRhcmdldBIPCgdlbmFibGVkGAUgASgIIjkKE0NyZWF0ZVJvdXRlUmVzcG9uc2USIgoFcm91dGUYASABKAsyEy5haXByb3V0ZXIudjEuUm91dGUivwEKElVwZGF0ZVJvdXRlUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSEAoIcm91dGVfaWQYAiABKAkSEAoIbW9kZWxfaWQYAyABKAkSLwoIc3RyYXRlZ3kYBCABKA4yHS5haXByb3V0ZXIudjEuUm91dGluZ1N0cmF0ZWd5EioKB3RhcmdldHMYBSADKAsyGS5haXByb3V0ZXIudjEuUm91dGVUYXJnZXQSDwoHZW5hYmxlZBgGIAEoCCI5ChNVcGRhdGVSb3V0ZVJlc3BvbnNlEiIKBXJvdXRlGAEgASgLMhMuYWlwcm91dGVyLnYxLlJvdXRlIj8KEkRlbGV0ZVJvdXRlUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSEAoIcm91dGVfaWQYAiABKAkiFQoTRGVsZXRlUm91dGVSZXNwb25zZSqZAQoMUHJvdmlkZXJXaXJlEh0KGVBST1ZJREVSX1dJUkVfVU5TUEVDSUZJRUQQABIWChJQUk9WSURFUl9XSVJFX0NIQVQQARIbChdQUk9WSURFUl9XSVJFX1JFU1BPTlNFUxACEhsKF1BST1ZJREVSX1dJUkVfQU5USFJPUElDEAMSGAoUUFJPVklERVJfV0lSRV9HT09HTEUQBDK1CQoPUHJvdmlkZXJTZXJ2aWNlEnAKE0xpc3RQcm92aWRlckNhdGFsb2cSKC5haXByb3V0ZXIudjEuTGlzdFByb3ZpZGVyQ2F0YWxvZ1JlcXVlc3QaKS5haXByb3V0ZXIudjEuTGlzdFByb3ZpZGVyQ2F0YWxvZ1Jlc3BvbnNlIgTI8xgCEnwKF0xpc3RQcm92aWRlckNvbm5lY3Rpb25zEiwuYWlwcm91dGVyLnYxLkxpc3RQcm92aWRlckNvbm5lY3Rpb25zUmVxdWVzdBotLmFpcHJvdXRlci52MS5MaXN0UHJvdmlkZXJDb25uZWN0aW9uc1Jlc3BvbnNlIgTI8xgDEn8KGENyZWF0ZVByb3ZpZGVyQ29ubmVjdGlvbhItLmFpcHJvdXRlci52MS5DcmVhdGVQcm92aWRlckNvbm5lY3Rpb25SZXF1ZXN0Gi4uYWlwcm91dGVyLnYxLkNyZWF0ZVByb3ZpZGVyQ29ubmVjdGlvblJlc3BvbnNlIgTI8xgDEn8KGFVwZGF0ZVByb3ZpZGVyQ29ubmVjdGlvbhItLmFpcHJvdXRlci52MS5VcGRhdGVQcm92aWRlckNvbm5lY3Rpb25SZXF1ZXN0Gi4uYWlwcm91dGVyLnYxLlVwZGF0ZVByb3ZpZGVyQ29ubmVjdGlvblJlc3BvbnNlIgTI8xgDEn8KGERlbGV0ZVByb3ZpZGVyQ29ubmVjdGlvbhItLmFpcHJvdXRlci52MS5EZWxldGVQcm92aWRlckNvbm5lY3Rpb25SZXF1ZXN0Gi4uYWlwcm91dGVyLnYxLkRlbGV0ZVByb3ZpZGVyQ29ubmVjdGlvblJlc3BvbnNlIgTI8xgDEm0KEkJlZ2luUHJvdmlkZXJPQXV0aBInLmFpcHJvdXRlci52MS5CZWdpblByb3ZpZGVyT0F1dGhSZXF1ZXN0GiguYWlwcm91dGVyLnYxLkJlZ2luUHJvdmlkZXJPQXV0aFJlc3BvbnNlIgTI8xgDEmcKEEdldFByb3ZpZGVyT0F1dGgSJS5haXByb3V0ZXIudjEuR2V0UHJvdmlkZXJPQXV0aFJlcXVlc3QaJi5haXByb3V0ZXIudjEuR2V0UHJvdmlkZXJPQXV0aFJlc3BvbnNlIgTI8xgDEnYKFUNvbXBsZXRlUHJvdmlkZXJPQXV0aBIqLmFpcHJvdXRlci52MS5Db21wbGV0ZVByb3ZpZGVyT0F1dGhSZXF1ZXN0GisuYWlwcm91dGVyLnYxLkNvbXBsZXRlUHJvdmlkZXJPQXV0aFJlc3BvbnNlIgTI8xgDEnAKE0NhbmNlbFByb3ZpZGVyT0F1dGgSKC5haXByb3V0ZXIudjEuQ2FuY2VsUHJvdmlkZXJPQXV0aFJlcXVlc3QaKS5haXByb3V0ZXIudjEuQ2FuY2VsUHJvdmlkZXJPQXV0aFJlc3BvbnNlIgTI8xgDEm0KEkxpc3RQcm92aWRlck1vZGVscxInLmFpcHJvdXRlci52MS5MaXN0UHJvdmlkZXJNb2RlbHNSZXF1ZXN0GiguYWlwcm91dGVyLnYxLkxpc3RQcm92aWRlck1vZGVsc1Jlc3BvbnNlIgTI8xgDMuYCCgtQb29sU2VydmljZRJSCglMaXN0UG9vbHMSHi5haXByb3V0ZXIudjEuTGlzdFBvb2xzUmVxdWVzdBofLmFpcHJvdXRlci52MS5MaXN0UG9vbHNSZXNwb25zZSIEyPMYAxJVCgpDcmVhdGVQb29sEh8uYWlwcm91dGVyLnYxLkNyZWF0ZVBvb2xSZXF1ZXN0GiAuYWlwcm91dGVyLnYxLkNyZWF0ZVBvb2xSZXNwb25zZSIEyPMYAxJVCgpVcGRhdGVQb29sEh8uYWlwcm91dGVyLnYxLlVwZGF0ZVBvb2xSZXF1ZXN0GiAuYWlwcm91dGVyLnYxLlVwZGF0ZVBvb2xSZXNwb25zZSIEyPMYAxJVCgpEZWxldGVQb29sEh8uYWlwcm91dGVyLnYxLkRlbGV0ZVBvb2xSZXF1ZXN0GiAuYWlwcm91dGVyLnYxLkRlbGV0ZVBvb2xSZXNwb25zZSIEyPMYAzL1AgoOUm91dGluZ1NlcnZpY2USVQoKTGlzdFJvdXRlcxIfLmFpcHJvdXRlci52MS5MaXN0Um91dGVzUmVxdWVzdBogLmFpcHJvdXRlci52MS5MaXN0Um91dGVzUmVzcG9uc2UiBMjzGAMSWAoLQ3JlYXRlUm91dGUSIC5haXByb3V0ZXIudjEuQ3JlYXRlUm91dGVSZXF1ZXN0GiEuYWlwcm91dGVyLnYxLkNyZWF0ZVJvdXRlUmVzcG9uc2UiBMjzGAMSWAoLVXBkYXRlUm91dGUSIC5haXByb3V0ZXIudjEuVXBkYXRlUm91dGVSZXF1ZXN0GiEuYWlwcm91dGVyLnYxLlVwZGF0ZVJvdXRlUmVzcG9uc2UiBMjzGAMSWAoLRGVsZXRlUm91dGUSIC5haXByb3V0ZXIudjEuRGVsZXRlUm91dGVSZXF1ZXN0GiEuYWlwcm91dGVyLnYxLkRlbGV0ZVJvdXRlUmVzcG9uc2UiBMjzGANCP1o9Z2l0aHViLmNvbS9kZWxpbm9pby9BSVBSb3V0ZXIvcHJvdG9zL2FpcHJvdXRlci92MTthaXByb3V0ZXJ2MWIGcHJvdG8z", [file_aiprouter_v1_common, file_google_protobuf_timestamp]);
+
+/**
+ * Each absent field inherits the destination-matched preset policy. Explicit false
+ * disables that policy. Do not serialize with defaults or collapse pointer presence.
+ *
+ * @generated from message aiprouter.v1.ProviderPolicyOverrides
+ */
+export type ProviderPolicyOverrides = Message<"aiprouter.v1.ProviderPolicyOverrides"> & {
+  /**
+   * @generated from field: optional bool fold_developer_role_to_system = 1;
+   */
+  foldDeveloperRoleToSystem?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool drop_responses_reasoning_items = 2;
+   */
+  dropResponsesReasoningItems?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool preserve_responses_reasoning_content = 3;
+   */
+  preserveResponsesReasoningContent?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool requires_adjacent_responses_tool_results = 4;
+   */
+  requiresAdjacentResponsesToolResults?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool requires_paired_responses_tool_results = 5;
+   */
+  requiresPairedResponsesToolResults?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool stateless_responses = 6;
+   */
+  statelessResponses?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool annotate_empty_tool_outputs = 7;
+   */
+  annotateEmptyToolOutputs?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool parallel_tool_calls = 8;
+   */
+  parallelToolCalls?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool prompt_cache_key = 9;
+   */
+  promptCacheKey?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool chat_service_tier = 10;
+   */
+  chatServiceTier?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool supports_service_tier = 11;
+   */
+  supportsServiceTier?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool supports_verbosity = 12;
+   */
+  supportsVerbosity?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool supports_responses_custom_tools = 13;
+   */
+  supportsResponsesCustomTools?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool supports_open_ai_web_search_tool_fields = 14;
+   */
+  supportsOpenAiWebSearchToolFields?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool responses_item_id_repair = 15;
+   */
+  responsesItemIdRepair?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool show_thinking_summary = 16;
+   */
+  showThinkingSummary?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool escape_builtin_tool_names = 17;
+   */
+  escapeBuiltinToolNames?: boolean | undefined;
+};
+
+/**
+ * Describes the message aiprouter.v1.ProviderPolicyOverrides.
+ * Use `create(ProviderPolicyOverridesSchema)` to create a new message.
+ */
+export const ProviderPolicyOverridesSchema: GenMessage<ProviderPolicyOverrides> = /*@__PURE__*/
+  messageDesc(file_aiprouter_v1_provider, 0);
+
+/**
+ * Safe read metadata. Header secret values are deliberately not part of this message.
+ *
+ * @generated from message aiprouter.v1.ProviderConfiguration
+ */
+export type ProviderConfiguration = Message<"aiprouter.v1.ProviderConfiguration"> & {
+  /**
+   * Absent inherits the preset; custom connections retain the legacy CHAT default.
+   * Explicit UNSPECIFIED is invalid.
+   *
+   * @generated from field: optional aiprouter.v1.ProviderWire wire = 1;
+   */
+  wire?: ProviderWire | undefined;
+
+  /**
+   * Exact model IDs only; validate wire support for the selected provider.
+   *
+   * @generated from field: map<string, aiprouter.v1.ProviderWire> model_wires = 2;
+   */
+  modelWires: { [key: string]: ProviderWire };
+
+  /**
+   * Origin-relative endpoint paths only: reject schemes, hosts, fragments and credentials.
+   *
+   * @generated from field: optional string responses_path = 3;
+   */
+  responsesPath?: string | undefined;
+
+  /**
+   * @generated from field: optional string chat_completions_path = 4;
+   */
+  chatCompletionsPath?: string | undefined;
+
+  /**
+   * @generated from field: aiprouter.v1.ProviderPolicyOverrides policy = 5;
+   */
+  policy?: ProviderPolicyOverrides | undefined;
+
+  /**
+   * Optional positive Azure output-budget floor. Apply the same effective budget at
+   * admission and serialization. This is not permission to bypass request limits.
+   *
+   * @generated from field: optional int64 min_max_output_tokens = 6;
+   */
+  minMaxOutputTokens?: bigint | undefined;
+};
+
+/**
+ * Describes the message aiprouter.v1.ProviderConfiguration.
+ * Use `create(ProviderConfigurationSchema)` to create a new message.
+ */
+export const ProviderConfigurationSchema: GenMessage<ProviderConfiguration> = /*@__PURE__*/
+  messageDesc(file_aiprouter_v1_provider, 1);
+
+/**
+ * WRITE ONLY. Encrypt values with the personal connection; never echo, log, or trace.
+ * Reject invalid names/newlines, forbidden transport headers and provider-reserved
+ * authentication overrides before generic credential synthesis (including DSH).
+ *
+ * @generated from message aiprouter.v1.ProviderCustomHeaders
+ */
+export type ProviderCustomHeaders = Message<"aiprouter.v1.ProviderCustomHeaders"> & {
+  /**
+   * @generated from field: map<string, string> values = 1;
+   */
+  values: { [key: string]: string };
+};
+
+/**
+ * Describes the message aiprouter.v1.ProviderCustomHeaders.
+ * Use `create(ProviderCustomHeadersSchema)` to create a new message.
+ */
+export const ProviderCustomHeadersSchema: GenMessage<ProviderCustomHeaders> = /*@__PURE__*/
+  messageDesc(file_aiprouter_v1_provider, 2);
 
 /**
  * Provider IDs are catalog identifiers from the pinned compatibility inventory, not a closed vendor enum.
@@ -59,7 +234,7 @@ export type ProviderDefinition = Message<"aiprouter.v1.ProviderDefinition"> & {
  * Use `create(ProviderDefinitionSchema)` to create a new message.
  */
 export const ProviderDefinitionSchema: GenMessage<ProviderDefinition> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 0);
+  messageDesc(file_aiprouter_v1_provider, 3);
 
 /**
  * Metadata only. No read RPC exposes credential values, OAuth codes, or tokens.
@@ -116,6 +291,18 @@ export type ProviderConnection = Message<"aiprouter.v1.ProviderConnection"> & {
    * @generated from field: optional uint32 stall_timeout_seconds = 10;
    */
   stallTimeoutSeconds?: number | undefined;
+
+  /**
+   * @generated from field: aiprouter.v1.ProviderConfiguration configuration = 11;
+   */
+  configuration?: ProviderConfiguration | undefined;
+
+  /**
+   * Names only; values remain write-only even for the owner.
+   *
+   * @generated from field: repeated string custom_header_names = 12;
+   */
+  customHeaderNames: string[];
 };
 
 /**
@@ -123,7 +310,7 @@ export type ProviderConnection = Message<"aiprouter.v1.ProviderConnection"> & {
  * Use `create(ProviderConnectionSchema)` to create a new message.
  */
 export const ProviderConnectionSchema: GenMessage<ProviderConnection> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 1);
+  messageDesc(file_aiprouter_v1_provider, 4);
 
 /**
  * @generated from message aiprouter.v1.ProviderOAuth
@@ -177,7 +364,7 @@ export type ProviderOAuth = Message<"aiprouter.v1.ProviderOAuth"> & {
  * Use `create(ProviderOAuthSchema)` to create a new message.
  */
 export const ProviderOAuthSchema: GenMessage<ProviderOAuth> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 2);
+  messageDesc(file_aiprouter_v1_provider, 5);
 
 /**
  * @generated from message aiprouter.v1.PoolMember
@@ -204,7 +391,7 @@ export type PoolMember = Message<"aiprouter.v1.PoolMember"> & {
  * Use `create(PoolMemberSchema)` to create a new message.
  */
 export const PoolMemberSchema: GenMessage<PoolMember> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 3);
+  messageDesc(file_aiprouter_v1_provider, 6);
 
 /**
  * @generated from message aiprouter.v1.Pool
@@ -249,7 +436,7 @@ export type Pool = Message<"aiprouter.v1.Pool"> & {
  * Use `create(PoolSchema)` to create a new message.
  */
 export const PoolSchema: GenMessage<Pool> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 4);
+  messageDesc(file_aiprouter_v1_provider, 7);
 
 /**
  * @generated from message aiprouter.v1.RouteTarget
@@ -293,7 +480,7 @@ export type RouteTarget = Message<"aiprouter.v1.RouteTarget"> & {
  * Use `create(RouteTargetSchema)` to create a new message.
  */
 export const RouteTargetSchema: GenMessage<RouteTarget> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 5);
+  messageDesc(file_aiprouter_v1_provider, 8);
 
 /**
  * @generated from message aiprouter.v1.Route
@@ -335,7 +522,7 @@ export type Route = Message<"aiprouter.v1.Route"> & {
  * Use `create(RouteSchema)` to create a new message.
  */
 export const RouteSchema: GenMessage<Route> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 6);
+  messageDesc(file_aiprouter_v1_provider, 9);
 
 /**
  * @generated from message aiprouter.v1.ListProviderCatalogRequest
@@ -348,7 +535,7 @@ export type ListProviderCatalogRequest = Message<"aiprouter.v1.ListProviderCatal
  * Use `create(ListProviderCatalogRequestSchema)` to create a new message.
  */
 export const ListProviderCatalogRequestSchema: GenMessage<ListProviderCatalogRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 7);
+  messageDesc(file_aiprouter_v1_provider, 10);
 
 /**
  * @generated from message aiprouter.v1.ListProviderCatalogResponse
@@ -365,7 +552,7 @@ export type ListProviderCatalogResponse = Message<"aiprouter.v1.ListProviderCata
  * Use `create(ListProviderCatalogResponseSchema)` to create a new message.
  */
 export const ListProviderCatalogResponseSchema: GenMessage<ListProviderCatalogResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 8);
+  messageDesc(file_aiprouter_v1_provider, 11);
 
 /**
  * @generated from message aiprouter.v1.ListProviderConnectionsRequest
@@ -387,7 +574,7 @@ export type ListProviderConnectionsRequest = Message<"aiprouter.v1.ListProviderC
  * Use `create(ListProviderConnectionsRequestSchema)` to create a new message.
  */
 export const ListProviderConnectionsRequestSchema: GenMessage<ListProviderConnectionsRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 9);
+  messageDesc(file_aiprouter_v1_provider, 12);
 
 /**
  * @generated from message aiprouter.v1.ListProviderConnectionsResponse
@@ -409,7 +596,7 @@ export type ListProviderConnectionsResponse = Message<"aiprouter.v1.ListProvider
  * Use `create(ListProviderConnectionsResponseSchema)` to create a new message.
  */
 export const ListProviderConnectionsResponseSchema: GenMessage<ListProviderConnectionsResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 10);
+  messageDesc(file_aiprouter_v1_provider, 13);
 
 /**
  * @generated from message aiprouter.v1.CreateProviderConnectionRequest
@@ -449,6 +636,16 @@ export type CreateProviderConnectionRequest = Message<"aiprouter.v1.CreateProvid
    * @generated from field: optional uint32 stall_timeout_seconds = 7;
    */
   stallTimeoutSeconds?: number | undefined;
+
+  /**
+   * @generated from field: aiprouter.v1.ProviderConfiguration configuration = 8;
+   */
+  configuration?: ProviderConfiguration | undefined;
+
+  /**
+   * @generated from field: aiprouter.v1.ProviderCustomHeaders custom_headers = 9;
+   */
+  customHeaders?: ProviderCustomHeaders | undefined;
 };
 
 /**
@@ -456,7 +653,7 @@ export type CreateProviderConnectionRequest = Message<"aiprouter.v1.CreateProvid
  * Use `create(CreateProviderConnectionRequestSchema)` to create a new message.
  */
 export const CreateProviderConnectionRequestSchema: GenMessage<CreateProviderConnectionRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 11);
+  messageDesc(file_aiprouter_v1_provider, 14);
 
 /**
  * @generated from message aiprouter.v1.CreateProviderConnectionResponse
@@ -473,7 +670,7 @@ export type CreateProviderConnectionResponse = Message<"aiprouter.v1.CreateProvi
  * Use `create(CreateProviderConnectionResponseSchema)` to create a new message.
  */
 export const CreateProviderConnectionResponseSchema: GenMessage<CreateProviderConnectionResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 12);
+  messageDesc(file_aiprouter_v1_provider, 15);
 
 /**
  * @generated from message aiprouter.v1.UpdateProviderConnectionRequest
@@ -518,6 +715,29 @@ export type UpdateProviderConnectionRequest = Message<"aiprouter.v1.UpdateProvid
    * @generated from field: bool reset_stall_timeout = 8;
    */
   resetStallTimeout: boolean;
+
+  /**
+   * Absent preserves configuration; present replaces the complete configuration.
+   * An empty message clears overrides and restores preset/custom defaults.
+   *
+   * @generated from field: aiprouter.v1.ProviderConfiguration configuration = 9;
+   */
+  configuration?: ProviderConfiguration | undefined;
+
+  /**
+   * Explicit reset alternative. Reject when configuration is also present.
+   * Does not clear headers; supply an empty custom_headers message for that.
+   *
+   * @generated from field: bool reset_configuration = 10;
+   */
+  resetConfiguration: boolean;
+
+  /**
+   * Absent preserves headers; present replaces all values; empty clears all headers.
+   *
+   * @generated from field: aiprouter.v1.ProviderCustomHeaders custom_headers = 11;
+   */
+  customHeaders?: ProviderCustomHeaders | undefined;
 };
 
 /**
@@ -525,7 +745,7 @@ export type UpdateProviderConnectionRequest = Message<"aiprouter.v1.UpdateProvid
  * Use `create(UpdateProviderConnectionRequestSchema)` to create a new message.
  */
 export const UpdateProviderConnectionRequestSchema: GenMessage<UpdateProviderConnectionRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 13);
+  messageDesc(file_aiprouter_v1_provider, 16);
 
 /**
  * @generated from message aiprouter.v1.UpdateProviderConnectionResponse
@@ -542,7 +762,7 @@ export type UpdateProviderConnectionResponse = Message<"aiprouter.v1.UpdateProvi
  * Use `create(UpdateProviderConnectionResponseSchema)` to create a new message.
  */
 export const UpdateProviderConnectionResponseSchema: GenMessage<UpdateProviderConnectionResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 14);
+  messageDesc(file_aiprouter_v1_provider, 17);
 
 /**
  * @generated from message aiprouter.v1.DeleteProviderConnectionRequest
@@ -564,7 +784,7 @@ export type DeleteProviderConnectionRequest = Message<"aiprouter.v1.DeleteProvid
  * Use `create(DeleteProviderConnectionRequestSchema)` to create a new message.
  */
 export const DeleteProviderConnectionRequestSchema: GenMessage<DeleteProviderConnectionRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 15);
+  messageDesc(file_aiprouter_v1_provider, 18);
 
 /**
  * @generated from message aiprouter.v1.DeleteProviderConnectionResponse
@@ -577,7 +797,7 @@ export type DeleteProviderConnectionResponse = Message<"aiprouter.v1.DeleteProvi
  * Use `create(DeleteProviderConnectionResponseSchema)` to create a new message.
  */
 export const DeleteProviderConnectionResponseSchema: GenMessage<DeleteProviderConnectionResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 16);
+  messageDesc(file_aiprouter_v1_provider, 19);
 
 /**
  * @generated from message aiprouter.v1.BeginProviderOAuthRequest
@@ -668,7 +888,7 @@ export type BeginProviderOAuthRequest = Message<"aiprouter.v1.BeginProviderOAuth
  * Use `create(BeginProviderOAuthRequestSchema)` to create a new message.
  */
 export const BeginProviderOAuthRequestSchema: GenMessage<BeginProviderOAuthRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 17);
+  messageDesc(file_aiprouter_v1_provider, 20);
 
 /**
  * @generated from message aiprouter.v1.BeginProviderOAuthResponse
@@ -685,7 +905,7 @@ export type BeginProviderOAuthResponse = Message<"aiprouter.v1.BeginProviderOAut
  * Use `create(BeginProviderOAuthResponseSchema)` to create a new message.
  */
 export const BeginProviderOAuthResponseSchema: GenMessage<BeginProviderOAuthResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 18);
+  messageDesc(file_aiprouter_v1_provider, 21);
 
 /**
  * @generated from message aiprouter.v1.GetProviderOAuthRequest
@@ -707,7 +927,7 @@ export type GetProviderOAuthRequest = Message<"aiprouter.v1.GetProviderOAuthRequ
  * Use `create(GetProviderOAuthRequestSchema)` to create a new message.
  */
 export const GetProviderOAuthRequestSchema: GenMessage<GetProviderOAuthRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 19);
+  messageDesc(file_aiprouter_v1_provider, 22);
 
 /**
  * @generated from message aiprouter.v1.GetProviderOAuthResponse
@@ -724,7 +944,7 @@ export type GetProviderOAuthResponse = Message<"aiprouter.v1.GetProviderOAuthRes
  * Use `create(GetProviderOAuthResponseSchema)` to create a new message.
  */
 export const GetProviderOAuthResponseSchema: GenMessage<GetProviderOAuthResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 20);
+  messageDesc(file_aiprouter_v1_provider, 23);
 
 /**
  * @generated from message aiprouter.v1.CompleteProviderOAuthRequest
@@ -756,7 +976,7 @@ export type CompleteProviderOAuthRequest = Message<"aiprouter.v1.CompleteProvide
  * Use `create(CompleteProviderOAuthRequestSchema)` to create a new message.
  */
 export const CompleteProviderOAuthRequestSchema: GenMessage<CompleteProviderOAuthRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 21);
+  messageDesc(file_aiprouter_v1_provider, 24);
 
 /**
  * @generated from message aiprouter.v1.CompleteProviderOAuthResponse
@@ -773,7 +993,7 @@ export type CompleteProviderOAuthResponse = Message<"aiprouter.v1.CompleteProvid
  * Use `create(CompleteProviderOAuthResponseSchema)` to create a new message.
  */
 export const CompleteProviderOAuthResponseSchema: GenMessage<CompleteProviderOAuthResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 22);
+  messageDesc(file_aiprouter_v1_provider, 25);
 
 /**
  * @generated from message aiprouter.v1.CancelProviderOAuthRequest
@@ -795,7 +1015,7 @@ export type CancelProviderOAuthRequest = Message<"aiprouter.v1.CancelProviderOAu
  * Use `create(CancelProviderOAuthRequestSchema)` to create a new message.
  */
 export const CancelProviderOAuthRequestSchema: GenMessage<CancelProviderOAuthRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 23);
+  messageDesc(file_aiprouter_v1_provider, 26);
 
 /**
  * @generated from message aiprouter.v1.CancelProviderOAuthResponse
@@ -808,7 +1028,7 @@ export type CancelProviderOAuthResponse = Message<"aiprouter.v1.CancelProviderOA
  * Use `create(CancelProviderOAuthResponseSchema)` to create a new message.
  */
 export const CancelProviderOAuthResponseSchema: GenMessage<CancelProviderOAuthResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 24);
+  messageDesc(file_aiprouter_v1_provider, 27);
 
 /**
  * @generated from message aiprouter.v1.ListProviderModelsRequest
@@ -830,7 +1050,7 @@ export type ListProviderModelsRequest = Message<"aiprouter.v1.ListProviderModels
  * Use `create(ListProviderModelsRequestSchema)` to create a new message.
  */
 export const ListProviderModelsRequestSchema: GenMessage<ListProviderModelsRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 25);
+  messageDesc(file_aiprouter_v1_provider, 28);
 
 /**
  * @generated from message aiprouter.v1.ListProviderModelsResponse
@@ -847,7 +1067,7 @@ export type ListProviderModelsResponse = Message<"aiprouter.v1.ListProviderModel
  * Use `create(ListProviderModelsResponseSchema)` to create a new message.
  */
 export const ListProviderModelsResponseSchema: GenMessage<ListProviderModelsResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 26);
+  messageDesc(file_aiprouter_v1_provider, 29);
 
 /**
  * @generated from message aiprouter.v1.ListPoolsRequest
@@ -869,7 +1089,7 @@ export type ListPoolsRequest = Message<"aiprouter.v1.ListPoolsRequest"> & {
  * Use `create(ListPoolsRequestSchema)` to create a new message.
  */
 export const ListPoolsRequestSchema: GenMessage<ListPoolsRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 27);
+  messageDesc(file_aiprouter_v1_provider, 30);
 
 /**
  * @generated from message aiprouter.v1.ListPoolsResponse
@@ -891,7 +1111,7 @@ export type ListPoolsResponse = Message<"aiprouter.v1.ListPoolsResponse"> & {
  * Use `create(ListPoolsResponseSchema)` to create a new message.
  */
 export const ListPoolsResponseSchema: GenMessage<ListPoolsResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 28);
+  messageDesc(file_aiprouter_v1_provider, 31);
 
 /**
  * @generated from message aiprouter.v1.CreatePoolRequest
@@ -931,7 +1151,7 @@ export type CreatePoolRequest = Message<"aiprouter.v1.CreatePoolRequest"> & {
  * Use `create(CreatePoolRequestSchema)` to create a new message.
  */
 export const CreatePoolRequestSchema: GenMessage<CreatePoolRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 29);
+  messageDesc(file_aiprouter_v1_provider, 32);
 
 /**
  * @generated from message aiprouter.v1.CreatePoolResponse
@@ -948,7 +1168,7 @@ export type CreatePoolResponse = Message<"aiprouter.v1.CreatePoolResponse"> & {
  * Use `create(CreatePoolResponseSchema)` to create a new message.
  */
 export const CreatePoolResponseSchema: GenMessage<CreatePoolResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 30);
+  messageDesc(file_aiprouter_v1_provider, 33);
 
 /**
  * @generated from message aiprouter.v1.UpdatePoolRequest
@@ -993,7 +1213,7 @@ export type UpdatePoolRequest = Message<"aiprouter.v1.UpdatePoolRequest"> & {
  * Use `create(UpdatePoolRequestSchema)` to create a new message.
  */
 export const UpdatePoolRequestSchema: GenMessage<UpdatePoolRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 31);
+  messageDesc(file_aiprouter_v1_provider, 34);
 
 /**
  * @generated from message aiprouter.v1.UpdatePoolResponse
@@ -1010,7 +1230,7 @@ export type UpdatePoolResponse = Message<"aiprouter.v1.UpdatePoolResponse"> & {
  * Use `create(UpdatePoolResponseSchema)` to create a new message.
  */
 export const UpdatePoolResponseSchema: GenMessage<UpdatePoolResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 32);
+  messageDesc(file_aiprouter_v1_provider, 35);
 
 /**
  * @generated from message aiprouter.v1.DeletePoolRequest
@@ -1032,7 +1252,7 @@ export type DeletePoolRequest = Message<"aiprouter.v1.DeletePoolRequest"> & {
  * Use `create(DeletePoolRequestSchema)` to create a new message.
  */
 export const DeletePoolRequestSchema: GenMessage<DeletePoolRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 33);
+  messageDesc(file_aiprouter_v1_provider, 36);
 
 /**
  * @generated from message aiprouter.v1.DeletePoolResponse
@@ -1045,7 +1265,7 @@ export type DeletePoolResponse = Message<"aiprouter.v1.DeletePoolResponse"> & {
  * Use `create(DeletePoolResponseSchema)` to create a new message.
  */
 export const DeletePoolResponseSchema: GenMessage<DeletePoolResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 34);
+  messageDesc(file_aiprouter_v1_provider, 37);
 
 /**
  * @generated from message aiprouter.v1.ListRoutesRequest
@@ -1067,7 +1287,7 @@ export type ListRoutesRequest = Message<"aiprouter.v1.ListRoutesRequest"> & {
  * Use `create(ListRoutesRequestSchema)` to create a new message.
  */
 export const ListRoutesRequestSchema: GenMessage<ListRoutesRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 35);
+  messageDesc(file_aiprouter_v1_provider, 38);
 
 /**
  * @generated from message aiprouter.v1.ListRoutesResponse
@@ -1089,7 +1309,7 @@ export type ListRoutesResponse = Message<"aiprouter.v1.ListRoutesResponse"> & {
  * Use `create(ListRoutesResponseSchema)` to create a new message.
  */
 export const ListRoutesResponseSchema: GenMessage<ListRoutesResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 36);
+  messageDesc(file_aiprouter_v1_provider, 39);
 
 /**
  * @generated from message aiprouter.v1.CreateRouteRequest
@@ -1126,7 +1346,7 @@ export type CreateRouteRequest = Message<"aiprouter.v1.CreateRouteRequest"> & {
  * Use `create(CreateRouteRequestSchema)` to create a new message.
  */
 export const CreateRouteRequestSchema: GenMessage<CreateRouteRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 37);
+  messageDesc(file_aiprouter_v1_provider, 40);
 
 /**
  * @generated from message aiprouter.v1.CreateRouteResponse
@@ -1143,7 +1363,7 @@ export type CreateRouteResponse = Message<"aiprouter.v1.CreateRouteResponse"> & 
  * Use `create(CreateRouteResponseSchema)` to create a new message.
  */
 export const CreateRouteResponseSchema: GenMessage<CreateRouteResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 38);
+  messageDesc(file_aiprouter_v1_provider, 41);
 
 /**
  * @generated from message aiprouter.v1.UpdateRouteRequest
@@ -1185,7 +1405,7 @@ export type UpdateRouteRequest = Message<"aiprouter.v1.UpdateRouteRequest"> & {
  * Use `create(UpdateRouteRequestSchema)` to create a new message.
  */
 export const UpdateRouteRequestSchema: GenMessage<UpdateRouteRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 39);
+  messageDesc(file_aiprouter_v1_provider, 42);
 
 /**
  * @generated from message aiprouter.v1.UpdateRouteResponse
@@ -1202,7 +1422,7 @@ export type UpdateRouteResponse = Message<"aiprouter.v1.UpdateRouteResponse"> & 
  * Use `create(UpdateRouteResponseSchema)` to create a new message.
  */
 export const UpdateRouteResponseSchema: GenMessage<UpdateRouteResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 40);
+  messageDesc(file_aiprouter_v1_provider, 43);
 
 /**
  * @generated from message aiprouter.v1.DeleteRouteRequest
@@ -1224,7 +1444,7 @@ export type DeleteRouteRequest = Message<"aiprouter.v1.DeleteRouteRequest"> & {
  * Use `create(DeleteRouteRequestSchema)` to create a new message.
  */
 export const DeleteRouteRequestSchema: GenMessage<DeleteRouteRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 41);
+  messageDesc(file_aiprouter_v1_provider, 44);
 
 /**
  * @generated from message aiprouter.v1.DeleteRouteResponse
@@ -1237,7 +1457,45 @@ export type DeleteRouteResponse = Message<"aiprouter.v1.DeleteRouteResponse"> & 
  * Use `create(DeleteRouteResponseSchema)` to create a new message.
  */
 export const DeleteRouteResponseSchema: GenMessage<DeleteRouteResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_provider, 42);
+  messageDesc(file_aiprouter_v1_provider, 45);
+
+/**
+ * User-configurable generic wires only. Specialized preset adapters remain server-owned.
+ *
+ * @generated from enum aiprouter.v1.ProviderWire
+ */
+export enum ProviderWire {
+  /**
+   * @generated from enum value: PROVIDER_WIRE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: PROVIDER_WIRE_CHAT = 1;
+   */
+  CHAT = 1,
+
+  /**
+   * @generated from enum value: PROVIDER_WIRE_RESPONSES = 2;
+   */
+  RESPONSES = 2,
+
+  /**
+   * @generated from enum value: PROVIDER_WIRE_ANTHROPIC = 3;
+   */
+  ANTHROPIC = 3,
+
+  /**
+   * @generated from enum value: PROVIDER_WIRE_GOOGLE = 4;
+   */
+  GOOGLE = 4,
+}
+
+/**
+ * Describes the enum aiprouter.v1.ProviderWire.
+ */
+export const ProviderWireSchema: GenEnum<ProviderWire> = /*@__PURE__*/
+  enumDesc(file_aiprouter_v1_provider, 0);
 
 /**
  * @generated from service aiprouter.v1.ProviderService

@@ -258,3 +258,51 @@ func TestHostedSettingsPresenceAndIndependentTargets(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderPolicyPresenceAndWriteOnlyHeaders(t *testing.T) {
+	policy := &v1.ProviderPolicyOverrides{}
+	fields := policy.ProtoReflect().Descriptor().Fields()
+	if fields.Len() != 17 {
+		t.Fatalf("policy inventory changed: %d", fields.Len())
+	}
+	for i := 0; i < fields.Len(); i++ {
+		field := fields.Get(i)
+		if !field.HasPresence() || field.Kind() != protoreflect.BoolKind {
+			t.Fatalf("policy must be tri-state: %s", field.Name())
+		}
+		value := &v1.ProviderPolicyOverrides{}
+		value.ProtoReflect().Set(field, protoreflect.ValueOfBool(false))
+		wire, err := proto.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := &v1.ProviderPolicyOverrides{}
+		if err = proto.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !decoded.ProtoReflect().Has(field) || decoded.ProtoReflect().Get(field).Bool() {
+			t.Fatalf("explicit false lost: %s", field.Name())
+		}
+	}
+	for _, message := range []proto.Message{&v1.ProviderConnection{}, &v1.ProviderConfiguration{}} {
+		if message.ProtoReflect().Descriptor().Fields().ByName("custom_headers") != nil {
+			t.Fatalf("readable message exposes headers: %T", message)
+		}
+	}
+	for _, value := range []*v1.UpdateProviderConnectionRequest{
+		{}, {Configuration: &v1.ProviderConfiguration{}}, {ResetConfiguration: true}, {CustomHeaders: &v1.ProviderCustomHeaders{}},
+		{Configuration: &v1.ProviderConfiguration{Wire: v1.ProviderWire_PROVIDER_WIRE_RESPONSES.Enum(), ModelWires: map[string]v1.ProviderWire{"model": v1.ProviderWire_PROVIDER_WIRE_ANTHROPIC}, ResponsesPath: proto.String("/custom/responses"), MinMaxOutputTokens: proto.Int64(1024), Policy: &v1.ProviderPolicyOverrides{DropResponsesReasoningItems: proto.Bool(false)}}},
+	} {
+		wire, err := proto.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := &v1.UpdateProviderConnectionRequest{}
+		if err = proto.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(value, decoded) {
+			t.Fatal("config omission/replacement/reset or header clear lost")
+		}
+	}
+}
