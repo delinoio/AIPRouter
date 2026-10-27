@@ -116,6 +116,27 @@ func TestRoutingFastCustomEvidence(t *testing.T) {
 	}
 }
 
+func TestRoutingFastDestinationAndAuthEvidence(t *testing.T) {
+	d := fastTestData(t, "xai")
+	d.Metadata.AuthKind = v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY
+	d.Credential = nil
+	target, err := targetFor(d, "grok-4.7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = applyFastTarget(context.Background(), d, "grok-4.7", &target); err != nil {
+		t.Fatal(err)
+	}
+	if target.FastPolicy.Kind != inference.FastServiceTier || target.FastPolicy.Model != "" {
+		t.Fatal("API-key auth incorrectly selected OAuth model lane")
+	}
+	d = fastTestData(t, "openrouter")
+	d.Metadata.BaseUrl = "https://provider.example/v1"
+	if got := fastModelEvidence(d, "openai/gpt-6-sol", time.Now()); got != nil {
+		t.Fatal("custom endpoint inherited canonical OpenRouter tier capability")
+	}
+}
+
 func TestRoutingFastWireAuthority(t *testing.T) {
 	for _, raw := range []string{
 		`{"supportsServiceTier":true,"fastWire":null}`,
