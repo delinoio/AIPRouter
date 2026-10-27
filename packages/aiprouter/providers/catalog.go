@@ -48,31 +48,41 @@ var (
 )
 
 // Optional booleans distinguish unsupported from unobserved capabilities.
+type ResponsesItemIDRepairPolicy struct {
+	Message                  []string `json:"message,omitempty"`
+	Reasoning                []string `json:"reasoning,omitempty"`
+	RepairInvalidIDs         *bool    `json:"repairInvalidIds,omitempty"`
+	RepairMissingTerminalIDs *bool    `json:"repairMissingTerminalIds,omitempty"`
+}
+
 type Capabilities struct {
-	SupportsServiceTier                  *bool               `json:"supportsServiceTier,omitempty"`
-	SupportsVerbosity                    *bool               `json:"supportsVerbosity,omitempty"`
-	SupportsResponsesCustomTools         *bool               `json:"supportsResponsesCustomTools,omitempty"`
-	SupportsOpenAIWebSearchToolFields    *bool               `json:"supportsOpenAiWebSearchToolFields,omitempty"`
-	ParallelToolCalls                    *bool               `json:"parallelToolCalls,omitempty"`
-	StatelessResponses                   *bool               `json:"statelessResponses,omitempty"`
-	RequiresAdjacentResponsesToolResults *bool               `json:"requiresAdjacentResponsesToolResults,omitempty"`
-	RequiresPairedResponsesToolResults   *bool               `json:"requiresPairedResponsesToolResults,omitempty"`
-	PreserveResponsesReasoningContent    *bool               `json:"preserveResponsesReasoningContent,omitempty"`
-	DropResponsesReasoningItems          *bool               `json:"dropResponsesReasoningItems,omitempty"`
-	FoldDeveloperRoleToSystem            *bool               `json:"foldDeveloperRoleToSystem,omitempty"`
-	InputModalities                      []string            `json:"inputModalities,omitempty"`
-	ModelInputModalities                 map[string][]string `json:"modelInputModalities,omitempty"`
-	ModelContextWindows                  map[string]int      `json:"modelContextWindows,omitempty"`
-	ModelMaxInputTokens                  map[string]int      `json:"modelMaxInputTokens,omitempty"`
-	ModelMaxOutputTokens                 map[string]int      `json:"modelMaxOutputTokens,omitempty"`
-	ModelSupportsServiceTier             map[string]bool     `json:"modelSupportsServiceTier,omitempty"`
-	ModelReasoningEfforts                map[string][]string `json:"modelReasoningEfforts,omitempty"`
-	ReasoningEfforts                     []string            `json:"reasoningEfforts,omitempty"`
-	NoVisionModels                       []string            `json:"noVisionModels,omitempty"`
-	NoReasoningModels                    []string            `json:"noReasoningModels,omitempty"`
-	NoStructuredOutputModels             []string            `json:"noStructuredOutputModels,omitempty"`
-	ContextWindow                        int                 `json:"contextWindow,omitempty"`
-	DefaultMaxOutputTokens               int                 `json:"defaultMaxOutputTokens,omitempty"`
+	ResponsesItemIDRepair                *ResponsesItemIDRepairPolicy `json:"responsesItemIdRepair,omitempty"`
+	ShowThinkingSummary                  *bool                        `json:"showThinkingSummary,omitempty"`
+	EscapeBuiltinToolNames               *bool                        `json:"escapeBuiltinToolNames,omitempty"`
+	SupportsServiceTier                  *bool                        `json:"supportsServiceTier,omitempty"`
+	SupportsVerbosity                    *bool                        `json:"supportsVerbosity,omitempty"`
+	SupportsResponsesCustomTools         *bool                        `json:"supportsResponsesCustomTools,omitempty"`
+	SupportsOpenAIWebSearchToolFields    *bool                        `json:"supportsOpenAiWebSearchToolFields,omitempty"`
+	ParallelToolCalls                    *bool                        `json:"parallelToolCalls,omitempty"`
+	StatelessResponses                   *bool                        `json:"statelessResponses,omitempty"`
+	RequiresAdjacentResponsesToolResults *bool                        `json:"requiresAdjacentResponsesToolResults,omitempty"`
+	RequiresPairedResponsesToolResults   *bool                        `json:"requiresPairedResponsesToolResults,omitempty"`
+	PreserveResponsesReasoningContent    *bool                        `json:"preserveResponsesReasoningContent,omitempty"`
+	DropResponsesReasoningItems          *bool                        `json:"dropResponsesReasoningItems,omitempty"`
+	FoldDeveloperRoleToSystem            *bool                        `json:"foldDeveloperRoleToSystem,omitempty"`
+	InputModalities                      []string                     `json:"inputModalities,omitempty"`
+	ModelInputModalities                 map[string][]string          `json:"modelInputModalities,omitempty"`
+	ModelContextWindows                  map[string]int               `json:"modelContextWindows,omitempty"`
+	ModelMaxInputTokens                  map[string]int               `json:"modelMaxInputTokens,omitempty"`
+	ModelMaxOutputTokens                 map[string]int               `json:"modelMaxOutputTokens,omitempty"`
+	ModelSupportsServiceTier             map[string]bool              `json:"modelSupportsServiceTier,omitempty"`
+	ModelReasoningEfforts                map[string][]string          `json:"modelReasoningEfforts,omitempty"`
+	ReasoningEfforts                     []string                     `json:"reasoningEfforts,omitempty"`
+	NoVisionModels                       []string                     `json:"noVisionModels,omitempty"`
+	NoReasoningModels                    []string                     `json:"noReasoningModels,omitempty"`
+	NoStructuredOutputModels             []string                     `json:"noStructuredOutputModels,omitempty"`
+	ContextWindow                        int                          `json:"contextWindow,omitempty"`
+	DefaultMaxOutputTokens               int                          `json:"defaultMaxOutputTokens,omitempty"`
 }
 type ModelWireDefault struct {
 	Wire                     Wire       `json:"wire"`
