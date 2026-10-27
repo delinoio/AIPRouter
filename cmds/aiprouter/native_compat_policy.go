@@ -94,7 +94,7 @@ func (p NativeCompatibilityPolicy) Routes() []string {
 	case NativeCompatibilityClaudePicker:
 		return append((NativeCompatibilityPolicy{mode: NativeCompatibilityClaudeFirstParty}).Routes(), "GET claude.ai/{api,edge-api}/bootstrap[/{alphanumeric-or-hyphen}/app_start][/]")
 	case NativeCompatibilityCodexObserve, NativeCompatibilityCodexAccountUITrial:
-		return []string{"GET chatgpt.com/backend-api/wham/usage", "GET chatgpt.com/backend-api/wham/usage/stream"}
+		return []string{"HTTPS chatgpt.com:443 native HTTP and WebSocket passthrough (no other host)", "rewrite only GET chatgpt.com/backend-api/wham/usage", "rewrite only GET chatgpt.com/backend-api/wham/usage/stream"}
 	default:
 		return nil
 	}
@@ -104,13 +104,15 @@ var nativeCLISelectorPath = regexp.MustCompile(`^/api/(?:organizations/[A-Za-z0-
 var nativeCLIUserAgent = regexp.MustCompile(`^claude-cli/[^\s()]+ \(external, ([A-Za-z0-9._-]+)(?:, [^,()]+)*\)$`)
 var nativePickerPath = regexp.MustCompile(`^/(?:edge-api|api)/bootstrap(?:/[A-Za-z0-9-]+/app_start)?/?$`)
 
-// Decide refuses all paths outside the pinned protocol. No wildcard CONNECT or
-// opaque relay fallback is authorized. Upstream transport must verify TLS and
-// refuse redirects. Gateway callers must use GatewayHeaders and GatewayPath,
+// Decide restricts destinations to the pinned protocol. Codex PAC selects the
+// entire fixed chatgpt.com origin, so preserve its native HTTP and upgrades while
+// limiting response rewrites to usage routes. No arbitrary-host relay is allowed.
+// Upstream transport verifies TLS and never follows redirects. Gateway callers
+// must use GatewayHeaders and GatewayPath,
 // discarding native URL queries rather than forwarding possible credentials.
 func (p NativeCompatibilityPolicy) Decide(method string, target *url.URL) (NativeCompatibilityDecision, error) {
 	denied := errors.New("native compatibility destination or route refused")
-	if target == nil || target.Scheme != "https" || target.User != nil || target.Opaque != "" || target.Fragment != "" || target.RawPath != "" || strings.ContainsAny(target.Path, "%\\") || (target.Port() != "" && target.Port() != "443") {
+	if target == nil || target.Scheme != "https" || target.User != nil || target.Opaque != "" || target.Fragment != "" || (target.Port() != "" && target.Port() != "443") {
 		return NativeCompatibilityDecision{}, denied
 	}
 	host := target.Hostname()
@@ -120,7 +122,10 @@ func (p NativeCompatibilityPolicy) Decide(method string, target *url.URL) (Nativ
 			allowed = true
 		}
 	}
-	if !allowed {
+	if !allowed || !strings.HasPrefix(target.Path, "/") || strings.HasPrefix(target.Path, "//") {
+		return NativeCompatibilityDecision{}, denied
+	}
+	if host != "chatgpt.com" && (target.RawPath != "" || strings.ContainsAny(target.Path, "%\\")) {
 		return NativeCompatibilityDecision{}, denied
 	}
 	if host == "api.anthropic.com" && method == http.MethodPost && (target.Path == "/v1/messages" || target.Path == "/v1/messages/count_tokens") {
@@ -137,14 +142,12 @@ func (p NativeCompatibilityPolicy) Decide(method string, target *url.URL) (Nativ
 	if host == "claude.ai" && method == http.MethodGet && nativePickerPath.MatchString(target.Path) {
 		return NativeCompatibilityDecision{Action: NativeCompatibilityUpstream, ResponseKind: NativeCompatibilityResponsePicker}, nil
 	}
-	if host == "chatgpt.com" && method == http.MethodGet {
+	if host == "chatgpt.com" && method != http.MethodConnect {
 		kind := NativeCompatibilityResponseUnchanged
-		if target.Path == "/backend-api/wham/usage" {
+		if method == http.MethodGet && target.Path == "/backend-api/wham/usage" && target.RawPath == "" {
 			kind = NativeCompatibilityResponseUsage
-		} else if target.Path == "/backend-api/wham/usage/stream" {
+		} else if method == http.MethodGet && target.Path == "/backend-api/wham/usage/stream" && target.RawPath == "" {
 			kind = NativeCompatibilityResponseUsageStream
-		} else {
-			return NativeCompatibilityDecision{}, denied
 		}
 		return NativeCompatibilityDecision{Action: NativeCompatibilityUpstream, ResponseKind: kind}, nil
 	}
@@ -181,4 +184,8 @@ func (p NativeCompatibilityPolicy) DecideRequest(req *http.Request) (NativeCompa
 		}
 	}
 	return d, nil
+}
+
+func (p NativeCompatibilityPolicy) isCodex() bool {
+	return p.mode == NativeCompatibilityCodexObserve || p.mode == NativeCompatibilityCodexAccountUITrial
 }

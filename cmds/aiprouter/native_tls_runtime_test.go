@@ -50,7 +50,7 @@ func nativeRuntimeFixture(t *testing.T, transport http.RoundTripper) (NativeTLSC
 		cancel()
 		t.Fatal("start timeout")
 	}
-	proxy, _ := url.Parse("http://aiprouter:" + cfg.Token + "@" + addr)
+	proxy, _ := url.Parse("http://aiprouter:" + NativeProxyPassword(cfg.Token) + "@" + addr)
 	roots := x509.NewCertPool()
 	roots.AddCert(ca.Certificate)
 	tr := &http.Transport{Proxy: http.ProxyURL(proxy), TLSClientConfig: &tls.Config{RootCAs: roots}, DisableKeepAlives: true}
@@ -153,32 +153,22 @@ func TestNativeTLSControlAndOwnedShutdown(t *testing.T) {
 	if res.StatusCode != 403 {
 		t.Fatal("unowned control accepted")
 	}
-	r, _ := http.NewRequest("GET", "http://"+cfg.Address+"/_aiprouter/native/health", nil)
-	r.Header.Set("Authorization", "Bearer "+cfg.Token)
-	res, e = control.Do(r)
-	if e != nil {
+	if _, e = nativeControlRequest(context.Background(), cfg.Address, cfg.Token, "GET", "/_aiprouter/native/health"); e != nil {
 		t.Fatal(e)
-	}
-	res.Body.Close()
-	if res.StatusCode != 200 {
-		t.Fatal("health unavailable")
 	}
 	raw, e := net.Dial("tcp", cfg.Address)
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer raw.Close()
-	io.WriteString(raw, "CONNECT api.anthropic.com:443 HTTP/1.1\r\nHost: api.anthropic.com:443\r\nProxy-Authorization: Basic "+base64.StdEncoding.EncodeToString([]byte("aiprouter:"+cfg.Token))+"\r\n\r\n")
+	io.WriteString(raw, "CONNECT api.anthropic.com:443 HTTP/1.1\r\nHost: api.anthropic.com:443\r\nProxy-Authorization: Basic "+base64.StdEncoding.EncodeToString([]byte("aiprouter:"+NativeProxyPassword(cfg.Token)))+"\r\n\r\n")
 	br := bufio.NewReader(raw)
 	res, e = http.ReadResponse(br, nil)
 	if e != nil || res.StatusCode != 200 {
 		t.Fatal("CONNECT setup failed")
 	}
-	r, _ = http.NewRequest("POST", "http://"+cfg.Address+"/_aiprouter/native/stop", nil)
-	r.Header.Set("Authorization", "Bearer "+cfg.Token)
-	res, e = control.Do(r)
-	if e == nil {
-		res.Body.Close()
+	if _, e = nativeControlRequest(context.Background(), cfg.Address, cfg.Token, "POST", "/_aiprouter/native/stop"); e != nil {
+		t.Fatal(e)
 	}
 	raw.SetReadDeadline(time.Now().Add(time.Second))
 	if _, e = br.ReadByte(); e == nil {
@@ -214,23 +204,20 @@ func TestNativeTLSCodexPACIsLifetimeBoundAndDestinationRestricted(t *testing.T) 
 		t.Fatal("start timeout")
 	}
 	client := &http.Client{Timeout: time.Second, Transport: &http.Transport{Proxy: nil}}
-	req, _ := http.NewRequest("GET", "http://"+address+"/_aiprouter/native/launch", nil)
-	req.Header.Set("Authorization", "Bearer "+cfg.Token)
-	res, e := client.Do(req)
+	body, e := nativeControlRequest(context.Background(), address, cfg.Token, "GET", "/_aiprouter/native/launch")
 	if e != nil {
 		t.Fatal(e)
 	}
 	var info struct {
 		PACURL string `json:"pacURL"`
 	}
-	if json.NewDecoder(res.Body).Decode(&info) != nil {
+	if json.Unmarshal(body, &info) != nil {
 		t.Fatal("launch descriptor")
 	}
-	res.Body.Close()
 	if validateNativePAC(info.PACURL, address) != nil {
 		t.Fatal("invalid PAC descriptor")
 	}
-	res, e = client.Get(info.PACURL)
+	res, e := client.Get(info.PACURL)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -307,7 +294,7 @@ func TestNativeTLSControlProtocolMatchesController(t *testing.T) {
 	c := &nativeRuntimeController{}
 	_, port, _ := net.SplitHostPort(cfg.Address)
 	n, _ := strconv.Atoi(port)
-	record := nativeRuntimeRecord{Token: cfg.Token, Request: NativeRuntimeRequest{Port: n}}
+	record := nativeRuntimeRecord{Token: cfg.Token, Fingerprint: cfg.CA.Fingerprint, Request: NativeRuntimeRequest{Port: n}}
 	if e := c.control(context.Background(), record, "GET", "health"); e != nil {
 		t.Fatal(e)
 	}

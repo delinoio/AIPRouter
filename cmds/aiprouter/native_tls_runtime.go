@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"encoding/base64"
@@ -42,7 +43,7 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 	host, port, err := net.SplitHostPort(cfg.Address)
 	ip := net.ParseIP(host)
 	n, _ := strconv.Atoi(port)
-	if err != nil || ip == nil || !ip.IsLoopback() || n < 1 || n > 65535 || len(cfg.Token) < 32 || cfg.CA == nil || cfg.CA.TLSCertificate.PrivateKey == nil || len(cfg.Policy.Hosts()) == 0 {
+	if err != nil || ip == nil || !ip.IsLoopback() || n < 1 || n > 65535 || len(cfg.Token) != 64 || cfg.CA == nil || cfg.CA.TLSCertificate.PrivateKey == nil || len(cfg.Policy.Hosts()) == 0 {
 		return errors.New("invalid native loopback runtime configuration")
 	}
 	gateway, err := serverURL(cfg.Gateway)
@@ -54,7 +55,16 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 			return errors.New("native certificate does not cover selected destination")
 		}
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	leaf := cfg.CA.TLSCertificate.Leaf
+	now := time.Now()
+	if now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) || now.Before(cfg.CA.Certificate.NotBefore) || !now.Before(cfg.CA.Certificate.NotAfter) {
+		return errors.New("native certificate validity expired or pending")
+	}
+	deadline := leaf.NotAfter
+	if cfg.CA.Certificate.NotAfter.Before(deadline) {
+		deadline = cfg.CA.Certificate.NotAfter
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	if !cfg.TrialUntil.IsZero() {
 		var stop context.CancelFunc
@@ -86,7 +96,7 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 	pacPath := "/" + hex.EncodeToString(pacToken) + "/proxy.pac"
 	pacURL := "http://" + cfg.Address + pacPath
 	codex := cfg.Policy.mode == NativeCompatibilityCodexObserve || cfg.Policy.mode == NativeCompatibilityCodexAccountUITrial
-	proxyAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("aiprouter:"+cfg.Token))
+	proxyAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("aiprouter:"+NativeProxyPassword(cfg.Token)))
 	matches := func(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodConnect {
@@ -100,31 +110,38 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 				io.WriteString(w, script)
 				return
 			}
-			if !matches(r.Header.Get("Authorization"), "Bearer "+cfg.Token) || r.Header.Get("Origin") != "" {
+			if !nativeControlAuthorize(r, cfg.Token) || r.Header.Get("Origin") != "" {
 				http.Error(w, "native control authentication required", 403)
 				return
 			}
 			if codex && r.URL.Path == "/_aiprouter/native/launch" && r.Method == http.MethodGet {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Cache-Control", "no-store")
-				json.NewEncoder(w).Encode(map[string]string{"pacURL": pacURL})
+				body, _ := json.Marshal(map[string]string{"pacURL": pacURL})
+				nativeControlRespond(w, r, cfg.Token, http.StatusOK, body)
 				return
 			}
 			if r.URL.Path == "/_aiprouter/native/health" && r.Method == http.MethodGet {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Cache-Control", "no-store")
-				io.WriteString(w, `{"status":"ready"}`)
+				if ctx.Err() != nil || !time.Now().Before(leaf.NotAfter) {
+					nativeControlRespond(w, r, cfg.Token, http.StatusServiceUnavailable, []byte(`{"status":"expired"}`))
+					return
+				}
+				fingerprint := sha256.Sum256(leaf.Raw)
+				body, _ := json.Marshal(map[string]string{"status": "ready", "caFingerprint": cfg.CA.Fingerprint, "leafFingerprint": hex.EncodeToString(fingerprint[:]), "leafNotAfter": leaf.NotAfter.UTC().Format(time.RFC3339Nano)})
+				nativeControlRespond(w, r, cfg.Token, http.StatusOK, body)
 				return
 			}
 			if r.URL.Path == "/_aiprouter/native/stop" && r.Method == http.MethodPost {
-				w.WriteHeader(http.StatusOK)
+				nativeControlRespond(w, r, cfg.Token, http.StatusOK, []byte(`{"status":"stopping"}`))
 				if f, ok := w.(http.Flusher); ok {
 					f.Flush()
 				}
 				cancel()
 				return
 			}
-			http.NotFound(w, r)
+			nativeControlRespond(w, r, cfg.Token, http.StatusNotFound, []byte(`{"status":"not-found"}`))
 			return
 		}
 		if !codex && !matches(r.Header.Get("Proxy-Authorization"), proxyAuth) {
@@ -178,7 +195,7 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 			}
 			wrapped := &nativeBufferedConn{Conn: raw, reader: buffer.Reader}
 			secure := tls.Server(wrapped, &tls.Config{MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"}, GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				if hello.ServerName != targetHost {
+				if hello.ServerName != targetHost || !time.Now().Before(leaf.NotAfter) || ctx.Err() != nil {
 					return nil, errors.New("native TLS destination mismatch")
 				}
 				return &cfg.CA.TLSCertificate, nil
@@ -191,7 +208,7 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 			}
 			reader := bufio.NewReaderSize(secure, 64<<10)
 			for ctx.Err() == nil {
-				req, e := nativeReadRequest(reader)
+				req, requestReader, e := nativeReadRequestBuffered(reader)
 				if e != nil {
 					return
 				}
@@ -204,7 +221,7 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 				}
 				req.URL.Scheme = "https"
 				req.URL.Host = targetHost
-				if e = nativeForwardResponse(connCtx, secure, req, cfg, gateway, transport); e != nil {
+				if e = nativeForwardResponse(connCtx, &nativeBufferedConn{Conn: secure, reader: requestReader}, req, cfg, gateway, transport); e != nil {
 					return
 				}
 				if req.Close {
@@ -275,7 +292,8 @@ func nativeForwardResponse(ctx context.Context, output io.Writer, req *http.Requ
 	defer cancel()
 	// A tunnel carries one request. Once its body has been consumed, any new
 	// input or disconnect cancels upstream work. TLS supports concurrent read/write.
-	if conn, ok := output.(net.Conn); ok {
+	isUpgrade := cfg.Policy.isCodex() && req.URL.Hostname() == "chatgpt.com" && req.Method == http.MethodGet && strings.EqualFold(req.Header.Get("Upgrade"), "websocket") && nativeHeaderToken(req.Header.Get("Connection"), "upgrade")
+	if conn, ok := output.(net.Conn); ok && !isUpgrade {
 		go func() { var b [1]byte; conn.Read(b[:]); cancel() }()
 	}
 	target := *req.URL
@@ -296,7 +314,12 @@ func nativeForwardResponse(ctx context.Context, output io.Writer, req *http.Requ
 	for _, h := range []string{"Connection", "Proxy-Authorization", "Proxy-Connection", "Keep-Alive", "Upgrade", "TE", "Trailer", "Transfer-Encoding", "Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
 		headers.Del(h)
 	}
-	headers.Set("Accept-Encoding", "identity")
+	if isUpgrade {
+		headers.Set("Connection", "Upgrade")
+		headers.Set("Upgrade", "websocket")
+	} else {
+		headers.Set("Accept-Encoding", "identity")
+	}
 	outgoing, err := http.NewRequestWithContext(ctx, req.Method, target.String(), bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -310,9 +333,16 @@ func nativeForwardResponse(ctx context.Context, output io.Writer, req *http.Requ
 	defer res.Body.Close()
 	// RoundTrip never follows redirects. Refuse them rather than sending native
 	// sessions to a new destination through the application.
-	if res.StatusCode >= 300 && res.StatusCode < 400 {
+	if !cfg.Policy.isCodex() && res.StatusCode >= 300 && res.StatusCode < 400 {
 		nativeWriteError(output, 502)
 		return errors.New("native upstream redirect refused")
+	}
+	if res.StatusCode == http.StatusSwitchingProtocols {
+		if !isUpgrade || !strings.EqualFold(res.Header.Get("Upgrade"), "websocket") || !nativeHeaderToken(res.Header.Get("Connection"), "upgrade") {
+			nativeWriteError(output, 502)
+			return errors.New("unexpected native protocol upgrade")
+		}
+		return nativeRelayUpgrade(ctx, output, res)
 	}
 	res.Header.Del("Proxy-Authenticate")
 	res.Header.Del("Alt-Svc")
@@ -368,16 +398,74 @@ func nativeForwardResponse(ctx context.Context, output io.Writer, req *http.Requ
 // Bound the inner HTTP header before net/http allocates parsed header values.
 // One request per CONNECT avoids retaining pipelined data behind this reader.
 func nativeReadRequest(reader *bufio.Reader) (*http.Request, error) {
+	r, _, e := nativeReadRequestBuffered(reader)
+	return r, e
+}
+func nativeReadRequestBuffered(reader *bufio.Reader) (*http.Request, *bufio.Reader, error) {
 	header := make([]byte, 0, 4096)
 	for len(header) < 32<<10 {
 		b, e := reader.ReadByte()
 		if e != nil {
-			return nil, e
+			return nil, nil, e
 		}
 		header = append(header, b)
 		if len(header) >= 4 && bytes.Equal(header[len(header)-4:], []byte("\r\n\r\n")) {
-			return http.ReadRequest(bufio.NewReader(io.MultiReader(bytes.NewReader(header), reader)))
+			parsed := bufio.NewReader(io.MultiReader(bytes.NewReader(header), reader))
+			r, e := http.ReadRequest(parsed)
+			return r, parsed, e
 		}
 	}
-	return nil, errors.New("native request header exceeds limit")
+	return nil, nil, errors.New("native request header exceeds limit")
+}
+
+func nativeHeaderToken(value, token string) bool {
+	for _, v := range strings.Split(value, ",") {
+		if strings.EqualFold(strings.TrimSpace(v), token) {
+			return true
+		}
+	}
+	return false
+}
+
+// Relay upgraded bytes only after policy and verified TLS have fixed the origin.
+// Closing either peer or the runtime closes both directions and releases the slot.
+func nativeRelayUpgrade(ctx context.Context, output io.Writer, res *http.Response) error {
+	client, ok := output.(net.Conn)
+	if !ok {
+		return errors.New("native upgraded connection unavailable")
+	}
+	upstream, ok := res.Body.(io.ReadWriteCloser)
+	if !ok {
+		return errors.New("native upstream upgrade unavailable")
+	}
+	defer upstream.Close()
+	if _, err := io.WriteString(client, "HTTP/1.1 101 Switching Protocols\r\n"); err != nil {
+		return err
+	}
+	headers := res.Header.Clone()
+	headers.Del("Proxy-Authenticate")
+	headers.Del("Alt-Svc")
+	if err := headers.Write(client); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(client, "\r\n"); err != nil {
+		return err
+	}
+	done := make(chan error, 2)
+	go func() { _, e := io.Copy(upstream, client); done <- e }()
+	go func() { _, e := io.Copy(client, upstream); done <- e }()
+	var err error
+	remaining := 2
+	select {
+	case err = <-done:
+		remaining--
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	upstream.Close()
+	client.Close()
+	for i := 0; i < remaining; i++ {
+		<-done
+	}
+	return err
 }
