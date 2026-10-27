@@ -69,6 +69,18 @@ Review member options separately. An empty member switching threshold inherits t
 
 Codex members also have **Allow credits**, off by default. Enabling it permits use of available spendable provider credits where supported; it does not grant credits, guarantee availability, or bypass provider/account restrictions. Unknown quota is not a measured zero, and a configured threshold is not an entitlement claim.
 
+### Codex upstream health controls
+
+Open **Native OAuth pool settings** for a homogeneous OpenAI (Codex) OAuth pool to configure upstream health behavior. These controls are separate from quota switching thresholds:
+
+- **Upstream failover threshold:** empty uses 3. Choose an integer from 0 to 20. Zero disables this consecutive-failure threshold; it does not disable the separate failure window, authorization checks, or provider quota restrictions.
+- **Failure window:** Default is enabled and considers a sliding 60-second failure ratio alongside the consecutive-failure counter. Disabled uses only the consecutive-failure counter for this health policy. It does not convert credential, quota, or caller errors into transient upstream failures.
+- **Pinned transient policy:** empty/default and **Keep** retain the manually pinned account for new threads under this transient-health policy. **Detour new threads** permits a new thread to use another eligible account when the manually pinned account is degraded. It does not move an existing pinned conversation, override account eligibility, or grant access to another user's credentials. An explicitly saved Unspecified value also behaves as Keep.
+
+For example, threshold 0 with Failure window enabled leaves sliding-window health decisions active. Disabling the window leaves the configured consecutive-failure threshold in use. Neither setting guarantees that an upstream request succeeds or that a provider will accept a retry.
+
+These fields are Codex-only. Anthropic and Anthropic 2 pools reject them even when explicitly set to zero, Disabled, or Unspecified; remove the Codex-only settings rather than treating those values as omission. Saving replaces the pool configuration, so removing an optional value returns it to its documented default. Automated checks cover these controls; no live Codex account or provider-health acceptance is claimed here.
+
 ### Ordered Anthropic model rules
 
 For an Anthropic native pool, use **Ordered model rules** to restrict which personal pool connections serve matching models. Rules apply only while native pooling is enabled.
