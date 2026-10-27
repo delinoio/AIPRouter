@@ -120,3 +120,21 @@ func TestCanceledCompactionCannotCaptureHandoff(t *testing.T) {
 		t.Fatalf("canceled publication: %d %+v", response.Code, handoff)
 	}
 }
+
+type failedCompactReceipts struct{ receiptMemory }
+
+func (f failedCompactReceipts) SaveProviderState(context.Context, Principal, string, string, ProviderState) error {
+	return ErrUnavailable
+}
+func TestNativeCompactionReceiptFailurePreservesHandoff(t *testing.T) {
+	h, _, _, _, u := harness(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"output":[{"type":"compaction","encrypted_content":"opaque-replay"}]}`)
+	}, Responses)
+	handoff := &handoffFixture{}
+	h.c.CompactionHandoffs = handoff
+	h.c.ProviderStates = failedCompactReceipts{receiptMemory{}}
+	out := call(h, "/v1/responses/compact", `{"model":"m","input":"task"}`)
+	if out.Code != 503 || handoff.cleared != 0 || len(handoff.captured) != 0 || u.records[0].Sends != 1 {
+		t.Fatalf("%d %s cleared%d", out.Code, out.Body, handoff.cleared)
+	}
+}

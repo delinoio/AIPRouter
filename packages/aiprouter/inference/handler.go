@@ -1294,15 +1294,17 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 		if !validNativeCompact(out) {
 			return &Error{502, "invalid_compaction_response", 0}
 		}
-		if h.c.CompactionHandoffs != nil && ctx.Value(compactionHandoffKey{}) == nil {
-			if err := h.c.CompactionHandoffs.Clear(ctx, p); err != nil {
-				return err
-			}
-		}
 	}
 	if op == Generate || op == Compact {
 		if e := h.CaptureReplayReceipts(ctx, out); e != nil {
 			return e
+		}
+	}
+	// Do not forget the prior serving route until all required opaque replay
+	// receipts for the replacement history are durably fenced and saved.
+	if op == Compact && h.c.CompactionHandoffs != nil && ctx.Value(compactionHandoffKey{}) == nil {
+		if err := h.c.CompactionHandoffs.Clear(ctx, p); err != nil {
+			return err
 		}
 	}
 	if op == Generate && in == Responses {
