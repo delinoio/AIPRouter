@@ -98,6 +98,9 @@ func TestOIDCCodeFlow(t *testing.T) {
 		q := location.Query()
 		nonce = q.Get("nonce")
 		challenge = q.Get("code_challenge")
+		if q.Get("prompt") != "login" {
+			t.Fatal("fresh IdP authentication not requested")
+		}
 		if q.Get("code_challenge_method") != "S256" || nonce == "" {
 			t.Fatal("missing PKCE or nonce")
 		}
@@ -135,5 +138,31 @@ func TestCallbackRequiresBrowserState(t *testing.T) {
 	a.callback(w, httptest.NewRequest("GET", "/auth/callback?state=x&code=x", nil))
 	if w.Code != 400 {
 		t.Fatal(w.Code)
+	}
+}
+
+func TestHTTPSLoginCookieBinding(t *testing.T) {
+	f := &authFixture{state: map[string]LoginState{}}
+	a := &Auth{config: Config{PublicURL: "https://router.example"}, store: f}
+	w := httptest.NewRecorder()
+	a.login(w, httptest.NewRequest("GET", "/auth/login", nil))
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatal("missing state cookie")
+	}
+	c := cookies[0]
+	if c.Name != "__Host-aiprouter-login" || !c.Secure || !c.HttpOnly || c.Domain != "" || c.Path != "/" || c.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("unsafe cookie attributes: %s", c.Name)
+	}
+	parts := strings.Split(c.Value, ".")
+	if len(parts) != 2 {
+		t.Fatal("missing browser binding")
+	}
+	req := httptest.NewRequest("GET", "/auth/callback?code=x&state="+parts[0], nil)
+	req.AddCookie(&http.Cookie{Name: c.Name, Value: parts[0] + ".wrong-binding"})
+	out := httptest.NewRecorder()
+	a.callback(out, req)
+	if out.Code != 400 || f.logged {
+		t.Fatal("wrong browser binding accepted")
 	}
 }
