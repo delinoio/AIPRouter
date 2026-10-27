@@ -115,7 +115,20 @@ type Usage struct {
 	CacheReadTokens  *int64 `json:"cache_read_tokens,omitempty"`
 	CacheWriteTokens *int64 `json:"cache_write_tokens,omitempty"`
 }
+type RequestOutcome string
+
+const (
+	OutcomeSuccess       RequestOutcome = "success"
+	OutcomeUpstreamError RequestOutcome = "upstream_error"
+	OutcomeGatewayError  RequestOutcome = "gateway_error"
+	OutcomeRateLimited   RequestOutcome = "rate_limited"
+	OutcomeCanceled      RequestOutcome = "canceled"
+)
+
 type UsageRecord struct {
+	Outcome RequestOutcome
+	// IntermediateUsage contains confirmed prior model legs on this exact target.
+	IntermediateUsage                     []Usage
 	ResponseID                            string
 	UnmeasuredAttempts                    int
 	RequestID, Provider, Model, AccountID string

@@ -70,3 +70,78 @@ func (s scopedAdapterState) Save(ctx context.Context, id string, data []byte, tt
 	}
 	return s.h.c.ProviderStates.SaveProviderState(ctx, s.p, string(s.t.Wire), s.key(id), ProviderState{Data: data, ExpiresAt: time.Now().Add(ttl)})
 }
+
+// AdapterStateLookup distinguishes absent state from failed authorization/storage.
+// Adapters may type-assert it on AdapterStateStore for optional session continuity.
+type AdapterStateLookup interface {
+	Lookup(context.Context, string) ([]byte, bool, error)
+}
+
+// ProviderStateLookup must return found=false only after authoritative ownership
+// validation. It must never turn database errors or revoked ownership into absence.
+type ProviderStateLookup interface {
+	LookupProviderState(context.Context, Principal, string, string) (ProviderState, bool, error)
+}
+
+func (s scopedAdapterState) Lookup(ctx context.Context, id string) ([]byte, bool, error) {
+	if s.h.c.ProviderStates == nil {
+		return nil, false, ErrUnavailable
+	}
+	if e := s.h.guard(ctx, s.p); e != nil {
+		return nil, false, e
+	}
+	backend, ok := s.h.c.ProviderStates.(ProviderStateLookup)
+	if !ok {
+		return nil, false, ErrUnsupported
+	}
+	state, found, e := backend.LookupProviderState(ctx, s.p, string(s.t.Wire), s.key(id))
+	if e != nil {
+		return nil, false, e
+	}
+	if !found || !state.ExpiresAt.After(time.Now()) {
+		return nil, false, nil
+	}
+	return state.Data, true, nil
+}
+
+// AdapterStateUpdater atomically merges bounded state after authoritative validation.
+// merge is pure; nil current means absent/expired. It must not perform network I/O.
+type AdapterStateUpdater interface {
+	Update(context.Context, string, time.Duration, func([]byte) ([]byte, error)) error
+}
+
+// ProviderStateUpdater serializes read/merge/write with deletion and current owner
+// generation in one storage transaction. Expired state is passed as nil.
+type ProviderStateUpdater interface {
+	UpdateProviderState(context.Context, Principal, string, string, time.Time, func([]byte) ([]byte, error)) error
+}
+
+func (s scopedAdapterState) Update(ctx context.Context, id string, ttl time.Duration, merge func([]byte) ([]byte, error)) error {
+	if e := s.h.guard(ctx, s.p); e != nil {
+		return e
+	}
+	if ttl <= 0 || ttl > 24*time.Hour || merge == nil {
+		return &Error{400, "invalid_provider_state", 0}
+	}
+	backend, ok := s.h.c.ProviderStates.(ProviderStateUpdater)
+	if !ok {
+		return ErrUnsupported
+	}
+	maxBytes := 32 << 20
+	if s.t.Wire == Wire("cursor-agent") {
+		maxBytes = 16 << 20
+		if ttl > 15*time.Minute {
+			return &Error{400, "invalid_provider_state", 0}
+		}
+	}
+	return backend.UpdateProviderState(ctx, s.p, string(s.t.Wire), s.key(id), time.Now().Add(ttl), func(current []byte) ([]byte, error) {
+		next, e := merge(current)
+		if e != nil {
+			return nil, e
+		}
+		if len(next) > maxBytes {
+			return nil, &Error{400, "invalid_provider_state", 0}
+		}
+		return next, nil
+	})
+}

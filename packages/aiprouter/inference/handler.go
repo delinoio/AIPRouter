@@ -148,7 +148,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if models {
-		if r.URL.RawQuery != "" {
+		if r.URL.RawQuery != "" || h.c.Views != nil {
 			query, err := url.ParseQuery(r.URL.RawQuery)
 			if err != nil {
 				writeError(w, &Error{400, "invalid_model_query", 0})
@@ -173,7 +173,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				writeError(w, err)
 				return
 			}
-			if len(body) > 16<<20 || !json.Valid(body) {
+			limit := 16 << 20
+			if query.Get("client_version") != "" {
+				limit = 256 << 20
+			}
+			if len(body) > limit || !json.Valid(body) {
 				writeError(w, &Error{507, "catalog_too_large", 0})
 				return
 			}
@@ -258,6 +262,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rec := UsageRecord{RequestID: id, Model: str(b["model"])}
 	defer func() {
 		rec.Canceled = r.Context().Err() != nil
+		if rec.Canceled {
+			rec.Outcome = OutcomeCanceled
+		}
+		aggregateIntermediateUsage(&rec)
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
 		defer cancel()
 		if e := h.c.Usage.Record(ctx, p, rec); e != nil {
@@ -268,7 +276,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	err = h.execute(r.Context(), w, p, wire, op, b, &rec)
+	if err == nil {
+		rec.Outcome = OutcomeSuccess
+	}
 	if err != nil {
+		rec.Outcome = OutcomeGatewayError
+		if typed, ok := err.(*Error); ok {
+			if typed.Code == "upstream_refused" {
+				rec.Outcome = OutcomeUpstreamError
+				if rec.Status == 429 {
+					rec.Outcome = OutcomeRateLimited
+				}
+			}
+			if typed.Code == "upstream_rate_limited" {
+				rec.Outcome = OutcomeRateLimited
+			}
+			if typed == ErrAmbiguous {
+				rec.Outcome = OutcomeUpstreamError
+			}
+		}
 		rec.Status = publicError(err).Status
 		if !tracked.started {
 			writeError(w, err)
@@ -378,7 +404,13 @@ func wait(ctx context.Context, d time.Duration) error {
 }
 func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principal, in Wire, op Operation, b object, rec *UsageRecord) error {
 	ctx = context.WithValue(ctx, inboundWireKey{}, in)
-	route, e := h.c.Router.Resolve(ctx, p, str(b["model"]), op)
+	var route Route
+	var e error
+	if forced, ok := ctx.Value(compactionRouteKey{}).(Route); ok {
+		route = forced
+	} else {
+		route, e = h.c.Router.Resolve(ctx, p, str(b["model"]), op)
+	}
 	if e != nil {
 		return e
 	}
@@ -401,7 +433,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			return writeTokenEstimate(w, b, t, adapter)
 		}
 		if op == Compact && t.Wire != Responses {
-			return ErrUnsupported
+			return h.compactFallback(ctx, w, p, b, Route{Targets: route.Targets[ti:], MaxSends: route.MaxSends}, rec)
 		}
 		client, local, e := h.c.Destinations.client(t.BaseURL)
 		if e != nil {
@@ -432,6 +464,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 		refreshed := false
 		rateRetries, transientSends := 0, 0
 		endpointHops := 0
+		repairCount := 0
 		visited := map[string]bool{cred.AccountID: true}
 		for {
 			if rec.Sends >= route.MaxSends {
@@ -482,6 +515,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			endpoint := strings.TrimRight(t.BaseURL, "/") + path
 			var adapterHeaders http.Header
 			var adapterInput AdapterInput
+			var builtRequest AdapterRequest
 			var executedResponse *http.Response
 			var executionCancel context.CancelFunc
 			if adapter != nil {
@@ -539,6 +573,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					if built.AttemptTimeout > 0 {
 						attemptTimeout = built.AttemptTimeout
 					}
+					builtRequest = built
 					endpoint = built.URL
 					data = built.Body
 					adapterHeaders = built.Headers
@@ -548,6 +583,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					}
 				}
 			}
+		retrySend:
 			sendCtx, cancel := context.WithCancel(attemptCtx)
 			if attemptTimeout > 0 {
 				cancel()
@@ -661,7 +697,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			}
 			var headerDecision *RecoveryDecision
 			if policy := h.c.RecoveryPolicies[t.Wire]; policy != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				decision, err := policy.RecoverHTTP(sendCtx, adapterInput, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Attempt: transientSends, EndpointHops: endpointHops, Refreshed: refreshed})
+				decision, err := policy.RecoverHTTP(sendCtx, adapterInput, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Attempt: transientSends, Repairs: repairCount, EndpointHops: endpointHops, Refreshed: refreshed})
 				if err != nil {
 					resp.Body.Close()
 					cancel()
@@ -726,14 +762,50 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					return ErrAmbiguous
 				}
 			}
+			if repairer, ok := adapter.(RequestRepairer); ok && resp.StatusCode == 400 && executedResponse == nil && repairCount < 2 && rec.Sends < route.MaxSends {
+				repaired, changed, err := repairer.RepairRequest(attemptCtx, adapterInput, builtRequest, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: errorBody, Attempt: transientSends, Repairs: repairCount, EndpointHops: endpointHops, Refreshed: refreshed})
+				if err != nil {
+					cancel()
+					return err
+				}
+				if changed {
+					u, err := url.Parse(repaired.URL)
+					base, _ := url.Parse(t.BaseURL)
+					if err != nil || u.User != nil || u.Fragment != "" || origin(u) != origin(base) || repaired.Method != "" && repaired.Method != "POST" {
+						cancel()
+						return ErrDestination
+					}
+					if repaired.ResponseWire != Chat && repaired.ResponseWire != Responses && repaired.ResponseWire != Anthropic {
+						cancel()
+						return ErrUnsupported
+					}
+					repairCount++
+					cancel()
+					builtRequest = repaired
+					endpoint = repaired.URL
+					data = repaired.Body
+					adapterHeaders = repaired.Headers
+					responseTarget.Wire = repaired.ResponseWire
+					if repaired.AttemptTimeout > 0 {
+						attemptTimeout = repaired.AttemptTimeout
+					}
+					goto retrySend
+				}
+			}
 			if policy := h.c.RecoveryPolicies[t.Wire]; policy != nil {
-				input := AdapterInput{Principal: p, Target: t, Credential: cred, Operation: op, Wire: in, Body: data}
+				input := adapterInput
+				if adapter == nil {
+					input = AdapterInput{Principal: p, Target: t, Credential: cred, Operation: op, Wire: in, Body: data}
+					if previous, ok := ctx.Value(continuationKey{}).(Continuation); ok {
+						input.PreviousResponseID = previous.ResponseID
+					}
+				}
 				var decision RecoveryDecision
 				var err error
 				if headerDecision != nil {
 					decision = *headerDecision
 				} else {
-					decision, err = policy.RecoverHTTP(ctx, input, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: errorBody, Attempt: transientSends, EndpointHops: endpointHops, Refreshed: refreshed})
+					decision, err = policy.RecoverHTTP(ctx, input, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: errorBody, Attempt: transientSends, Repairs: repairCount, EndpointHops: endpointHops, Refreshed: refreshed})
 				}
 				if err != nil {
 					cancel()
@@ -816,6 +888,11 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					if decision.Action == RecoveryFallback {
 						break
 					}
+					// A typed same-account retry must retain an accepted request repair.
+					// Refresh, rotation and endpoint changes rebuild credential-bound headers.
+					if decision.Action == RecoveryRetry && decision.Endpoint == "" && executedResponse == nil {
+						goto retrySend
+					}
 					continue
 				}
 			}
@@ -891,7 +968,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					nextTarget = true
 				}
 			}
-			if allowed && resp.StatusCode >= 500 && resp.StatusCode <= 599 {
+			if allowed && transientStatus(resp.StatusCode) {
 				if t.Auth == APIKey && (t.Wire == Chat || t.Wire == Responses) && transientSends < t.Retry.TransientSends {
 					retry = true
 				} else if t.Retry.FallbackOn5xx && ti+1 < len(route.Targets) {
@@ -1127,4 +1204,12 @@ func (h *Handler) captureAdapterState(ctx context.Context, p Principal, a Adapte
 		h.event(ctx, "provider_state_write_failed")
 		h.c.Logger.WarnContext(ctx, "inference provider state not saved", "request_id", rec.RequestID)
 	}
+}
+
+func transientStatus(status int) bool {
+	switch status {
+	case 500, 502, 503, 504, 520, 521, 522:
+		return true
+	}
+	return false
 }

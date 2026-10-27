@@ -23,6 +23,7 @@ type HTTPFailure struct {
 	Header                http.Header
 	Body                  []byte
 	Attempt, EndpointHops int
+	Repairs               int
 	Refreshed             bool
 }
 type RecoveryDecision struct {

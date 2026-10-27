@@ -113,3 +113,38 @@ func (x *requestExecutor) RecordUnmeasuredAttempt() {
 		x.record.UnmeasuredAttempts++
 	}
 }
+
+func (x *requestExecutor) RecordUsage(u Usage) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if len(x.record.IntermediateUsage) >= x.record.Sends {
+		return
+	}
+	copyToken := func(p *int64) *int64 {
+		if p == nil || *p < 0 {
+			return nil
+		}
+		v := *p
+		return &v
+	}
+	u.InputTokens = copyToken(u.InputTokens)
+	u.OutputTokens = copyToken(u.OutputTokens)
+	u.CacheReadTokens = copyToken(u.CacheReadTokens)
+	u.CacheWriteTokens = copyToken(u.CacheWriteTokens)
+	x.record.IntermediateUsage = append(x.record.IntermediateUsage, u)
+}
+func aggregateIntermediateUsage(rec *UsageRecord) {
+	add := func(a, b *int64) *int64 {
+		if a == nil || b == nil || *a < 0 || *b < 0 || *a > int64(^uint64(0)>>1)-*b {
+			return nil
+		}
+		v := *a + *b
+		return &v
+	}
+	for _, u := range rec.IntermediateUsage {
+		rec.Usage.InputTokens = add(rec.Usage.InputTokens, u.InputTokens)
+		rec.Usage.OutputTokens = add(rec.Usage.OutputTokens, u.OutputTokens)
+		rec.Usage.CacheReadTokens = add(rec.Usage.CacheReadTokens, u.CacheReadTokens)
+		rec.Usage.CacheWriteTokens = add(rec.Usage.CacheWriteTokens, u.CacheWriteTokens)
+	}
+}

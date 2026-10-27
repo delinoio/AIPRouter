@@ -188,8 +188,102 @@ func TestDirectHistoryRequiresScopedReceipt(t *testing.T) {
 			t.Fatal("scope mismatch accepted")
 		}
 	}
-	envelope := encodeReasoning(reasoningEnvelope{Signature: "opaque"})
+	envelope := encodeReasoning(reasoningEnvelope{Signature: "opaque", Text: func() *string { s := "reason"; return &s }()})
 	if e := h.validateReplay(ctx, object{"input": []any{object{"type": "reasoning", "encrypted_content": envelope}}}, scope); e != nil {
 		t.Fatal("translated envelope lost valid binding", e)
+	}
+}
+
+type repairFixture struct {
+	endpoint string
+	repairs  int
+	prepared bool
+}
+
+func (a *repairFixture) PrepareContext(ctx context.Context) context.Context {
+	a.prepared = true
+	return context.WithValue(ctx, repairContextKey{}, true)
+}
+
+type repairContextKey struct{}
+
+func (a *repairFixture) Build(ctx context.Context, _ AdapterInput) (AdapterRequest, error) {
+	return AdapterRequest{URL: a.endpoint, Body: []byte(`{"schema":"bad"}`), ResponseWire: Chat}, nil
+}
+func (a *repairFixture) Decode(ctx context.Context, r *http.Response) (*http.Response, error) {
+	if ctx.Value(repairContextKey{}) != true {
+		return nil, ErrUnavailable
+	}
+	return r, nil
+}
+func (a *repairFixture) RepairRequest(ctx context.Context, in AdapterInput, r AdapterRequest, f HTTPFailure) (AdapterRequest, bool, error) {
+	a.repairs++
+	if ctx.Value(repairContextKey{}) != true || in.RequestID == "" {
+		return r, false, ErrUnavailable
+	}
+	r.Body = []byte(`{"schema":"fixed"}`)
+	return r, true, nil
+}
+func TestChangedBodyRepairRetainsPreparedContext(t *testing.T) {
+	calls := 0
+	h, s, _, _, u := harness(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		b, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(b), "bad") {
+			w.WriteHeader(400)
+			io.WriteString(w, `{"error":"schema"}`)
+			return
+		}
+		io.WriteString(w, fixture(Chat))
+	}, Chat)
+	a := &repairFixture{endpoint: s.URL}
+	h.c.Adapters = map[Wire]Adapter{Chat: a}
+	w := call(h, "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
+	if w.Code != 200 || calls != 2 || a.repairs != 1 || u.records[0].Sends != 2 {
+		t.Fatalf("%d %s calls=%d repairs=%d", w.Code, w.Body, calls, a.repairs)
+	}
+}
+
+func TestReceiptBindsSignedTextAndCalls(t *testing.T) {
+	first, _ := signedReplayTokens(object{"type": "thinking", "thinking": "original", "signature": "sig"})
+	changed, _ := signedReplayTokens(object{"type": "thinking", "thinking": "changed", "signature": "sig"})
+	if len(first) != 1 || len(changed) != 1 || first[0] == changed[0] {
+		t.Fatal("signature transferable to changed text")
+	}
+	first, _ = signedReplayTokens(object{"id": "call1", "function": object{"name": "read", "arguments": "{}"}, "extra_content": object{"google": object{"thought_signature": "sig"}}})
+	changed, _ = signedReplayTokens(object{"id": "call1", "function": object{"name": "write", "arguments": "{}"}, "extra_content": object{"google": object{"thought_signature": "sig"}}})
+	if len(first) != 1 || len(changed) != 1 || first[0] == changed[0] {
+		t.Fatal("signature transferable to changed tool")
+	}
+	for _, v := range []object{{"type": "reasoning", "encrypted_content": "native"}, {"type": "reasoning.encrypted", "data": "native"}, {"type": "thinking", "thinking": "text", "signature": encodeReasoning(reasoningEnvelope{Kiro: "sig"})}, {"type": "reasoning", "encrypted_content": encodeReasoning(reasoningEnvelope{Native: object{"enc": "native"}})}} {
+		tokens, e := signedReplayTokens(v)
+		if e != nil || len(tokens) != 1 {
+			t.Fatalf("missed native token: %v %v", v, e)
+		}
+	}
+}
+
+func TestCompactionUsesSelectedRouteAndBudget(t *testing.T) {
+	h, _, _, _, u := harness(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(b), `"tools"`) || !strings.Contains(string(b), "context checkpoint") {
+			t.Errorf("bad compact request %s", b)
+		}
+		io.WriteString(w, fixture(Chat))
+	}, Chat)
+	w := call(h, "/v1/responses/compact", `{"model":"m","input":[{"role":"user","content":"original task"}],"tools":[{"type":"function","name":"unused","parameters":{}}]}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "original task") || !strings.Contains(w.Body.String(), checkpointPrefix) || u.records[0].Sends != 1 {
+		t.Fatalf("%d %s %+v", w.Code, w.Body, u.records)
+	}
+}
+func Test507IsNotTransient(t *testing.T) {
+	calls := 0
+	h, _, _, _, u := harness(t, func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(507); io.WriteString(w, `{}`) }, Chat)
+	router := h.c.Router.(testRouter)
+	router.route.Targets[0].Retry.TransientSends = 3
+	h.c.Router = router
+	w := call(h, "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
+	if w.Code != 507 || calls != 1 || u.records[0].Outcome != OutcomeUpstreamError {
+		t.Fatalf("%d calls=%d %+v", w.Code, calls, u.records)
 	}
 }

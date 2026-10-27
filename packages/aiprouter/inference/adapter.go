@@ -78,3 +78,15 @@ type StatefulAdapter interface {
 // AttemptAccounting marks a completed provider leg whose billable usage is unknown.
 // It does not reserve another send or authorize a retry. Call at most once per leg.
 type AttemptAccounting interface{ RecordUnmeasuredAttempt() }
+
+// RequestRepairer may repair a refused HTTP400 request before any output. Central
+// transport permits at most two changed sends, within the original physical budget.
+// Implementations track schema/thinking repair limits in prepared request context.
+// They must preserve credential headers and never perform network I/O.
+type RequestRepairer interface {
+	RepairRequest(context.Context, AdapterInput, AdapterRequest, HTTPFailure) (AdapterRequest, bool, error)
+}
+
+// AttemptUsage records a completed intermediate model leg, excluding the final
+// response and separately recorded cross-provider sidecars. Call once per leg.
+type AttemptUsage interface{ RecordUsage(Usage) }
