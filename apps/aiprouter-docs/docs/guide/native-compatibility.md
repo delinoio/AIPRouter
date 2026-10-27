@@ -6,14 +6,14 @@ Optional Claude first-party Desktop/model-picker compatibility and experimental 
 
 The CLI commands below are implemented and covered by automated runtime/CLI tests. They do not establish real OS trust or installed-application acceptance. The installed build must pass the runtime's own checks; supplying a build number does not bypass attestation.
 
-| Mode                     | Build gate      | Platform gate  | Application workflow                                                          |
-| ------------------------ | --------------- | -------------- | ----------------------------------------------------------------------------- |
-| `claude-firstparty`      | `1.18286.0`     | macOS, Windows | Configure `claude` after runtime readiness                                    |
-| `claude-picker`          | `1.18286.0`     | macOS, Windows | Configure `claude-desktop` after runtime readiness                            |
-| `codex-observe`          | `26.924.2738.0` | Windows        | Launch through the ready native runtime                                       |
-| `codex-account-ui-trial` | `26.924.2738.0` | Windows        | Activation unavailable pending confirmation of production account attestation |
+| Mode                     | Build gate      | Platform gate  | Application workflow                                                              |
+| ------------------------ | --------------- | -------------- | --------------------------------------------------------------------------------- |
+| `claude-firstparty`      | `1.18286.0`     | macOS, Windows | Configure `claude` after runtime readiness                                        |
+| `claude-picker`          | `1.18286.0`     | macOS, Windows | Configure `claude-desktop` after runtime readiness                                |
+| `codex-observe`          | `26.924.2738.0` | Windows        | Launch through the ready native runtime                                           |
+| `codex-account-ui-trial` | `26.924.2738.0` | Windows        | Launch after verified personal Plus/Pro account checks and separate trial consent |
 
-The account-UI trial is not an available activation procedure in this guide. Its command name and policy gate do not establish usable production account attestation. Use observe mode without assuming it changes account quotas.
+The account-UI trial is implemented with a maximum duration of three minutes and independent verification of an eligible personal Plus/Pro identity. It changes only bounded UI indicators. Observe mode leaves usage responses unchanged. Neither mode changes billing credit, provider isolation, or server authorization.
 
 ## Review before activation
 
@@ -34,7 +34,7 @@ aiprouter native --action plan --profile work --mode claude-firstparty --build 1
 aiprouter native --action enable --profile work --mode claude-firstparty --build 1.18286.0 --native-port 17844
 ```
 
-Planning can prepare protected certificate material, but does not enroll trust or mutate the application. Enabling requests separate trust and application consent. Do not continue if trust remains pending or an error is reported. Start the listener in a terminal that remains running:
+Planning can prepare protected certificate material, but does not enroll trust or mutate the application. Enabling requests separate trust and application consent. Consent is bound to the complete displayed plan and certificate; changed profile, key, mode, build, port, or destinations require a fresh matching preview. Do not continue if trust remains pending or an error is reported. Start the listener in a terminal that remains running:
 
 ```sh
 aiprouter native --action serve --profile work
@@ -68,11 +68,32 @@ aiprouter native --action launch --profile work
 
 Optional Codex modes use `native --action launch`, not `configure --mode` or a Codex settings mutation. Ordinary `configure --client codex` remains a separate gateway/catalog workflow. Observe mode does not authorize the bounded account-UI trial.
 
+## Bounded Codex account-UI trial
+
+Use a profile prepared for the Codex host constraints and the gated Windows MSIX build. Close the installed application before launch; the runtime refuses an already-running app. To choose the trial instead of observe mode:
+
+```sh
+aiprouter native --action plan --profile work --mode codex-account-ui-trial --build 26.924.2738.0 --native-port 17844
+aiprouter native --action enable --profile work --mode codex-account-ui-trial --build 26.924.2738.0 --native-port 17844
+```
+
+Review the separate certificate-trust, application, and account-wide trial consent prompts. The runtime checks the installed package/publisher/executable and independently verifies the native personal Plus/Pro account. If verification fails, do not bypass it or assume a trial started. Native account credentials remain in memory and go directly to the pinned native account endpoint over verified TLS; they are not sent to AIPRouter.
+
+After enable succeeds, keep `aiprouter native --action serve --profile work` running. In another terminal, run `aiprouter native --action status --profile work`, then `aiprouter native --action launch --profile work`. The trial lasts at most three minutes. Account, credential, build, consent, and expiry checks can end eligibility earlier. A successful launch or changed UI indicator does not establish real-account acceptance or provider entitlement.
+
+Codex launch uses a verified Windows package and an owned proxy auto-configuration (PAC) URL. It selects only HTTPS traffic for the pinned ChatGPT host; other destinations remain direct. The trial PAC expires, and traffic has a direct fallback after the listener stops. Do not use listener shutdown as a network isolation mechanism. Launch does not create a general system proxy or mutate ordinary Codex TOML settings.
+
 ## Trust and local access
 
 The native listener defaults to port 17844, distinct from the ordinary relay default of 17843. Use a distinct explicit `--native-port` for each additional native listener. Listeners bind only to loopback and use fixed ports; conflicts must fail without choosing another port. Keep the runtime's CA private material in protected user storage. Never copy it into a ticket, commit it, log it, or transmit it. Trust changes must be limited to the exact owned certificate in the current user's trust scope. Missing trust is pending activation, not success.
 
+Codex PAC traffic has a narrow local trust exception: CONNECT to its exact pinned host does not use proxy authentication because the application cannot supply proxy credentials through PAC. Other modes use generated proxy credentials. Control operations require separate authentication. Other local processes must therefore be within your selected computer trust boundary.
+
 Status distinguishes enabled, trusted, and ready and redacts proxy authentication. Application settings must not be applied using a listener that has not passed readiness and consent checks. Ordinary gateway behavior must remain available without enrolling optional trust.
+
+## Changing modes
+
+The retained CA is constrained to the selected hosts. Disabling a mode removes owned trust but retains the CA for same-mode reactivation. A mode that needs different host constraints cannot silently replace that authority in the same profile. Use a separate connection profile with distinct relay/native ports for that change; do not delete protected recovery state or broaden certificate trust to force it. This applies when moving between Claude first-party, Claude picker, and Codex host sets.
 
 ## Stop, disable, and restore
 
