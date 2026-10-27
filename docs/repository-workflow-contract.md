@@ -2,7 +2,7 @@
 
 ## Scope
 
-The base repository contains shared instructions, skills, documentation templates and formatting infrastructure. It has no runtime projects, native build workspace, generated protocol bindings, deployment targets or release credentials.
+The repository contains shared instructions, skills, documentation templates and formatting infrastructure. [AIPRouter](project-aiprouter.md) owns the Go runtime, generated protocol bindings, web applications and deployment assets. Release credentials remain outside the repository.
 
 ## Installation
 
@@ -20,7 +20,7 @@ CI requires an explicit comparison and rejects local `--staged` and `--all` mode
 
 Run `pnpm test` for formatter and hook fixtures. CI runs these fixtures and `pnpm format:check --base <sha> --head <sha>` on Ubuntu for pull requests, main pushes and manual dispatch. PR comparisons use the pull request base and head. Push comparisons use the prior and current commits. Manual comparisons use the merge base with `origin/main`; an optional `base` input selects another existing revision. A root push has no previous commit, so CI creates a local empty-tree comparison commit without pushing it. No full manual mode or macOS runners are configured.
 
-Each CI run records the validation revision, comparison revisions, commands and results in its logs and job summary. Runtime and platform acceptance must be added with the owning project. Passing shared fixtures does not establish runtime or release acceptance.
+Each CI run records the validation revision, comparison revisions, commands and results in its logs and job summary. Runtime and platform acceptance must be added with the owning project. Passing shared fixtures does not establish runtime or release acceptance. AIPRouter validation follows its [operations contract](servers-aiprouter-operations-contract.md). The root Go module declares the language baseline and selected toolchain; run `go test ./...` for changes to its consumers and `go vet ./...` before publication. Generated bindings must be checked against their source schemas.
 
 ## Assets and licensing
 

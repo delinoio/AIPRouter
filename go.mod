@@ -2,6 +2,8 @@ module github.com/delinoio/AIPRouter
 
 go 1.26.0
 
+toolchain go1.26.10
+
 require (
 	connectrpc.com/connect v1.21.1 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
