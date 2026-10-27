@@ -194,3 +194,30 @@ func TestNativeConfigurationRetainsRuntimeOwnershipForDisable(t *testing.T) {
 		t.Fatal("runtime settings not restored")
 	}
 }
+
+func (r *runtimeFixture) Launch(context.Context, string) error {
+	r.events = append(r.events, "launch")
+	return nil
+}
+
+func TestNativeLaunchRequiresReadyCodexModeAndExplicitAcceptance(t *testing.T) {
+	for _, accept := range []bool{false, true} {
+		ready := NativeRuntimeReady{Profile: "test", Mode: NativeCompatibilityCodexObserve, Build: NativeCompatibilityCodexBuild, ProxyURL: "http://owned:secret@127.0.0.1:17844", CAPath: "/owned/ca.pem"}
+		ready.proof = &nativeReadyProof{profile: ready.Profile, mode: ready.Mode, build: ready.Build, proxyURL: ready.ProxyURL, caPath: ready.CAPath, expires: time.Now().Add(time.Minute)}
+		r := &runtimeFixture{ready: ready}
+		var out bytes.Buffer
+		a := Application{Native: r, Prompt: answer(accept), Out: &out}
+		s := emptyState()
+		err := a.runNative(context.Background(), &s, "test", "launch", "", "", 0)
+		if accept {
+			if err != nil || strings.Join(r.events, ",") != "launch" {
+				t.Fatalf("launch: %v", err)
+			}
+		} else if err == nil || len(r.events) != 0 {
+			t.Fatal("launch without confirmation")
+		}
+		if strings.Contains(out.String(), "secret") {
+			t.Fatal("launch leaked proxy secret")
+		}
+	}
+}

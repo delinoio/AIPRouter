@@ -26,6 +26,21 @@ func (a *Application) runNative(ctx context.Context, s *State, name, action stri
 		return nil
 	case "stop":
 		return runtime.Stop(ctx, name)
+	case "launch":
+		ready, e := runtime.Ready(ctx, name)
+		if e != nil {
+			return e
+		}
+		if e = ready.Validate(); e != nil {
+			return e
+		}
+		if ready.Mode != NativeCompatibilityCodexObserve && ready.Mode != NativeCompatibilityCodexAccountUITrial {
+			return errors.New("native launch requires a Codex Desktop runtime mode")
+		}
+		if !a.Prompt.Confirm("Launch the verified Codex Desktop package with this owned, temporary proxy configuration?") {
+			return errors.New("native application launch declined")
+		}
+		return runtime.Launch(ctx, name)
 	case "disable":
 		if !a.Prompt.Confirm("Stop the owned native listener, restore its application settings, and remove its owned trust certificate?") {
 			return errors.New("native disable declined")
@@ -132,8 +147,10 @@ func (a *Application) planConfiguration(ctx context.Context, s State, client str
 			return nil, errors.New("native mode does not match selected client")
 		}
 		changes, e = PlanClaudeCompatibility(a.Resolver, s, p, key, models, ready)
+	case NativeCompatibilityCodexObserve, NativeCompatibilityCodexAccountUITrial:
+		return nil, errors.New("Codex Desktop compatibility uses native --action launch after enable and serve; ordinary Codex configuration remains separate")
 	default:
-		return nil, errors.New("native application planner is not available for this mode")
+		return nil, errors.New("unknown native application mode")
 	}
 	if e != nil {
 		return nil, e

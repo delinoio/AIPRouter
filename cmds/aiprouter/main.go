@@ -102,7 +102,7 @@ func openBrowser(url string) error {
 }
 func (a *Application) Run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		fmt.Fprintln(a.Out, "aiprouter connect|profiles|configure|disconnect|restore|port|service|relay|clients|client-profiles|recover|native\nFlags: --profile NAME --server HTTPS_ORIGIN --client CLIENT --port PORT --state-dir ABSOLUTE_PATH\nservice: --action install|status|stop|remove\nnative: --action plan|enable|status|stop|disable|serve --mode MODE --build BUILD --native-port PORT\nconfigure: --mode MODE selects an enabled, trusted native runtime; omit for gateway settings.\nDisconnect: offers settings restoration; preserves conflicts and reports incomplete revocation.\nConfiguration previews always require interactive confirmation; remote-key storage requires separate consent.\nSet NO_COLOR=1 to disable ANSI log colors.")
+		fmt.Fprintln(a.Out, "aiprouter connect|profiles|configure|disconnect|restore|port|service|relay|clients|client-profiles|recover|native\nFlags: --profile NAME --server HTTPS_ORIGIN --client CLIENT --port PORT --state-dir ABSOLUTE_PATH\nservice: --action install|status|stop|remove\nnative: --action plan|enable|status|stop|disable|serve|launch --mode MODE --build BUILD --native-port PORT\nconfigure: --mode MODE selects an enabled, trusted native runtime; omit for gateway settings.\nDisconnect: offers settings restoration; preserves conflicts and reports incomplete revocation.\nConfiguration previews always require interactive confirmation; remote-key storage requires separate consent.\nSet NO_COLOR=1 to disable ANSI log colors.")
 		return nil
 	}
 	command := args[0]
