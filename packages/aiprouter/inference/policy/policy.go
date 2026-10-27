@@ -245,7 +245,7 @@ func Resolve(c Config) (Resolved, error) {
 			path = "/responses"
 		}
 	case providers.Anthropic:
-		path = "/messages"
+		path = "/v1/messages"
 	}
 	if path != "" {
 		u, e := url.Parse(path)
@@ -253,8 +253,25 @@ func Resolve(c Config) (Resolved, error) {
 			return Resolved{}, ErrConfig
 		}
 	}
-	return Resolved{ProviderID: c.ProviderID, Model: c.Model, BaseURL: c.BaseURL, Endpoint: strings.TrimRight(c.BaseURL, "/") + path, Wire: w, Inbound: c.Inbound, Auth: c.Auth, TransportMatchedRegistry: matched, fields: f, fastOff: fastOff}, nil
+	destination := strings.TrimRight(c.BaseURL, "/") + path
+	if w == providers.Anthropic {
+		destination = anthropicMessagesURL(c.BaseURL)
+	}
+	return Resolved{ProviderID: c.ProviderID, Model: c.Model, BaseURL: c.BaseURL, Endpoint: destination, Wire: w, Inbound: c.Inbound, Auth: c.Auth, TransportMatchedRegistry: matched, fields: f, fastOff: fastOff}, nil
 }
+
+// Keep proxy path prefixes, but normalize versioned endpoint suffixes exactly as
+// the pinned Anthropic adapter does. BaseURL remains the selected route identity.
+func anthropicMessagesURL(base string) string {
+	root := strings.TrimRight(strings.TrimSpace(base), "/")
+	for _, suffix := range []string{"/v1/messages", "/v1"} {
+		if strings.HasSuffix(strings.ToLower(root), suffix) {
+			root = root[:len(root)-len(suffix)]
+		}
+	}
+	return strings.TrimRight(root, "/") + "/v1/messages"
+}
+
 func hasInbound(a []providers.Inbound, v providers.Inbound) bool {
 	for _, x := range a {
 		if x == v {

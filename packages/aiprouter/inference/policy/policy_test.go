@@ -513,3 +513,31 @@ func TestTransportPolicyProjection(t *testing.T) {
 		t.Fatal(unknown, e)
 	}
 }
+
+func TestAnthropicMessagesEndpointNormalization(t *testing.T) {
+	for _, tc := range []struct{ base, want string }{
+		{"https://api.anthropic.com", "https://api.anthropic.com/v1/messages"},
+		{"https://api.anthropic.com///", "https://api.anthropic.com/v1/messages"},
+		{"https://api.anthropic.com/v1", "https://api.anthropic.com/v1/messages"},
+		{"https://api.anthropic.com/v1/messages/", "https://api.anthropic.com/v1/messages"},
+		{"https://proxy.example/Prefix/V1/MESSAGES///", "https://proxy.example/Prefix/v1/messages"},
+		{"https://proxy.example/anthropic", "https://proxy.example/anthropic/v1/messages"},
+		{"https://api.commandcode.ai/provider/v1", "https://api.commandcode.ai/provider/v1/messages"},
+		{"https://api.tokenlab.sh/v1", "https://api.tokenlab.sh/v1/messages"},
+	} {
+		t.Run(tc.base, func(t *testing.T) {
+			p, e := Resolve(Config{BaseURL: tc.base, Wire: providers.Anthropic})
+			if e != nil || p.Endpoint != tc.want || p.BaseURL != tc.base {
+				t.Fatalf("endpoint=%q base=%q error=%v; want %q", p.Endpoint, p.BaseURL, e, tc.want)
+			}
+		})
+	}
+	for id, want := range map[string]string{"anthropic": "https://api.anthropic.com/v1/messages", "umans": "https://api.code.umans.ai/v1/messages", "xiaomi": "https://api.xiaomimimo.com/anthropic/v1/messages"} {
+		t.Run(id, func(t *testing.T) {
+			p := preset(t, id, "model", "", "")
+			if p.Endpoint != want {
+				t.Fatalf("endpoint=%q want %q", p.Endpoint, want)
+			}
+		})
+	}
+}
