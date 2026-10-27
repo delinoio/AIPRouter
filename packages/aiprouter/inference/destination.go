@@ -1,0 +1,112 @@
+// SPDX-License-Identifier: Apache-2.0
+package inference
+
+import (
+	"context"
+	"crypto/tls"
+	"net"
+	"net/http"
+	"net/netip"
+	"net/url"
+	"strings"
+	"time"
+)
+
+type Resolver interface {
+	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
+}
+
+// ApprovedOrigins is operator configuration, never provider/user configuration.
+// Each entry is an exact scheme://host:port origin (default ports can be omitted).
+type DestinationPolicy struct {
+	ApprovedOrigins []string
+	Resolver        Resolver
+}
+
+func origin(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return u.Scheme + "://" + net.JoinHostPort(strings.ToLower(u.Hostname()), port)
+}
+func parseDestination(raw string) (*url.URL, error) {
+	u, e := url.Parse(raw)
+	if e != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && u.Scheme != "http") || strings.Contains(u.Host, "%") || strings.HasSuffix(u.Hostname(), ".") {
+		return nil, ErrDestination
+	}
+	return u, nil
+}
+func (p DestinationPolicy) approved(u *url.URL) bool {
+	for _, s := range p.ApprovedOrigins {
+		a, e := parseDestination(s)
+		if e == nil && (a.Path == "" || a.Path == "/") && origin(a) == origin(u) {
+			return true
+		}
+	}
+	return false
+}
+func publicIP(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		return false
+	}
+	// Deny special-use ranges that IsGlobalUnicast deliberately accepts.
+	for _, s := range []string{"100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "2001:db8::/32", "2001::/32", "2002::/16", "64:ff9b::/96"} {
+		if netip.MustParsePrefix(s).Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+// client pins each dial to validated addresses. It never re-resolves an approved hostname
+// through another transport, follows redirects, or inherits process proxy settings.
+func (p DestinationPolicy) client(raw string) (*http.Client, bool, error) {
+	u, e := parseDestination(raw)
+	if e != nil {
+		return nil, false, e
+	}
+	allowed := p.approved(u)
+	if u.Scheme != "https" && !allowed {
+		return nil, false, ErrDestination
+	}
+	resolver := p.Resolver
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+	tr := &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, ForceAttemptHTTP2: true, TLSHandshakeTimeout: 30 * time.Second, ResponseHeaderTimeout: 300 * time.Second, DisableKeepAlives: true}
+	tr.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, e := net.SplitHostPort(address)
+		if e != nil || !strings.EqualFold(host, u.Hostname()) {
+			return nil, ErrDestination
+		}
+		ips, e := resolver.LookupNetIP(ctx, "ip", host)
+		if e != nil {
+			return nil, e
+		}
+		if len(ips) == 0 {
+			return nil, ErrDestination
+		}
+		for _, ip := range ips {
+			if !ip.IsValid() || (!allowed && !publicIP(ip)) {
+				return nil, ErrDestination
+			}
+		}
+		d := net.Dialer{Timeout: 30 * time.Second}
+		var last error
+		for _, ip := range ips {
+			c, e := d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			if e == nil {
+				return c, nil
+			}
+			last = e
+		}
+		return nil, last
+	}
+	return &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, allowed, nil
+}
