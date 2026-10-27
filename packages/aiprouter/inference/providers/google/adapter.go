@@ -181,11 +181,19 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	if (a.cca && in.Target.Auth != inference.OAuth) || (!a.cca && in.Target.Auth != inference.APIKey) {
 		return out, inference.ErrUnsupported
 	}
-	body, anchor, err := a.request(root, in.Wire, model)
+	// Resolve the toggle per request; constructors remain safe to share. Nil
+	// preserves the selected transport's defaults, including CCA summaries.
+	compiler := *a
+	if in.Target.Policy != nil {
+		if show := in.Target.Policy.ShowThinkingSummary(); show != nil {
+			compiler.options.ShowThinkingSummaries = *show
+		}
+	}
+	body, anchor, err := compiler.request(root, in.Wire, model)
 	if err != nil {
 		return out, err
 	}
-	model = a.normalizeGeneration(body, root, model)
+	model = compiler.normalizeGeneration(body, root, model)
 	aliases := compileToolNames(body)
 	if state != nil {
 		state.restoreCalls(body, aliases)
