@@ -364,3 +364,25 @@ func TestProviderCatalogPersistsOnlyCurrentScope(t *testing.T) {
 		t.Fatal("private fields in management model response")
 	}
 }
+
+func TestProviderPoolAffinityPersistsExplicitOptIn(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	d := oauthSavedProvider(t, m, ctx, sc)
+	members := []*v1.PoolMember{{ConnectionId: d.Metadata.Id}}
+	created, err := m.CreatePool(ctx, connect.NewRequest(&v1.CreatePoolRequest{OrganizationId: sc.OrganizationID, Name: "affinity", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: members, AffinityEnabled: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := m.ListPools(ctx, connect.NewRequest(&v1.ListPoolsRequest{OrganizationId: sc.OrganizationID}))
+	if err != nil || len(listed.Msg.Pools) != 1 || !listed.Msg.Pools[0].GetAffinityEnabled() {
+		t.Fatalf("affinity opt-in not durable: %v %v", listed, err)
+	}
+	_, err = m.UpdatePool(ctx, connect.NewRequest(&v1.UpdatePoolRequest{OrganizationId: sc.OrganizationID, PoolId: created.Msg.Pool.Id, Name: "affinity", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: members}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err = m.ListPools(ctx, connect.NewRequest(&v1.ListPoolsRequest{OrganizationId: sc.OrganizationID}))
+	if err != nil || len(listed.Msg.Pools) != 1 || listed.Msg.Pools[0].GetAffinityEnabled() {
+		t.Fatalf("default false did not disable affinity: %v %v", listed, err)
+	}
+}

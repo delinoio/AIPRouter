@@ -259,7 +259,7 @@ func (m *management) CreatePool(ctx context.Context, r *connect.Request[v1.Creat
 	if e != nil {
 		return nil, e
 	}
-	p := &v1.Pool{Id: core.ID(), OrganizationId: sc.OrganizationID, Name: r.Msg.Name, Strategy: r.Msg.Strategy, Members: r.Msg.Members}
+	p := &v1.Pool{Id: core.ID(), OrganizationId: sc.OrganizationID, Name: r.Msg.Name, Strategy: r.Msg.Strategy, Members: r.Msg.Members, AffinityEnabled: r.Msg.GetAffinityEnabled()}
 	if e = m.validatePool(ctx, sc, p); e != nil {
 		return nil, e
 	}
@@ -281,6 +281,7 @@ func (m *management) UpdatePool(ctx context.Context, r *connect.Request[v1.Updat
 	p.Name = r.Msg.Name
 	p.Strategy = r.Msg.Strategy
 	p.Members = r.Msg.Members
+	p.AffinityEnabled = r.Msg.GetAffinityEnabled()
 	if e = m.validatePool(ctx, sc, p); e != nil {
 		return nil, e
 	}
