@@ -1,0 +1,691 @@
+// SPDX-License-Identifier: Apache-2.0
+import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "@connectrpc/connect-query";
+import { create } from "@bufbuild/protobuf";
+import {
+  AllowedDestinationSchema,
+  HealthState,
+  InstanceSettingsSchema,
+  OperatorService,
+  type InstanceSettings,
+  type PriceOverride,
+} from "@aiprouter/client";
+import { Card, PageHeader } from "../ui";
+import { useDirtyForm } from "../api";
+import {
+  Confirm,
+  Dialog,
+  Empty,
+  ErrorNotice,
+  Loading,
+  Pager,
+  date,
+  label,
+  useAction,
+} from "./common";
+import { Summary, timeRange } from "./reporting";
+
+export function Health() {
+  const health = useQuery(
+    OperatorService.method.getInstanceHealth,
+    {},
+    { refetchInterval: 30000 },
+  );
+  const [dates, setDates] = useState(() => ({
+    start: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10),
+    end: new Date().toISOString().slice(0, 10),
+  }));
+  const valid = !!dates.start && !!dates.end && dates.start <= dates.end;
+  const usage = useQuery(
+    OperatorService.method.getInstanceUsage,
+    { timeRange: valid ? timeRange(dates.start, dates.end) : undefined },
+    { enabled: valid },
+  );
+  return (
+    <>
+      <PageHeader
+        title="Instance health"
+        description="Whole-instance availability and request aggregates."
+      />
+      {health.isPending ? (
+        <Loading />
+      ) : health.error ? (
+        <ErrorNotice error={health.error} retry={() => void health.refetch()} />
+      ) : (
+        <Card>
+          <h2>Availability</h2>
+          <div className="admin-metrics">
+            <div>
+              <span>Service</span>
+              <strong>
+                {health.data?.health?.service
+                  ? label(HealthState[health.data.health.service])
+                  : "Unknown"}
+              </strong>
+            </div>
+            <div>
+              <span>Database</span>
+              <strong>
+                {health.data?.health?.database
+                  ? label(HealthState[health.data.health.database])
+                  : "Unknown"}
+              </strong>
+            </div>
+          </div>
+          <p>
+            Last successful cleanup:{" "}
+            {date(health.data?.health?.lastCleanupSuccessAt)}
+          </p>
+          <p>
+            Consecutive cleanup failures:{" "}
+            {health.data?.health?.lastCleanupSuccessAt
+              ? health.data.health.consecutiveCleanupFailures
+              : "Unknown"}
+          </p>
+          <p>
+            Usage recording health: Unknown. Recording failures can leave
+            request totals incomplete.
+          </p>
+          <button onClick={() => void health.refetch()}>Refresh health</button>
+        </Card>
+      )}
+      <Card>
+        <h2>Aggregate period</h2>
+        <div className="admin-form-grid">
+          <label>
+            From (UTC)
+            <input
+              type="date"
+              value={dates.start}
+              onChange={(e) => setDates({ ...dates, start: e.target.value })}
+            />
+          </label>
+          <label>
+            Through (UTC)
+            <input
+              type="date"
+              value={dates.end}
+              onChange={(e) => setDates({ ...dates, end: e.target.value })}
+            />
+          </label>
+        </div>
+        {!valid && <p role="alert">Choose a valid start and end date.</p>}
+      </Card>
+      {valid &&
+        (usage.isPending ? (
+          <Loading />
+        ) : usage.error ? (
+          <ErrorNotice error={usage.error} retry={() => void usage.refetch()} />
+        ) : (
+          <Summary summary={usage.data?.summary} />
+        ))}
+    </>
+  );
+}
+export function InstanceConfiguration({
+  section,
+}: {
+  section: "limits" | "retention" | "destinations";
+}) {
+  const query = useQuery(OperatorService.method.getInstanceSettings, {});
+  return (
+    <>
+      <PageHeader
+        title={
+          {
+            limits: "Request limits",
+            retention: "Retention",
+            destinations: "Approved destinations",
+          }[section]
+        }
+        description={
+          section === "limits"
+            ? "Applied per user within each organization."
+            : "Manage instance policy."
+        }
+      />
+      {query.isPending ? (
+        <Loading />
+      ) : query.error ? (
+        <ErrorNotice error={query.error} retry={() => void query.refetch()} />
+      ) : query.data?.settings ? (
+        <ConfigurationForm
+          key={`${section}:${query.data.settings.revision}`}
+          settings={query.data.settings}
+          section={section}
+        />
+      ) : (
+        <Empty>Instance settings are unavailable.</Empty>
+      )}
+    </>
+  );
+}
+function ConfigurationForm({
+  settings,
+  section,
+}: {
+  settings: InstanceSettings;
+  section: "limits" | "retention" | "destinations";
+}) {
+  const [draft, setDraft] = useState(() =>
+    create(InstanceSettingsSchema, settings),
+  );
+  const [review, setReview] = useState(false);
+  const [origin, setOrigin] = useState("");
+  const dirty = useDirtyForm();
+  const [changed, setChanged] = useState(false);
+  useEffect(() => {
+    dirty(changed);
+    return () => dirty(false);
+  }, [dirty, changed]);
+  const action = useAction(true);
+  const update = useMutation(OperatorService.method.updateInstanceSettings);
+  function save() {
+    void action.run(
+      () =>
+        update.mutateAsync({
+          settings: draft,
+          expectedRevision: settings.revision,
+        }),
+      {
+        done: () => {
+          setReview(false);
+          setChanged(false);
+        },
+      },
+    );
+  }
+  const reduced =
+    !!draft.retention &&
+    !!settings.retention &&
+    (draft.retention.requestDays < settings.retention.requestDays ||
+      draft.retention.aggregateDays < settings.retention.aggregateDays ||
+      draft.retention.auditDays < settings.retention.auditDays);
+  function submit() {
+    if (reduced || section === "destinations") setReview(true);
+    else save();
+  }
+  return (
+    <Card>
+      {action.feedback}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        {section === "limits" && draft.requestLimits && (
+          <>
+            <label>
+              Requests per minute
+              <input
+                type="number"
+                required
+                min={1}
+                max={6000}
+                step={1}
+                value={draft.requestLimits.requestsPerMinute}
+                onChange={(e) => {
+                  setDraft({
+                    ...draft,
+                    requestLimits: {
+                      ...draft.requestLimits!,
+                      requestsPerMinute: Number(e.target.value),
+                    },
+                  });
+                  setChanged(true);
+                }}
+              />
+            </label>
+            <p>1–6,000 requests per minute. Default: 120.</p>
+            <label>
+              Concurrent requests
+              <input
+                type="number"
+                required
+                min={1}
+                max={100}
+                step={1}
+                value={draft.requestLimits.concurrentRequests}
+                onChange={(e) => {
+                  setDraft({
+                    ...draft,
+                    requestLimits: {
+                      ...draft.requestLimits!,
+                      concurrentRequests: Number(e.target.value),
+                    },
+                  });
+                  setChanged(true);
+                }}
+              />
+            </label>
+            <p>
+              1–100 concurrent requests. Default: 10. These limits apply per
+              user within each organization.
+            </p>
+          </>
+        )}
+        {section === "retention" && draft.retention && (
+          <>
+            {(
+              [
+                {
+                  field: "requestDays",
+                  name: "Request metadata",
+                  min: 1,
+                  max: 90,
+                  default: 30,
+                },
+                {
+                  field: "aggregateDays",
+                  name: "Daily aggregates",
+                  min: 30,
+                  max: 730,
+                  default: 365,
+                },
+                {
+                  field: "auditDays",
+                  name: "Audit records",
+                  min: 30,
+                  max: 365,
+                  default: 90,
+                },
+              ] as const
+            ).map((item) => (
+              <label key={item.field}>
+                {item.name} (days)
+                <input
+                  type="number"
+                  required
+                  min={item.min}
+                  max={item.max}
+                  step={1}
+                  value={draft.retention![item.field]}
+                  onChange={(e) => {
+                    setDraft({
+                      ...draft,
+                      retention: {
+                        ...draft.retention!,
+                        [item.field]: Number(e.target.value),
+                      },
+                    });
+                    setChanged(true);
+                  }}
+                />
+                <small>
+                  {item.min}–{item.max} days. Default: {item.default}.
+                </small>
+              </label>
+            ))}
+          </>
+        )}
+        {section === "destinations" && (
+          <>
+            <p>
+              Public HTTPS destinations are allowed by default. Approve precise
+              origins to permit private-network or local HTTP destinations.
+              Redirect and DNS checks still apply.
+            </p>
+            <div className="admin-records">
+              {draft.allowedDestinations.map((destination, index) => (
+                <article
+                  className="admin-record"
+                  key={`${destination.origin}:${index}`}
+                >
+                  <div>
+                    <h3>{destination.origin}</h3>
+                    {destination.allowedCidrs.length > 0 && (
+                      <p>
+                        Approved networks: {destination.allowedCidrs.join(", ")}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraft({
+                        ...draft,
+                        allowedDestinations: draft.allowedDestinations.filter(
+                          (_, i) => i !== index,
+                        ),
+                      });
+                      setChanged(true);
+                    }}
+                  >
+                    Remove approval
+                  </button>
+                </article>
+              ))}
+            </div>
+            {!draft.allowedDestinations.length && (
+              <Empty>No additional destinations approved.</Empty>
+            )}
+            <label>
+              Exact origin
+              <input
+                type="url"
+                value={origin}
+                placeholder="http://localhost:8080"
+                onChange={(e) => setOrigin(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={
+                !validOrigin(origin) ||
+                draft.allowedDestinations.some((d) => d.origin === origin)
+              }
+              onClick={() => {
+                if (!validOrigin(origin)) return;
+                setDraft({
+                  ...draft,
+                  allowedDestinations: [
+                    ...draft.allowedDestinations,
+                    create(AllowedDestinationSchema, { origin }),
+                  ],
+                });
+                setOrigin("");
+                setChanged(true);
+              }}
+            >
+              Add to review
+            </button>
+          </>
+        )}
+        <div className="admin-actions">
+          <button
+            className="admin-primary"
+            disabled={
+              action.pending ||
+              !changed ||
+              !draft.requestLimits ||
+              !draft.retention
+            }
+          >
+            Review and save changes
+          </button>
+        </div>
+      </form>
+      {review && (
+        <Confirm
+          title={
+            section === "destinations"
+              ? "Save destination policy"
+              : "Reduce retention"
+          }
+          pending={action.pending}
+          onClose={() => setReview(false)}
+          action={save}
+        >
+          {section === "destinations" ? (
+            <>
+              <p>Only these additional destinations will remain approved:</p>
+              <ul>
+                {draft.allowedDestinations.map((d, i) => (
+                  <li key={i}>{d.origin}</li>
+                ))}
+              </ul>
+              <p>
+                Removing approval blocks future connections that require it.
+                Adding approval permits connections to the specified origin.
+              </p>
+            </>
+          ) : (
+            <p>
+              Records older than the new limits become unavailable and are
+              eligible for deletion. Request metadata:{" "}
+              {draft.retention?.requestDays} days. Daily aggregates:{" "}
+              {draft.retention?.aggregateDays} days. Audit records:{" "}
+              {draft.retention?.auditDays} days. Existing backups follow
+              operator policy.
+            </p>
+          )}
+          <ErrorNotice error={action.error} />
+        </Confirm>
+      )}
+    </Card>
+  );
+}
+export function validOrigin(value: string) {
+  try {
+    const u = new URL(value);
+    return (
+      ["http:", "https:"].includes(u.protocol) &&
+      !u.username &&
+      !u.password &&
+      u.origin === value
+    );
+  } catch {
+    return false;
+  }
+}
+const rateFields = [
+  ["input", "Input"],
+  ["output", "Output"],
+  ["cacheRead", "Cache read"],
+  ["cacheWrite", "Cache write"],
+  ["cacheWriteShort", "Short cache write"],
+  ["cacheWriteLong", "Long cache write"],
+] as const;
+export function Prices() {
+  const [token, setToken] = useState("");
+  const [editing, setEditing] = useState<PriceOverride | "new">();
+  const [deleting, setDeleting] = useState<PriceOverride>();
+  const action = useAction(true);
+  const query = useQuery(OperatorService.method.listPriceOverrides, {
+    page: { pageSize: 100, pageToken: token },
+  });
+  const remove = useMutation(OperatorService.method.deletePriceOverride);
+  return (
+    <>
+      <PageHeader
+        title="Price overrides"
+        description="Common prices in currency units per million tokens. Applies to new requests only."
+        action={
+          <button className="admin-primary" onClick={() => setEditing("new")}>
+            Add price override
+          </button>
+        }
+      />
+      {action.feedback}
+      {query.isPending ? (
+        <Loading />
+      ) : query.error ? (
+        <ErrorNotice error={query.error} retry={() => void query.refetch()} />
+      ) : (
+        <Card>
+          {!query.data?.overrides.length && (
+            <Empty>
+              No price overrides. Bundled prices apply where available.
+            </Empty>
+          )}
+          <div className="admin-records">
+            {query.data?.overrides.map((price) => (
+              <article key={price.id} className="admin-record">
+                <div>
+                  <h2>
+                    {price.providerId} / {price.modelId}
+                  </h2>
+                  <p>
+                    Tier: {price.serviceTier || "Default"} · Provenance:
+                    Instance operator override
+                  </p>
+                  <p>Updated {date(price.updatedAt)}</p>
+                  {rateFields.map(([field, name]) => (
+                    <p key={field}>
+                      {name}:{" "}
+                      {price.rates?.[field] === undefined
+                        ? "Unknown"
+                        : `${price.rates.currency} ${price.rates[field]} per million tokens`}
+                    </p>
+                  ))}
+                </div>
+                <div className="admin-actions">
+                  <button onClick={() => setEditing(price)}>
+                    Edit override
+                  </button>
+                  <button onClick={() => setDeleting(price)}>
+                    Delete override
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+          <Pager
+            token={token}
+            next={query.data?.page?.nextPageToken}
+            onChange={setToken}
+          />
+        </Card>
+      )}
+      {editing && (
+        <PriceEditor
+          price={editing === "new" ? undefined : editing}
+          onClose={() => setEditing(undefined)}
+        />
+      )}
+      {deleting && (
+        <Confirm
+          title="Delete price override"
+          name={deleting.modelId}
+          pending={action.pending}
+          onClose={() => setDeleting(undefined)}
+          action={() =>
+            void action.run(
+              () => remove.mutateAsync({ overrideId: deleting.id }),
+              {
+                done: () => setDeleting(undefined),
+                success: "Price override deleted.",
+              },
+            )
+          }
+        >
+          <p>
+            Future requests use the bundled price where available; otherwise
+            cost is unknown. Historical estimates remain unchanged.
+          </p>
+          <ErrorNotice error={action.error} />
+        </Confirm>
+      )}
+    </>
+  );
+}
+function PriceEditor({
+  price,
+  onClose,
+}: {
+  price?: PriceOverride;
+  onClose: () => void;
+}) {
+  const [provider, setProvider] = useState(price?.providerId ?? "");
+  const [model, setModel] = useState(price?.modelId ?? "");
+  const [tier, setTier] = useState(price?.serviceTier ?? "");
+  const [currency, setCurrency] = useState(price?.rates?.currency ?? "USD");
+  const [rates, setRates] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      rateFields.map(([field]) => [field, price?.rates?.[field] ?? ""]),
+    ),
+  );
+  const action = useAction(true);
+  const save = useMutation(OperatorService.method.setPriceOverride);
+  const dirty = useDirtyForm();
+  useEffect(() => {
+    dirty(true);
+    return () => dirty(false);
+  }, [dirty]);
+  return (
+    <Dialog
+      title={price ? "Edit price override" : "Add price override"}
+      onClose={onClose}
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void action.run(
+            () =>
+              save.mutateAsync({
+                providerId: provider,
+                modelId: model,
+                serviceTier: tier,
+                rates: {
+                  currency,
+                  ...Object.fromEntries(
+                    Object.entries(rates).map(([key, value]) => [
+                      key,
+                      value === "" ? undefined : value,
+                    ]),
+                  ),
+                },
+              }),
+            { done: onClose },
+          );
+        }}
+      >
+        <label>
+          Provider ID
+          <input
+            required
+            readOnly={!!price}
+            value={provider}
+            onChange={(e) => setProvider(e.target.value)}
+          />
+        </label>
+        <label>
+          Model ID
+          <input
+            required
+            readOnly={!!price}
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+          />
+        </label>
+        <label>
+          Service tier
+          <input
+            readOnly={!!price}
+            value={tier}
+            onChange={(e) => setTier(e.target.value)}
+          />
+        </label>
+        <label>
+          Currency
+          <input
+            required
+            pattern="[A-Z]{3}"
+            maxLength={3}
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+          />
+        </label>
+        <p>
+          Rates per million tokens. Blank means unknown. Enter 0 only for a
+          confirmed zero price. Historical estimates remain unchanged.
+        </p>
+        <div className="admin-form-grid">
+          {rateFields.map(([field, name]) => (
+            <label key={field}>
+              {name}
+              <input
+                inputMode="decimal"
+                pattern="[0-9]+([.][0-9]+)?"
+                value={rates[field]}
+                onChange={(e) =>
+                  setRates({ ...rates, [field]: e.target.value })
+                }
+              />
+            </label>
+          ))}
+        </div>
+        <ErrorNotice error={action.error} />
+        <div className="admin-actions">
+          <button type="button" data-cancel onClick={onClose}>
+            Cancel
+          </button>
+          <button className="admin-primary" disabled={action.pending}>
+            Save override
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
