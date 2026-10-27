@@ -13,12 +13,12 @@ func (s *Store) rotateProviderState(ctx context.Context, tx *sql.Tx) error {
 		key, namespace, id string
 		value              []byte
 	}
-	for _, table := range []string{s.temp + ".provider_flows", s.temp + ".provider_states", s.temp + ".native_quotas", s.temp + ".vertex_projects"} {
+	for _, table := range []string{s.temp + ".provider_flows", s.temp + ".provider_states", s.temp + ".native_quotas", s.temp + ".vertex_projects", s.temp + ".compaction_handoffs"} {
 		if _, e := tx.ExecContext(ctx, "LOCK TABLE "+table+" IN ACCESS EXCLUSIVE MODE"); e != nil {
 			return e
 		}
 		query := "SELECT org_id,user_id,generation,'' AS key,'' AS namespace,id,value FROM " + table + " WHERE status='pending'"
-		if table == s.temp+".provider_states" {
+		if table == s.temp+".provider_states" || table == s.temp+".compaction_handoffs" {
 			query = "SELECT org_id,user_id,generation,key_id,namespace,id,value FROM " + table
 		}
 		if table == s.temp+".native_quotas" {
