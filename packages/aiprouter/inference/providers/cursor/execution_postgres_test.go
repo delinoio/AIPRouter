@@ -108,6 +108,9 @@ func cursorPostgres(t *testing.T) (*store.Store, *sql.DB, string, core.Scope, st
 	if err = s.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err = s.RegisterAdmissionInstance(ctx); err != nil {
+		t.Fatal(err)
+	}
 	u, err := s.RegisterIdentity(ctx, "cursor-fixture", core.ID(), "fixture@example.com", true)
 	if err != nil {
 		t.Fatal(err)
@@ -213,5 +216,49 @@ func TestCoreCursorPostgresDuplex(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func (b *postgresBridge) UpdateProviderState(ctx context.Context, _ inference.Principal, namespace, id string, expires time.Time, merge func([]byte) ([]byte, error)) error {
+	return b.s.UpdateProviderState(ctx, b.lease.Principal, namespace, id, store.ProviderStatePolicy{TTL: time.Until(expires), Entries: 64, MaxEntryBytes: 16 << 20, MaxTotalBytes: 16 << 20}, merge)
+}
+
+func TestCoreCursorPostgresSemanticRecovery(t *testing.T) {
+	s, db, schema, _, key := cursorPostgres(t)
+	f := newDuplexFixture(t)
+	f.refusals = []string{"invalid_argument"}
+	close(f.ackInitial)
+	bridge := &postgresBridge{s: s}
+	usage := &integrationUsage{}
+	target := input(simpleRequest).Target
+	target.BaseURL = f.server.URL
+	h, err := inference.New(inference.Config{Adapters: map[inference.Wire]inference.Adapter{Wire: New()}, Authorizer: bridge, Router: integrationRouter{inference.Route{Targets: []inference.Target{target}, MaxSends: 258}}, Credentials: integrationCredentials{}, Usage: usage, ProviderStates: bridge, Destinations: inference.DestinationPolicy{ApprovedOrigins: []string{f.server.URL}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"fixture","stream":true,"cursor_thread_id":"postgres-recovery-thread","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Authorization", "Bearer "+key)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "[DONE]") || usage.record.Sends != 6 || usage.record.UnmeasuredAttempts < 1 {
+		t.Fatalf("recovery sends=%d unknown=%d: %s", usage.record.Sends, usage.record.UnmeasuredAttempts, rec.Body.String())
+	}
+	bridge.mu.Lock()
+	sends := bridge.sends
+	denied := bridge.denied
+	bridge.mu.Unlock()
+	if sends != 6 || denied != 0 {
+		t.Fatalf("DB dispatches=%d denied=%d", sends, denied)
+	}
+	var rows int
+	if err = db.QueryRow("SELECT count(*) FROM " + schema + "_temp.provider_states").Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 2 {
+		t.Fatalf("want retained remint metadata and final checkpoint; rows=%d", rows)
+	}
+	restored, err := bridge.LoadProviderState(context.Background(), inference.Principal{}, bridge.savedNamespace, bridge.savedID)
+	if err != nil || !bytes.Equal(restored.Data, bridge.saved) {
+		t.Fatalf("recovered checkpoint: %v", err)
 	}
 }

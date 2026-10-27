@@ -134,6 +134,9 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 		return inference.AdapterRequest{}, nil, err
 	}
 	s.conversationID = conversationID
+	if retained, _ := ctx.Value(recoveryConversationKey{}).(string); retained != "" && saved == nil {
+		s.conversationID = retained
+	}
 	var state []byte
 	if saved != nil {
 		if err := s.restore(saved); err != nil {
@@ -152,9 +155,18 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 				return inference.AdapterRequest{}, nil, inference.ErrContinuation
 			}
 		}
-		state = append([]byte(nil), saved.Checkpoint...)
+		if !saved.ReplayOnly {
+			state = append([]byte(nil), saved.Checkpoint...)
+		}
 	}
 	s.history = history
+	for _, h := range history {
+		if h.Role == "tool" {
+			s.guardEcho = !nativeModel(model)
+			s.observeReplay = externalToolContinuation(model)
+			break
+		}
+	}
 	active := len(history) - 1
 	text := history[active].Text
 	if history[active].Role == "tool" {
@@ -191,7 +203,7 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 		for _, c := range h.Calls {
 			known[c.ID] = c
 		}
-		if saved != nil && i < len(saved.History) {
+		if saved != nil && !saved.ReplayOnly && i < len(saved.History) {
 			continue
 		}
 		if i == active {
@@ -231,7 +243,7 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 		s.blobBytes += len(b)
 		state = append(state, pb(1, id[:])...)
 	}
-	if saved == nil && nativeModel(model) {
+	if (saved == nil || saved.ReplayOnly) && nativeModel(model) {
 		turns, err := s.nativeReplay(history, active, tools)
 		if err != nil {
 			return inference.AdapterRequest{}, nil, err
@@ -257,6 +269,9 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 			return bad("cursor_required_tool_missing")
 		}
 		text += "\n\nUse the declared client tools to answer this request. Emit a real tool call, not a textual tool-call envelope."
+	}
+	if correction, _ := ctx.Value(recoveryCorrectionKey{}).(string); correction != "" {
+		text += "\n\n[correction] " + correction
 	}
 	messageID, err := newID()
 	if err != nil {
@@ -679,6 +694,7 @@ func ownerFor(in inference.AdapterInput, model string) Owner {
 // expiry immediately, and fence saves against membership deletion. Checkpoint
 // retention follows the pin: 15 minutes, 64 entries, 16 MiB per owner in storage.
 type Continuation struct {
+	ReplayOnly     bool
 	Owner          Owner
 	ConversationID string
 	Checkpoint     []byte

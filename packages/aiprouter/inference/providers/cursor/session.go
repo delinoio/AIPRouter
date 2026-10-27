@@ -44,29 +44,40 @@ type pendingExec struct {
 // Session is request-local and has no I/O or global caches. The central executor
 // owns synchronization, cancellation, pacing and all physical sends.
 type Session struct {
-	model, conversationID      string
-	owner                      Owner
-	tools                      map[string]tool
-	open                       map[string]*openCall
-	completed                  map[string]bool
-	pending                    map[string]pendingExec
-	callIDs                    map[string]string
-	history                    []historyMessage
-	blobs                      map[string][]byte
-	blobBytes                  int
-	requestContext, checkpoint []byte
-	output, contextTokens      *int64
-	ended, terminal, visible   bool
-	frames                     int
-	pendingText                string
-	fallback                   []Event
-	sawRealTool                bool
+	guardEcho, observeReplay      bool
+	midstreamEcho                 bool
+	echoLine                      string
+	echoLineStart                 bool
+	echoScanned                   int
+	invalidArgument, recoverySafe bool
+	model, conversationID         string
+	owner                         Owner
+	tools                         map[string]tool
+	open                          map[string]*openCall
+	completed                     map[string]bool
+	pending                       map[string]pendingExec
+	callIDs                       map[string]string
+	history                       []historyMessage
+	blobs                         map[string][]byte
+	blobBytes                     int
+	requestContext, checkpoint    []byte
+	output, contextTokens         *int64
+	ended, terminal, visible      bool
+	frames                        int
+	pendingText                   string
+	guardPending                  string
+	guardDone, guardRouting       bool
+	fallback                      []Event
+	sawRealTool                   bool
 }
 
 func newSession(model string, tools []tool) *Session {
-	s := &Session{model: model, tools: map[string]tool{}, open: map[string]*openCall{}, completed: map[string]bool{}, pending: map[string]pendingExec{}, blobs: map[string][]byte{}, callIDs: map[string]string{}}
+	s := &Session{echoLineStart: true, model: model, tools: map[string]tool{}, open: map[string]*openCall{}, completed: map[string]bool{}, pending: map[string]pendingExec{}, blobs: map[string][]byte{}, callIDs: map[string]string{}}
 	for _, t := range tools {
 		s.tools[t.WireName] = t
+		if !strings.HasPrefix(strings.TrimPrefix(strings.ToLower(model), "cursor/"), "claude-") && (t.WireName == "exec" || t.WireName == "exec_command" || t.WireName == "shell_command") {
+			s.guardRouting = true
+		}
 	}
 	return s
 }
@@ -108,6 +119,7 @@ func (s *Session) Handle(ctx context.Context, f Frame) (events []Event, replies 
 			return
 		}
 		if end.Error != nil {
+			s.invalidArgument = end.Error.Code == "invalid_argument"
 			err = ClassifyError(end.Error.Code, end.Error.Message, nil)
 			return
 		}
@@ -392,6 +404,9 @@ func (s *Session) commit(id, args string) ([]Event, error) {
 		}
 		encoded, _ := json.Marshal(map[string]any{"input": patch})
 		args = string(encoded)
+		if len(args) > MaxArgumentBytes {
+			return nil, protocolError("cursor_arguments_too_large")
+		}
 	}
 	if t.Freeform {
 		if _, ok := obj["input"].(string); !ok {
@@ -541,6 +556,20 @@ func (s *Session) kv(b []byte) ([]byte, error) {
 
 func (s *Session) finish(cleanEnd bool) ([]Event, error) {
 	s.terminal = true
+	var events []Event
+	if s.guardPending != "" {
+		text, err := s.guardText("", true)
+		if err != nil {
+			return nil, err
+		}
+		if text != "" {
+			released, err := s.textEvents(text)
+			if err != nil {
+				return nil, err
+			}
+			events = append(events, released...)
+		}
+	}
 	if len(s.open) > 0 {
 		return nil, protocolError("cursor_incomplete_tool_call")
 	}
@@ -548,7 +577,6 @@ func (s *Session) finish(cleanEnd bool) ([]Event, error) {
 		return nil, protocolError("cursor_stream_truncated")
 	}
 	s.pendingText = ""
-	var events []Event
 	if !s.sawRealTool {
 		for _, call := range s.fallback {
 			if err := s.start(call.ID, call.Name); err != nil {
@@ -582,10 +610,10 @@ func (s *Session) EOF() ([]Event, error) {
 }
 
 func (s *Session) Snapshot(now time.Time) (*Continuation, error) {
-	if len(s.checkpoint) == 0 || len(s.open) > 0 {
+	if len(s.checkpoint) == 0 && !nativeModel(s.model) || len(s.open) > 0 {
 		return nil, inference.ErrContinuation
 	}
-	c := &Continuation{Owner: s.owner, ConversationID: s.conversationID, Checkpoint: append([]byte(nil), s.checkpoint...), Blobs: map[string][]byte{}, CallIDs: map[string]string{}, ExpiresAt: now.Add(15 * time.Minute)}
+	c := &Continuation{ReplayOnly: nativeModel(s.model), Owner: s.owner, ConversationID: s.conversationID, Checkpoint: append([]byte(nil), s.checkpoint...), Blobs: map[string][]byte{}, CallIDs: map[string]string{}, ExpiresAt: now.Add(15 * time.Minute)}
 	for k, v := range s.blobs {
 		c.Blobs[k] = append([]byte(nil), v...)
 	}
@@ -600,7 +628,7 @@ func (s *Session) Snapshot(now time.Time) (*Continuation, error) {
 	return c, nil
 }
 func (s *Session) restore(c *Continuation) error {
-	if c.Owner != s.owner || !time.Now().Before(c.ExpiresAt) || len(c.Checkpoint) == 0 || len(c.Checkpoint) > MaxStateBytes || len(c.Blobs) > 4096 || len(c.CallIDs) > MaxToolCalls || c.ConversationID == "" || len(c.ConversationID) > 256 {
+	if c.Owner != s.owner || !time.Now().Before(c.ExpiresAt) || len(c.Checkpoint) == 0 && !c.ReplayOnly || c.ReplayOnly && !nativeModel(s.model) || len(c.Checkpoint) > MaxStateBytes || len(c.Blobs) > 4096 || len(c.CallIDs) > MaxToolCalls || c.ConversationID == "" || len(c.ConversationID) > 256 {
 		return inference.ErrContinuation
 	}
 	if _, e := parse(c.Checkpoint); e != nil {

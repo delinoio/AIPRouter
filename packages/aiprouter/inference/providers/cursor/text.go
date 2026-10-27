@@ -14,6 +14,15 @@ const maxPendingText = 64 << 10
 // Tool markers are protocol material, never assistant prose. Fallback calls
 // remain deferred until terminal confirmation and lose to real tool frames.
 func (s *Session) textEvents(chunk string) ([]Event, error) {
+	s.observeEcho(chunk)
+	guarded, err := s.guardText(chunk, false)
+	if err != nil {
+		return nil, err
+	}
+	if guarded == "" {
+		return nil, nil
+	}
+	chunk = guarded
 	text := s.pendingText + chunk
 	s.pendingText = ""
 	var visible strings.Builder

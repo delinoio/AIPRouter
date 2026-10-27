@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"testing"
+	"time"
 )
 
 const nativeHistory = `{"messages":[{"role":"user","content":"check weather"},{"role":"assistant","content":"checking","reasoning_content":"need observations","tool_calls":[{"id":"call-1","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Seoul\"}"}}]},{"role":"tool","tool_call_id":"call-1","content":"sunny"}],"tools":[{"type":"function","function":{"name":"weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}]}`
@@ -112,4 +113,33 @@ func TestNativeMissingResultAndActiveTurn(t *testing.T) {
 			t.Fatal("active message replayed twice")
 		}
 	}
+}
+
+func TestNativeReplayContinuationWithoutInventedCheckpoint(t *testing.T) {
+	in := input(nativeHistory)
+	in.Target.Model = "composer-1"
+	_, session, err := Prepare(context.Background(), in, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := session.Snapshot(time.Now())
+	if err != nil || !snapshot.ReplayOnly || len(snapshot.Checkpoint) != 0 {
+		t.Fatalf("replay state %#v %v", snapshot, err)
+	}
+	request, _, err := Prepare(context.Background(), in, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame, _ := ReadFrame(bytes.NewReader(request.Body))
+	outer, _ := parse(frame.Payload)
+	run, _ := outer.sub(1)
+	state, _ := run.sub(1)
+	if state.get(8).number == 0 {
+		t.Fatal("restored native state lost typed turns")
+	}
+	bad := *snapshot
+	bad.Owner.Model = "gpt-5.4"
+	in.Target.Model = "gpt-5.4"
+	_, _, err = Prepare(context.Background(), in, &bad)
+	requireCode(t, err, "continuation_unavailable")
 }

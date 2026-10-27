@@ -120,14 +120,38 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, x infe
 				return nil, "", inference.ErrContinuation
 			}
 			history, err := readHistory(body, in.Wire)
-			if err != nil || len(history) == 0 || history[len(history)-1].Role != "tool" || nativeModel(saved.Owner.Model) {
+			if err != nil || len(history) == 0 || history[len(history)-1].Role != "tool" {
 				return nil, "", inference.ErrContinuation
 			}
 		}
 	}
+	var continuityErr error
+	if ctx.Value(recoveryConversationKey{}) == nil {
+		previous := ""
+		if saved != nil {
+			previous = saved.ConversationID
+		}
+		ctx, continuityErr = retainedConversation(ctx, in, store, previous)
+	}
+	if continuityErr != nil {
+		return nil, "", continuityErr
+	}
 	built, session, err := Prepare(ctx, in, saved)
 	if err != nil {
 		return nil, "", err
+	}
+	if retained, _ := ctx.Value(recoveryConversationKey{}).(string); saved != nil && retained != "" && retained != saved.ConversationID {
+		// Validate the authenticated history prefix above before abandoning a
+		// checkpoint whose conversation was rotated by an earlier guarded failure.
+		fresh := in
+		var body map[string]any
+		_ = json.Unmarshal(in.Body, &body)
+		delete(body, "previous_response_id")
+		fresh.Body, _ = json.Marshal(body)
+		built, session, err = Prepare(ctx, fresh, nil)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 	initial, err := ReadFrame(bytes.NewReader(built.Body))
 	if err != nil {
@@ -187,6 +211,36 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, x infe
 			}
 		}()
 		terminal, suspended, runErr := runDuplex(network, cancelNetwork, first, upstream, x, built, initial.Payload, session, emit, in)
+		if runErr != nil {
+			recoveryCtx, recoveryIn, recover, recoveryErr := a.recoveryInput(life, in, x, store, session, runErr)
+			if recoveryErr != nil {
+				runErr = recoveryErr
+			}
+			if recover {
+				response, _, err := a.Execute(recoveryCtx, recoveryIn, x, store)
+				if err == nil {
+					_, err = io.Copy(writer, response.Body)
+					closeErr := response.Body.Close()
+					if err == nil {
+						err = closeErr
+					}
+					child := recoveryCtx.Value(executionStateKey{}).(*executionState)
+					child.mu.Lock()
+					state.mu.Lock()
+					state.captured = append([]byte(nil), child.captured...)
+					state.captureErr = child.captureErr
+					state.savedID = child.savedID
+					state.mu.Unlock()
+					child.mu.Unlock()
+					writer.CloseWithError(err)
+					return
+				}
+				runErr = err
+			}
+		}
+		if rotateErr := rotateNextConversation(life, in, store, session, runErr); rotateErr != nil && runErr == nil {
+			runErr = rotateErr
+		}
 		if runErr == nil {
 			runErr = life.Err()
 		}
@@ -195,9 +249,6 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, x infe
 			_ = json.Unmarshal(in.Body, &options)
 			if options["store"] != false {
 				snapshot, snapshotErr := session.Snapshot(time.Now())
-				if suspended && nativeModel(session.model) {
-					snapshotErr = inference.ErrContinuation
-				}
 				var data []byte
 				if snapshotErr == nil {
 					data, snapshotErr = json.Marshal(savedExecution{Version: 1, Suspended: suspended, Continuation: snapshot})
@@ -351,6 +402,7 @@ func runDuplex(ctx context.Context, cancel context.CancelCauseFunc, first *time.
 	queuedBytes := len(initial)
 	active := false
 	var terminal []Event
+	var semanticErr error
 	var suspended bool
 	var grace *time.Timer
 	var graceC <-chan time.Time
@@ -381,6 +433,10 @@ func runDuplex(ctx context.Context, cancel context.CancelCauseFunc, first *time.
 		}
 	}
 	for {
+		if semanticErr != nil && !active && len(queue) == 0 {
+			s.recoverySafe = true
+			return nil, false, semanticErr
+		}
 		if terminal != nil && !active && len(queue) == 0 {
 			return terminal, suspended, nil
 		}
@@ -391,7 +447,7 @@ func runDuplex(ctx context.Context, cancel context.CancelCauseFunc, first *time.
 			next = queue[0]
 		}
 		read := frames
-		if terminal != nil {
+		if terminal != nil || semanticErr != nil {
 			read = nil
 		}
 		select {
@@ -467,6 +523,10 @@ func runDuplex(ctx context.Context, cancel context.CancelCauseFunc, first *time.
 			}
 			events, replies, err := s.Handle(ctx, f)
 			if err != nil {
+				if semanticReason(s, err) != 0 {
+					semanticErr = err
+					continue
+				}
 				return nil, false, err
 			}
 			if toolFrame {

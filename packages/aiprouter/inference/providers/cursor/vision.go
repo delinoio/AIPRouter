@@ -44,6 +44,9 @@ func (a *Adapter) Prepare(ctx context.Context, in inference.AdapterInput, x infe
 	if err != nil {
 		return nil, err
 	}
+	if len(activeImages(body, in.Wire)) > 12 {
+		return nil, &inference.Error{Status: 400, Code: "cursor_image_count_limit"}
+	}
 	if !noNativeVision(in.Target.Model) || len(activeImages(body, in.Wire)) == 0 {
 		return in.Body, nil
 	}

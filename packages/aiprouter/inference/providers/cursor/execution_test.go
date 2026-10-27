@@ -100,12 +100,15 @@ type duplexFixture struct {
 	runs          map[string]*fixtureRun
 	ackInitial    chan struct{}
 	extraContexts uint64
+	refusals      []string
 	errors        chan error
 }
 type fixtureRun struct {
-	frames     chan []byte
-	checkpoint []byte
-	sequence   uint64
+	index          int
+	conversationID string
+	frames         chan []byte
+	checkpoint     []byte
+	sequence       uint64
 }
 
 func newDuplexFixture(t *testing.T) *duplexFixture {
@@ -142,6 +145,7 @@ func (f *duplexFixture) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		run := &fixtureRun{frames: make(chan []byte, 8)}
 		f.mu.Lock()
+		run.index = len(f.runs)
 		f.runs[id] = run
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/connect+proto")
@@ -213,6 +217,15 @@ func (f *duplexFixture) serve(w http.ResponseWriter, r *http.Request) {
 		if len(state) == 0 {
 			f.fail(w, "no root state")
 			return
+		}
+		f.mu.Lock()
+		run.conversationID = request.str(5)
+		f.mu.Unlock()
+		if run.index < len(f.refusals) {
+			if !emit(Frame{Flags: 2, Payload: []byte(fmt.Sprintf("{\"error\":{\"code\":%q}}", f.refusals[run.index]))}) {
+				return
+			}
+			break
 		}
 		run.checkpoint = append(append([]byte(nil), request.get(1).data...), pb(5, pv(1, 123))...)
 		if !emit(Frame{Payload: pb(4, join(pv(1, 1), pb(2, pb(1, state.get(1).data))))}) {
