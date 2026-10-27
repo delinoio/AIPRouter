@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useState } from "react";
+import { flushSync } from "react-dom";
 import { useMutation } from "@connectrpc/connect-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { OrganizationService, type Organization } from "@aiprouter/client";
 import { AccountError, AccountSurface, useMyInvitations } from "./shared";
+import { useDirtyForm } from "../api";
 
 export function OnboardingPage({
   onOrganizationCreated,
@@ -13,6 +15,7 @@ export function OnboardingPage({
   const [name, setName] = useState("");
   const [created, setCreated] = useState<Organization>();
   const cache = useQueryClient();
+  const setDirty = useDirtyForm();
   const invitations = useMyInvitations();
   const create = useMutation(OrganizationService.method.createOrganization, {
     retry: false,
@@ -79,6 +82,9 @@ export function OnboardingPage({
             {
               onSuccess: (response) => {
                 if (!response.organization) return;
+                // Navigation can run before React commits a batched state update.
+                // Remove the unsaved-draft guard before handing off to that callback.
+                flushSync(() => setDirty(false));
                 setCreated(response.organization);
                 void cache.invalidateQueries();
                 onOrganizationCreated?.(response.organization);

@@ -23,8 +23,8 @@ import {
   OwnershipService,
   Role,
 } from "@aiprouter/client";
-import type { ReactNode } from "react";
-import { ApiProvider } from "../api";
+import { useEffect, useState, type ReactNode } from "react";
+import { ApiProvider, DirtyContext } from "../api";
 import {
   AccountPage,
   DevicePage,
@@ -505,5 +505,89 @@ describe("account lifecycle races", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     finish();
     await screen.findByRole("heading", { name: "Account deleted" });
+  });
+});
+
+describe("onboarding navigation guards", () => {
+  function DraftGuard({
+    onCreated,
+  }: {
+    onCreated: (organization: typeof org) => void;
+  }) {
+    const [dirty, setDirty] = useState(false);
+    useEffect(() => {
+      const guard = (event: Event) => {
+        if (dirty) event.preventDefault();
+      };
+      window.addEventListener("beforeunload", guard);
+      return () => window.removeEventListener("beforeunload", guard);
+    }, [dirty]);
+    return (
+      <DirtyContext value={setDirty}>
+        <div onInputCapture={() => setDirty(true)}>
+          <OnboardingPage onOrganizationCreated={onCreated} />
+        </div>
+      </DirtyContext>
+    );
+  }
+
+  function unloadIsBlocked() {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it("removes the discard guard before the success callback can navigate", async () => {
+    const user = userEvent.setup();
+    const navigation = vi.fn(() => unloadIsBlocked());
+    mount(<DraftGuard onCreated={navigation} />, (router) => {
+      router.service(OrganizationService, {
+        createOrganization: () => ({ organization: org }),
+      });
+      router.service(InvitationService, {
+        listMyInvitations: () => ({ invitations: [] }),
+      });
+    });
+    await user.type(
+      screen.getByLabelText("Organization name"),
+      "Browser QA Organization",
+    );
+    expect(unloadIsBlocked()).toBe(true);
+    await user.click(
+      screen.getByRole("button", { name: "Create organization" }),
+    );
+    await waitFor(() => expect(navigation).toHaveBeenCalledTimes(1));
+    expect(navigation.mock.results[0].value).toBe(false);
+    expect(unloadIsBlocked()).toBe(false);
+  });
+
+  it("keeps the draft and discard guard when creation fails", async () => {
+    const user = userEvent.setup();
+    const navigation = vi.fn();
+    mount(<DraftGuard onCreated={navigation} />, (router) => {
+      router.service(OrganizationService, {
+        createOrganization: () => {
+          throw new ConnectError("offline", Code.Unavailable);
+        },
+      });
+      router.service(InvitationService, {
+        listMyInvitations: () => ({ invitations: [] }),
+      });
+    });
+    await user.type(
+      screen.getByLabelText("Organization name"),
+      "Keep this draft",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Create organization" }),
+    );
+    await screen.findByText(
+      "The service is unavailable. No change has been confirmed.",
+    );
+    expect(
+      (screen.getByLabelText("Organization name") as HTMLInputElement).value,
+    ).toBe("Keep this draft");
+    expect(unloadIsBlocked()).toBe(true);
+    expect(navigation).not.toHaveBeenCalled();
   });
 });
