@@ -18,6 +18,7 @@ import (
 // An adapter is allocated per HTTP request or WebSocket. It never caches authorization.
 // WebSocket execution admits one active turn at a time; each turn replaces its lease.
 type inferenceAdapter struct {
+	jev                          *jevRequestPin
 	s                            *store.Store
 	telemetry                    *telemetry
 	mu                           sync.Mutex
@@ -63,9 +64,7 @@ func (a *inferenceAdapter) Admit(ctx context.Context, raw string) (inference.Pri
 	}
 	prices, e := currentPricingSnapshot(ctx, a.s, a.prices)
 	if e != nil {
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		_ = a.s.Release(cleanup, l)
+		a.releaseLease(l)
 		return inference.Principal{}, nil, inferenceError(e)
 	}
 	a.mu.Lock()
@@ -75,30 +74,33 @@ func (a *inferenceAdapter) Admit(ctx context.Context, raw string) (inference.Pri
 	var once sync.Once
 	release := func() {
 		once.Do(func() {
-			cleanup := func(ctx context.Context) { a.leaveMistral(ctx, l) }
-			if a.releaseCompleted != nil {
-				a.releaseCompleted(l, cleanup)
-				return
-			}
-			// Standalone adapters used by fixtures have no service shutdown owner.
-			// Try the idempotent release once; retain failed work rather than lose it.
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			err := a.s.Release(ctx, l)
-			cancel()
-			if err == nil {
-				cleanup(context.Background())
-				return
-			}
-			a.telemetry.Event(context.Background(), "admission_release_retry")
-			go func() {
-				if a.s.ReleaseUntilRecorded(context.Background(), l) == nil {
-					cleanup(context.Background())
-				}
-			}()
+			a.releaseLease(l)
 		})
 	}
 
 	return inference.Principal{OrganizationID: l.Principal.Scope.OrganizationID, UserID: l.Principal.Scope.UserID, KeyID: l.Principal.KeyID, MembershipGeneration: l.Principal.Scope.Generation}, release, nil
+}
+func (a *inferenceAdapter) releaseLease(l store.Lease) {
+	cleanup := func(ctx context.Context) { a.leaveMistral(ctx, l) }
+	if a.releaseCompleted != nil {
+		a.releaseCompleted(l, cleanup)
+		return
+	}
+	// Standalone adapters used by fixtures have no service shutdown owner.
+	// Try the idempotent release once; retain failed work rather than lose it.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err := a.s.Release(ctx, l)
+	cancel()
+	if err == nil {
+		cleanup(context.Background())
+		return
+	}
+	a.telemetry.Event(context.Background(), "admission_release_retry")
+	go func() {
+		if a.s.ReleaseUntilRecorded(context.Background(), l) == nil {
+			cleanup(context.Background())
+		}
+	}()
 }
 func (a *inferenceAdapter) current(p inference.Principal) (store.Lease, error) {
 	a.mu.Lock()
@@ -260,8 +262,12 @@ func (a *inferenceAdapter) Record(ctx context.Context, p inference.Principal, r 
 		}
 	}
 	a.telemetry.logger.InfoContext(ctx, "usage processing", "request_id", requestID(ctx), "inference_request_id", r.RequestID, "usage_id", l.ID)
+	pinErr := a.finishJEV(ctx, r)
+	if pinErr != nil {
+		a.telemetry.Event(ctx, "jev_pin_update_failed")
+	}
 	e = a.s.RecordUsage(ctx, l, u)
-	return e
+	return errors.Join(e, pinErr)
 }
 
 var _ inference.Dispatcher = (*inferenceAdapter)(nil)

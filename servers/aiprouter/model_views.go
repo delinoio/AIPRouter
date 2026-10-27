@@ -117,10 +117,13 @@ func modelEvidence(d providerData, model string, now time.Time) (routeModelView,
 				out.Efforts = m.ReasoningEfforts
 			}
 			out.Metadata = map[string]any{}
-			for key, value := range map[string]*bool{"supports_reasoning": m.SupportsReasoning, "supports_thinking_toggle": m.SupportsThinkingToggle, "supports_reasoning_effort": m.SupportsReasoningEffort, "default_thinking_enabled": m.DefaultThinkingEnabled, "supports_reasoning_summaries": m.SupportsReasoningSummaries} {
+			for key, value := range map[string]*bool{"supports_reasoning": m.SupportsReasoning, "supports_thinking_toggle": m.SupportsThinkingToggle, "supports_reasoning_effort": m.SupportsReasoningEffort, "default_thinking_enabled": m.DefaultThinkingEnabled, "supports_reasoning_summaries": m.SupportsReasoningSummaries, "supports_tools": m.SupportsTools} {
 				if value != nil {
 					out.Metadata[key] = *value
 				}
+			}
+			if m.ReasoningInterleaving != nil {
+				out.Metadata["reasoning_interleaving"] = string(*m.ReasoningInterleaving)
 			}
 			if m.SupportsReasoningEffort != nil && !*m.SupportsReasoningEffort || m.SupportsReasoning != nil && !*m.SupportsReasoning {
 				if out.Efforts != nil {
@@ -524,4 +527,78 @@ func clientVersionAtLeast(value, minimum string) bool {
 		}
 	}
 	return true
+}
+
+// clientModels shares the same current-account evidence as the HTTP model views.
+func (a *inferenceAdapter) clientModels(ctx context.Context, sc core.Scope) ([]*v1.Model, error) {
+	views, err := a.modelViews(ctx, sc)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*v1.Model, 0, len(views))
+	for _, view := range views {
+		m := &v1.Model{Id: view.ID, DisplayName: view.Name}
+		if view.Context > 0 {
+			n := uint64(view.Context)
+			m.ContextLimit = &n
+		}
+		if view.Output > 0 {
+			n := uint64(view.Output)
+			m.OutputLimit = &n
+		}
+		if view.Input > 0 {
+			n := uint64(view.Input)
+			m.MaxInputTokens = &n
+		}
+		for _, effort := range view.Efforts {
+			if n, ok := v1.ReasoningEffort_value["REASONING_EFFORT_"+strings.ToUpper(effort)]; ok && n != 0 {
+				m.ReasoningEfforts = append(m.ReasoningEfforts, v1.ReasoningEffort(n))
+			}
+		}
+		if view.Efforts != nil {
+			known := true
+			m.ReasoningEffortsKnown = &known
+		}
+
+		for _, modality := range view.Modalities {
+			switch modality {
+			case "text":
+				m.Capabilities = append(m.Capabilities, v1.ModelCapability_MODEL_CAPABILITY_TEXT)
+			case "image":
+				m.Capabilities = append(m.Capabilities, v1.ModelCapability_MODEL_CAPABILITY_IMAGE_INPUT)
+			case "audio":
+				m.Capabilities = append(m.Capabilities, v1.ModelCapability_MODEL_CAPABILITY_AUDIO_INPUT)
+			case "video":
+				m.Capabilities = append(m.Capabilities, v1.ModelCapability_MODEL_CAPABILITY_VIDEO_INPUT)
+			}
+		}
+
+		for key, dest := range map[string]**bool{"supports_reasoning": &m.SupportsReasoning, "supports_reasoning_effort": &m.SupportsReasoningEffort, "supports_thinking_toggle": &m.SupportsThinkingToggle, "default_thinking_enabled": &m.DefaultThinkingEnabled, "supports_reasoning_summaries": &m.SupportsReasoningSummaries, "supports_tools": &m.SupportsTools} {
+			if value, ok := view.Metadata[key].(bool); ok {
+				v := value
+				*dest = &v
+			}
+		}
+		if value, ok := view.Metadata["reasoning_interleaving"].(string); ok {
+			var interleaving v1.ReasoningInterleaving
+			switch value {
+			case "none":
+				interleaving = v1.ReasoningInterleaving_REASONING_INTERLEAVING_NONE
+			case "reasoning_content":
+				interleaving = v1.ReasoningInterleaving_REASONING_INTERLEAVING_REASONING_CONTENT
+			}
+			if interleaving != v1.ReasoningInterleaving_REASONING_INTERLEAVING_UNSPECIFIED {
+				m.ReasoningInterleaving = &interleaving
+			}
+		}
+
+		if effort, ok := view.Metadata["default_reasoning_effort"].(string); ok {
+			if n, ok := v1.ReasoningEffort_value["REASONING_EFFORT_"+strings.ToUpper(effort)]; ok && n != 0 {
+				v := v1.ReasoningEffort(n)
+				m.DefaultReasoningEffort = &v
+			}
+		}
+		out = append(out, m)
+	}
+	return out, nil
 }

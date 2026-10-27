@@ -19,7 +19,7 @@ func poolRoutingFixture(t *testing.T, strategy v1.PoolStrategy) (*inferenceAdapt
 	t.Helper()
 	a, sc, key := dispatchFixture(t)
 	for _, id := range []string{"a", "b", "c"} {
-		d := providerData{Metadata: &v1.ProviderConnection{Id: id, OrganizationId: sc.OrganizationID, ProviderId: "custom", BaseUrl: "https://provider.example/v1", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, State: v1.ConnectionState_CONNECTION_STATE_READY}, Secret: "secret-" + id}
+		d := providerData{Metadata: &v1.ProviderConnection{Id: id, OrganizationId: sc.OrganizationID, ProviderId: "custom", BaseUrl: "https://provider.example/v1", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, State: v1.ConnectionState_CONNECTION_STATE_READY}, Secret: "secret-" + id, CustomHeaders: map[string]string{"X-Private-Account": id}}
 		putRoutingProvider(t, a, sc, d)
 	}
 	pool := &v1.Pool{Id: "pool", Strategy: strategy, Members: []*v1.PoolMember{{ConnectionId: "a", Priority: 1}, {ConnectionId: "b", Priority: 2}, {ConnectionId: "c", Priority: 3}}}
@@ -49,6 +49,15 @@ func TestRoutingPoolStrategiesPersistAcrossInstances(t *testing.T) {
 				release()
 				if e != nil {
 					t.Fatal(e)
+				}
+				if len(r.Targets[0].Headers) != 0 {
+					t.Fatal("pool target retained account headers")
+				}
+				if c.Headers.Get("X-Private-Account") != c.AccountID {
+					t.Fatal("pool selected another account custom header")
+				}
+				if c.CredentialVersion == "" {
+					t.Fatal("selected credential lacks version fence")
 				}
 				if c.Secret != "secret-"+c.AccountID {
 					t.Fatal("rotated account kept another secret")

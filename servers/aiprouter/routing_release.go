@@ -17,17 +17,33 @@ type admissionReleaseQueue struct {
 	cancel    context.CancelFunc
 	s         *store.Store
 	telemetry *telemetry
-	wg        sync.WaitGroup
+	mu        sync.Mutex
+	pending   int
+	idle      chan struct{}
 }
 
 func newAdmissionReleaseQueue(lifetime context.Context, s *store.Store, t *telemetry) *admissionReleaseQueue {
 	ctx, cancel := context.WithCancel(lifetime)
-	return &admissionReleaseQueue{ctx: ctx, cancel: cancel, s: s, telemetry: t}
+	idle := make(chan struct{})
+	close(idle)
+	return &admissionReleaseQueue{ctx: ctx, cancel: cancel, s: s, telemetry: t, idle: idle}
 }
 func (q *admissionReleaseQueue) Submit(lease store.Lease, cleanup func(context.Context)) {
-	q.wg.Add(1)
+	q.mu.Lock()
+	if q.pending == 0 {
+		q.idle = make(chan struct{})
+	}
+	q.pending++
+	q.mu.Unlock()
 	go func() {
-		defer q.wg.Done()
+		defer func() {
+			q.mu.Lock()
+			q.pending--
+			if q.pending == 0 {
+				close(q.idle)
+			}
+			q.mu.Unlock()
+		}()
 		if e := q.s.ReleaseUntilRecorded(q.ctx, lease); e != nil {
 			q.telemetry.Event(q.ctx, "admission_release_pending_reconciliation")
 			return
@@ -38,8 +54,9 @@ func (q *admissionReleaseQueue) Submit(lease store.Lease, cleanup func(context.C
 	}()
 }
 func (q *admissionReleaseQueue) Wait(ctx context.Context) error {
-	done := make(chan struct{})
-	go func() { q.wg.Wait(); close(done) }()
+	q.mu.Lock()
+	done := q.idle
+	q.mu.Unlock()
 	select {
 	case <-done:
 		return nil

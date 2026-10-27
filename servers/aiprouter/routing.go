@@ -105,8 +105,7 @@ func resolvedProviderRoute(ctx context.Context, d providerData, model string) (p
 		return r, nil, err
 	}
 	if resolved.Wire != r.Wire {
-		c.ModelWires = map[string]providers.Wire{r.Model: resolved.Wire}
-		r, err = providers.Resolve(c, r.Model, providerInbound(ctx))
+		r, err = providers.ResolvePolicyWire(c, r.Model, providerInbound(ctx), resolved.Wire)
 		if err != nil {
 			return r, nil, err
 		}
@@ -221,8 +220,12 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 			if n > 6 {
 				n = 6
 			}
-			if n*3 > out.MaxSends {
-				out.MaxSends = n * 3
+			exchanges := n * 3
+			if provider == "github-copilot" {
+				exchanges = n * 9
+			} // Two negotiated attempts (4 each), plus one credential refresh.
+			if exchanges > out.MaxSends {
+				out.MaxSends = exchanges
 			}
 		}
 		if genericAffinityEnabled(pool, target.Auth, provider) {
@@ -237,6 +240,20 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 	}
 	if len(out.Targets) == 0 {
 		return out, inference.ErrNoCredential
+	}
+	extra, err := a.hostedExchangeAllowance(ctx, p)
+	if err != nil {
+		return out, err
+	}
+	out.MaxSends += extra
+	a.mu.Lock()
+	a.selections = selections
+	a.connections = connections
+	a.attempted = map[string]map[string]bool{}
+	a.mu.Unlock()
+	out, e = a.selectJEVRoute(ctx, p, chosen, out, selections)
+	if e != nil {
+		return out, e
 	}
 	if chosen.Strategy == v1.RoutingStrategy_ROUTING_STRATEGY_WEIGHTED || chosen.Strategy == v1.RoutingStrategy_ROUTING_STRATEGY_ROUND_ROBIN {
 		req := store.SelectionRequest{GroupID: chosen.Id, Version: routeVersion, Model: chosen.ModelId, Strategy: store.SelectionWeighted}
@@ -439,6 +456,9 @@ func (a *inferenceAdapter) Failed(ctx context.Context, p inference.Principal, t 
 	}
 	lease, e := a.current(p)
 	if e != nil {
+		return e
+	}
+	if e = a.failJEV(ctx); e != nil {
 		return e
 	}
 	if canonicalMistral(t) {

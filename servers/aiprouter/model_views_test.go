@@ -74,6 +74,21 @@ func TestModelViewsCurrentPrincipalAndExactMetadata(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	var cli struct {
+		Data []map[string]any `json:"data"`
+	}
+	if json.Unmarshal(b, &cli) != nil || len(cli.Data) != 1 {
+		t.Fatal("invalid model view")
+	}
+	if cli.Data[0]["max_input_tokens"] != nil {
+		t.Fatal("input limit invented from context window")
+	}
+	if cli.Data[0]["reasoning_efforts_known"] != true {
+		t.Fatal("declared empty effort ladder lost")
+	}
+	if _, ok := cli.Data[0]["fast_row_available"]; ok {
+		t.Fatal("fast alias advertised without authoritative route")
+	}
 	if !strings.Contains(string(b), "ocx-claude2-aiprouter--route~swith~tescape") {
 		t.Fatalf("CLI alias not reversible: %s", b)
 	}
