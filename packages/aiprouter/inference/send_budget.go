@@ -7,8 +7,10 @@ import (
 )
 
 type physicalBudgetState struct {
-	mu       sync.Mutex
-	reserved int
+	modelMu    sync.Mutex
+	modelSends int
+	mu         sync.Mutex
+	reserved   int
 }
 
 var budgetInitialization sync.Mutex

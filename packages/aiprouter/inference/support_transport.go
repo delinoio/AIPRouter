@@ -25,6 +25,7 @@ func (p DestinationPolicy) Do(ctx context.Context, req *http.Request, gate SendG
 	if req == nil || req.URL == nil || gate == nil || req.Host != "" && req.Host != req.URL.Host {
 		return nil, ErrDestination
 	}
+	ctx = context.WithValue(ctx, modelDispatchKey{}, (*modelDispatchContext)(nil))
 	ctx, stopFirstByte, cancel := supportFirstByteContext(ctx)
 	defer stopFirstByte()
 	keepContext := false

@@ -44,10 +44,11 @@ func (h *Handler) responsesSocket(ctx context.Context, p Principal, t Target, he
 	}
 	started := false
 	sendCtx, stop := context.WithTimeout(ctx, 5*time.Second)
-	e = h.c.Authorizer.(Dispatcher).Dispatch(sendCtx, p, func(c context.Context) error {
+	e = (modelDispatchAuthorizer{Authorizer: h.c.Authorizer, record: rec}).Dispatch(sendCtx, p, func(c context.Context) error {
 		if e := c.Err(); e != nil {
 			return e
 		}
+		markModelDispatch(c)
 		started = true
 		rec.Sends++
 		h.event(ctx, "upstream_send")

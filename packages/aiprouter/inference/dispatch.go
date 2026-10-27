@@ -111,6 +111,7 @@ func (c *gatedConn) Write(b []byte) (int, error) {
 			}
 			_ = c.Conn.SetWriteDeadline(deadline)
 			defer c.Conn.SetWriteDeadline(time.Time{})
+			markModelDispatch(ctx)
 			c.sent.Store(true)
 			c.start()
 			var e error

@@ -77,7 +77,12 @@ func (x *requestExecutor) do(ctx context.Context, r AdapterRequest, reserved boo
 		return nil, e
 	}
 	req.Header = r.Headers.Clone()
-	sent := gateClient(client, ctx, x.p, x.h.c.Authorizer, func() {
+	ctx = context.WithValue(ctx, modelDispatchKey{}, (*modelDispatchContext)(nil))
+	var sendAuthorizer Authorizer = x.h.c.Authorizer
+	if r.ResponseWire != "" {
+		sendAuthorizer = modelDispatchAuthorizer{Authorizer: sendAuthorizer, record: x.record}
+	}
+	sent := gateClient(client, ctx, x.p, sendAuthorizer, func() {
 		budgetFor(x.record).mu.Lock()
 		budgetFor(x.record).reserved--
 		x.record.Sends++

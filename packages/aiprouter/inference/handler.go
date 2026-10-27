@@ -810,7 +810,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 						transport.ResponseHeaderTimeout = *t.StallTimeout
 					}
 				}
-				sent := gateClient(client, sendCtx, p, modelBudgetAuthorizer{Authorizer: h.c.Authorizer, record: rec, max: route.MaxSends}, func() { rec.Sends++; h.event(ctx, "upstream_send") })
+				sent := gateClient(client, sendCtx, p, modelDispatchAuthorizer{Authorizer: modelBudgetAuthorizer{Authorizer: h.c.Authorizer, record: rec, max: route.MaxSends}, record: rec}, func() { rec.Sends++; h.event(ctx, "upstream_send") })
 				resp, e = client.Do(req)
 				if e != nil {
 					if observed := h.observeTransportFailure(sendCtx, p, t, cred, e, sent.Load()); observed != nil {
