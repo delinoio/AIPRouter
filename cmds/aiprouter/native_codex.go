@@ -106,7 +106,7 @@ func PlanCodexNative(resolver Resolver, state State, profile Profile, key string
 		if originalPath == catalogPath || originalPath == path || originalPath == cachePath {
 			return nil, errors.New("Codex catalog selection conflicts with managed destinations")
 		}
-		data, exists, err := readConfig(originalPath)
+		data, exists, err := readNativeCatalog(originalPath)
 		if err != nil {
 			return nil, err
 		}
@@ -117,7 +117,16 @@ func PlanCodexNative(resolver Resolver, state State, profile Profile, key string
 		if err != nil {
 			return nil, err
 		}
-		dependencyCheck = compareFile(originalPath, data, true)
+		dependencyCheck = func() error {
+			current, exists, err := readNativeCatalog(originalPath)
+			if err != nil {
+				return err
+			}
+			if !exists || !bytes.Equal(current, data) {
+				return ErrConflict
+			}
+			return nil
+		}
 	} else if len(bytes.TrimSpace(sources[2])) != 0 {
 		native, err = codexCatalogRows(sources[2])
 		if err != nil {
@@ -165,8 +174,8 @@ func PlanCodexNative(resolver Resolver, state State, profile Profile, key string
 	changes[0].RemoteKey = true
 	changes[0].Fields = []string{"model_catalog_json", "model_providers.openai"}
 	for i := range changes {
-		if len(changes[i].After) > MaxConfigBytes {
-			return nil, errors.New("Codex catalog or settings exceed 4 MiB")
+		if len(changes[i].After) > configSizeLimit(changes[i].Path) {
+			return nil, errors.New("Codex catalog or settings exceed the destination size limit")
 		}
 		changes[i].Check = func() error {
 			current, err := resolver.Resolve("codex")
@@ -246,7 +255,7 @@ func codexModelRow(model ClientModel) (object, error) {
 		// The authenticated service owns exact provider/account capabilities.
 		// Copy the row without synthesizing effort, tier, or native entitlement.
 		data, err := json.Marshal(model.CodexCatalog)
-		if err != nil || len(data) > MaxConfigBytes {
+		if err != nil || len(data) > MaxNativeCatalogBytes {
 			return nil, errors.New("invalid service Codex catalog row")
 		}
 		var row object

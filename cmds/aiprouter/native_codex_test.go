@@ -357,3 +357,57 @@ func TestCodexNativeRefreshPreservesConcurrentUnrelatedEdits(t *testing.T) {
 		t.Fatal("foreign cache edit lost")
 	}
 }
+
+func TestCodexNativeLargeCatalogLimits(t *testing.T) {
+	instructions := strings.Repeat("x", MaxConfigBytes+1)
+	t.Run("service row", func(t *testing.T) {
+		r, _, s := codexFixture(t, "", "")
+		model := ClientModel{ID: "large-model", CodexCatalog: object{"slug": "large-model", "base_instructions": instructions}}
+		changes, err := PlanCodexNative(r, s, testProfile(), "KEY", []ClientModel{model})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, change := range changes[1:] {
+			if len(change.After) <= MaxConfigBytes || len(change.After) > configSizeLimit(change.Path) {
+				t.Fatal("large catalog did not use native limit")
+			}
+		}
+		if len(changes[0].After) > MaxConfigBytes {
+			t.Fatal("settings exceeded ordinary bound")
+		}
+	})
+	t.Run("arbitrary selected path", func(t *testing.T) {
+		r, _, s := codexFixture(t, "model_catalog_json = 'custom-native.data'\n", "")
+		config, _ := r.Resolve("codex")
+		path := filepath.Join(filepath.Dir(config), "custom-native.data")
+		data, err := json.Marshal(object{"models": []any{object{"slug": "native", "base_instructions": instructions}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err = readConfig(path); err == nil {
+			t.Fatal("ordinary reader accepted oversized arbitrary settings")
+		}
+		changes, err := PlanCodexNative(r, s, testProfile(), "KEY", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = changes[0].Check(); err != nil {
+			t.Fatalf("large selected catalog could not be revalidated: %v", err)
+		}
+		if err = os.WriteFile(path, []byte(`{"models":[]}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err = changes[0].Check(); !errors.Is(err, ErrConflict) {
+			t.Fatal("selected catalog race accepted")
+		}
+	})
+	t.Run("ordinary settings", func(t *testing.T) {
+		r, _, s := codexFixture(t, "", "")
+		if _, err := PlanCodexNative(r, s, testProfile(), instructions, nil); err == nil {
+			t.Fatal("oversized ordinary settings accepted")
+		}
+	})
+}
