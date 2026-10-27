@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17.6-bookworm
+        image: postgres:14.19-bookworm
         env:
           POSTGRES_DB: aiprouter_test
           POSTGRES_USER: aiprouter
