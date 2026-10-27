@@ -664,6 +664,7 @@ const (
 	ReasoningEffort_REASONING_EFFORT_HIGH        ReasoningEffort = 5
 	ReasoningEffort_REASONING_EFFORT_XHIGH       ReasoningEffort = 6
 	ReasoningEffort_REASONING_EFFORT_MAX         ReasoningEffort = 7
+	ReasoningEffort_REASONING_EFFORT_ULTRA       ReasoningEffort = 8
 )
 
 // Enum value maps for ReasoningEffort.
@@ -677,6 +678,7 @@ var (
 		5: "REASONING_EFFORT_HIGH",
 		6: "REASONING_EFFORT_XHIGH",
 		7: "REASONING_EFFORT_MAX",
+		8: "REASONING_EFFORT_ULTRA",
 	}
 	ReasoningEffort_value = map[string]int32{
 		"REASONING_EFFORT_UNSPECIFIED": 0,
@@ -687,6 +689,7 @@ var (
 		"REASONING_EFFORT_HIGH":        5,
 		"REASONING_EFFORT_XHIGH":       6,
 		"REASONING_EFFORT_MAX":         7,
+		"REASONING_EFFORT_ULTRA":       8,
 	}
 )
 
@@ -1260,6 +1263,56 @@ func (HealthState) EnumDescriptor() ([]byte, []int) {
 	return file_aiprouter_v1_common_proto_rawDescGZIP(), []int{19}
 }
 
+// Explicit NONE suppresses interleaving; absence/UNSPECIFIED is unknown.
+type ReasoningInterleaving int32
+
+const (
+	ReasoningInterleaving_REASONING_INTERLEAVING_UNSPECIFIED       ReasoningInterleaving = 0
+	ReasoningInterleaving_REASONING_INTERLEAVING_NONE              ReasoningInterleaving = 1
+	ReasoningInterleaving_REASONING_INTERLEAVING_REASONING_CONTENT ReasoningInterleaving = 2
+)
+
+// Enum value maps for ReasoningInterleaving.
+var (
+	ReasoningInterleaving_name = map[int32]string{
+		0: "REASONING_INTERLEAVING_UNSPECIFIED",
+		1: "REASONING_INTERLEAVING_NONE",
+		2: "REASONING_INTERLEAVING_REASONING_CONTENT",
+	}
+	ReasoningInterleaving_value = map[string]int32{
+		"REASONING_INTERLEAVING_UNSPECIFIED":       0,
+		"REASONING_INTERLEAVING_NONE":              1,
+		"REASONING_INTERLEAVING_REASONING_CONTENT": 2,
+	}
+)
+
+func (x ReasoningInterleaving) Enum() *ReasoningInterleaving {
+	p := new(ReasoningInterleaving)
+	*p = x
+	return p
+}
+
+func (x ReasoningInterleaving) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ReasoningInterleaving) Descriptor() protoreflect.EnumDescriptor {
+	return file_aiprouter_v1_common_proto_enumTypes[20].Descriptor()
+}
+
+func (ReasoningInterleaving) Type() protoreflect.EnumType {
+	return &file_aiprouter_v1_common_proto_enumTypes[20]
+}
+
+func (x ReasoningInterleaving) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ReasoningInterleaving.Descriptor instead.
+func (ReasoningInterleaving) EnumDescriptor() ([]byte, []int) {
+	return file_aiprouter_v1_common_proto_rawDescGZIP(), []int{20}
+}
+
 // UNSPECIFIED means the recorded outcome is unknown, never implicit success.
 type AuditOutcome int32
 
@@ -1297,11 +1350,11 @@ func (x AuditOutcome) String() string {
 }
 
 func (AuditOutcome) Descriptor() protoreflect.EnumDescriptor {
-	return file_aiprouter_v1_common_proto_enumTypes[20].Descriptor()
+	return file_aiprouter_v1_common_proto_enumTypes[21].Descriptor()
 }
 
 func (AuditOutcome) Type() protoreflect.EnumType {
-	return &file_aiprouter_v1_common_proto_enumTypes[20]
+	return &file_aiprouter_v1_common_proto_enumTypes[21]
 }
 
 func (x AuditOutcome) Number() protoreflect.EnumNumber {
@@ -1310,7 +1363,7 @@ func (x AuditOutcome) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AuditOutcome.Descriptor instead.
 func (AuditOutcome) EnumDescriptor() ([]byte, []int) {
-	return file_aiprouter_v1_common_proto_rawDescGZIP(), []int{20}
+	return file_aiprouter_v1_common_proto_rawDescGZIP(), []int{21}
 }
 
 // Mirrors the personal provider library authentication methods.
@@ -1356,11 +1409,11 @@ func (x ProviderOAuthMethod) String() string {
 }
 
 func (ProviderOAuthMethod) Descriptor() protoreflect.EnumDescriptor {
-	return file_aiprouter_v1_common_proto_enumTypes[21].Descriptor()
+	return file_aiprouter_v1_common_proto_enumTypes[22].Descriptor()
 }
 
 func (ProviderOAuthMethod) Type() protoreflect.EnumType {
-	return &file_aiprouter_v1_common_proto_enumTypes[21]
+	return &file_aiprouter_v1_common_proto_enumTypes[22]
 }
 
 func (x ProviderOAuthMethod) Number() protoreflect.EnumNumber {
@@ -1369,7 +1422,7 @@ func (x ProviderOAuthMethod) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ProviderOAuthMethod.Descriptor instead.
 func (ProviderOAuthMethod) EnumDescriptor() ([]byte, []int) {
-	return file_aiprouter_v1_common_proto_rawDescGZIP(), []int{21}
+	return file_aiprouter_v1_common_proto_rawDescGZIP(), []int{22}
 }
 
 type PageRequest struct {
@@ -1642,8 +1695,28 @@ type Model struct {
 	ContextLimit     *uint64                `protobuf:"varint,5,opt,name=context_limit,json=contextLimit,proto3,oneof" json:"context_limit,omitempty"`
 	OutputLimit      *uint64                `protobuf:"varint,6,opt,name=output_limit,json=outputLimit,proto3,oneof" json:"output_limit,omitempty"`
 	ReasoningEfforts []ReasoningEffort      `protobuf:"varint,7,rep,packed,name=reasoning_efforts,json=reasoningEfforts,proto3,enum=aiprouter.v1.ReasoningEffort" json:"reasoning_efforts,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Authoritative routed Fast availability. Only true authorizes exporting a Fast row;
+	// never infer an alias from model names, native status, or a missing value.
+	FastRowAvailable *bool `protobuf:"varint,8,opt,name=fast_row_available,json=fastRowAvailable,proto3,oneof" json:"fast_row_available,omitempty"`
+	// Only a source-declared default within the effective ladder; never synthesize one.
+	DefaultReasoningEffort     *ReasoningEffort `protobuf:"varint,9,opt,name=default_reasoning_effort,json=defaultReasoningEffort,proto3,enum=aiprouter.v1.ReasoningEffort,oneof" json:"default_reasoning_effort,omitempty"`
+	SupportsReasoningEffort    *bool            `protobuf:"varint,10,opt,name=supports_reasoning_effort,json=supportsReasoningEffort,proto3,oneof" json:"supports_reasoning_effort,omitempty"`
+	SupportsThinkingToggle     *bool            `protobuf:"varint,11,opt,name=supports_thinking_toggle,json=supportsThinkingToggle,proto3,oneof" json:"supports_thinking_toggle,omitempty"`
+	DefaultThinkingEnabled     *bool            `protobuf:"varint,12,opt,name=default_thinking_enabled,json=defaultThinkingEnabled,proto3,oneof" json:"default_thinking_enabled,omitempty"`
+	SupportsReasoningSummaries *bool            `protobuf:"varint,13,opt,name=supports_reasoning_summaries,json=supportsReasoningSummaries,proto3,oneof" json:"supports_reasoning_summaries,omitempty"`
+	// REASONING_CONTENT maps to the fixed reasoning_content client field.
+	ReasoningInterleaving *ReasoningInterleaving `protobuf:"varint,14,opt,name=reasoning_interleaving,json=reasoningInterleaving,proto3,enum=aiprouter.v1.ReasoningInterleaving,oneof" json:"reasoning_interleaving,omitempty"`
+	// Authoritative input ceiling, distinct from context_limit. Never infer from it.
+	MaxInputTokens *uint64 `protobuf:"varint,15,opt,name=max_input_tokens,json=maxInputTokens,proto3,oneof" json:"max_input_tokens,omitempty"`
+	// Explicit negative evidence must survive alongside legacy positive capabilities.
+	SupportsReasoning *bool `protobuf:"varint,16,opt,name=supports_reasoning,json=supportsReasoning,proto3,oneof" json:"supports_reasoning,omitempty"`
+	SupportsTools     *bool `protobuf:"varint,17,opt,name=supports_tools,json=supportsTools,proto3,oneof" json:"supports_tools,omitempty"`
+	// True with an empty reasoning_efforts list means a declared empty ladder.
+	// Absent/false with an empty list means unknown. A nonempty legacy list is known.
+	// Producers must not combine false with a nonempty list.
+	ReasoningEffortsKnown *bool `protobuf:"varint,18,opt,name=reasoning_efforts_known,json=reasoningEffortsKnown,proto3,oneof" json:"reasoning_efforts_known,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *Model) Reset() {
@@ -1723,6 +1796,83 @@ func (x *Model) GetReasoningEfforts() []ReasoningEffort {
 		return x.ReasoningEfforts
 	}
 	return nil
+}
+
+func (x *Model) GetFastRowAvailable() bool {
+	if x != nil && x.FastRowAvailable != nil {
+		return *x.FastRowAvailable
+	}
+	return false
+}
+
+func (x *Model) GetDefaultReasoningEffort() ReasoningEffort {
+	if x != nil && x.DefaultReasoningEffort != nil {
+		return *x.DefaultReasoningEffort
+	}
+	return ReasoningEffort_REASONING_EFFORT_UNSPECIFIED
+}
+
+func (x *Model) GetSupportsReasoningEffort() bool {
+	if x != nil && x.SupportsReasoningEffort != nil {
+		return *x.SupportsReasoningEffort
+	}
+	return false
+}
+
+func (x *Model) GetSupportsThinkingToggle() bool {
+	if x != nil && x.SupportsThinkingToggle != nil {
+		return *x.SupportsThinkingToggle
+	}
+	return false
+}
+
+func (x *Model) GetDefaultThinkingEnabled() bool {
+	if x != nil && x.DefaultThinkingEnabled != nil {
+		return *x.DefaultThinkingEnabled
+	}
+	return false
+}
+
+func (x *Model) GetSupportsReasoningSummaries() bool {
+	if x != nil && x.SupportsReasoningSummaries != nil {
+		return *x.SupportsReasoningSummaries
+	}
+	return false
+}
+
+func (x *Model) GetReasoningInterleaving() ReasoningInterleaving {
+	if x != nil && x.ReasoningInterleaving != nil {
+		return *x.ReasoningInterleaving
+	}
+	return ReasoningInterleaving_REASONING_INTERLEAVING_UNSPECIFIED
+}
+
+func (x *Model) GetMaxInputTokens() uint64 {
+	if x != nil && x.MaxInputTokens != nil {
+		return *x.MaxInputTokens
+	}
+	return 0
+}
+
+func (x *Model) GetSupportsReasoning() bool {
+	if x != nil && x.SupportsReasoning != nil {
+		return *x.SupportsReasoning
+	}
+	return false
+}
+
+func (x *Model) GetSupportsTools() bool {
+	if x != nil && x.SupportsTools != nil {
+		return *x.SupportsTools
+	}
+	return false
+}
+
+func (x *Model) GetReasoningEffortsKnown() bool {
+	if x != nil && x.ReasoningEffortsKnown != nil {
+		return *x.ReasoningEffortsKnown
+	}
+	return false
 }
 
 type InferenceKey struct {
@@ -1872,7 +2022,8 @@ const file_aiprouter_v1_common_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tR\trequestId\x123\n" +
 	"\x13retry_after_seconds\x18\x03 \x01(\rH\x00R\x11retryAfterSeconds\x88\x01\x01B\x16\n" +
-	"\x14_retry_after_seconds\"\xf5\x02\n" +
+	"\x14_retry_after_seconds\"\xdc\n" +
+	"\n" +
 	"\x05Model\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12A\n" +
@@ -1881,9 +2032,33 @@ const file_aiprouter_v1_common_proto_rawDesc = "" +
 	"api_shapes\x18\x04 \x03(\x0e2\x16.aiprouter.v1.ApiShapeR\tapiShapes\x12(\n" +
 	"\rcontext_limit\x18\x05 \x01(\x04H\x00R\fcontextLimit\x88\x01\x01\x12&\n" +
 	"\foutput_limit\x18\x06 \x01(\x04H\x01R\voutputLimit\x88\x01\x01\x12J\n" +
-	"\x11reasoning_efforts\x18\a \x03(\x0e2\x1d.aiprouter.v1.ReasoningEffortR\x10reasoningEffortsB\x10\n" +
+	"\x11reasoning_efforts\x18\a \x03(\x0e2\x1d.aiprouter.v1.ReasoningEffortR\x10reasoningEfforts\x121\n" +
+	"\x12fast_row_available\x18\b \x01(\bH\x02R\x10fastRowAvailable\x88\x01\x01\x12\\\n" +
+	"\x18default_reasoning_effort\x18\t \x01(\x0e2\x1d.aiprouter.v1.ReasoningEffortH\x03R\x16defaultReasoningEffort\x88\x01\x01\x12?\n" +
+	"\x19supports_reasoning_effort\x18\n" +
+	" \x01(\bH\x04R\x17supportsReasoningEffort\x88\x01\x01\x12=\n" +
+	"\x18supports_thinking_toggle\x18\v \x01(\bH\x05R\x16supportsThinkingToggle\x88\x01\x01\x12=\n" +
+	"\x18default_thinking_enabled\x18\f \x01(\bH\x06R\x16defaultThinkingEnabled\x88\x01\x01\x12E\n" +
+	"\x1csupports_reasoning_summaries\x18\r \x01(\bH\aR\x1asupportsReasoningSummaries\x88\x01\x01\x12_\n" +
+	"\x16reasoning_interleaving\x18\x0e \x01(\x0e2#.aiprouter.v1.ReasoningInterleavingH\bR\x15reasoningInterleaving\x88\x01\x01\x12-\n" +
+	"\x10max_input_tokens\x18\x0f \x01(\x04H\tR\x0emaxInputTokens\x88\x01\x01\x122\n" +
+	"\x12supports_reasoning\x18\x10 \x01(\bH\n" +
+	"R\x11supportsReasoning\x88\x01\x01\x12*\n" +
+	"\x0esupports_tools\x18\x11 \x01(\bH\vR\rsupportsTools\x88\x01\x01\x12;\n" +
+	"\x17reasoning_efforts_known\x18\x12 \x01(\bH\fR\x15reasoningEffortsKnown\x88\x01\x01B\x10\n" +
 	"\x0e_context_limitB\x0f\n" +
-	"\r_output_limit\"\x80\x03\n" +
+	"\r_output_limitB\x15\n" +
+	"\x13_fast_row_availableB\x1b\n" +
+	"\x19_default_reasoning_effortB\x1c\n" +
+	"\x1a_supports_reasoning_effortB\x1b\n" +
+	"\x19_supports_thinking_toggleB\x1b\n" +
+	"\x19_default_thinking_enabledB\x1f\n" +
+	"\x1d_supports_reasoning_summariesB\x19\n" +
+	"\x17_reasoning_interleavingB\x13\n" +
+	"\x11_max_input_tokensB\x15\n" +
+	"\x13_supports_reasoningB\x11\n" +
+	"\x0f_supports_toolsB\x1a\n" +
+	"\x18_reasoning_efforts_known\"\x80\x03\n" +
 	"\fInferenceKey\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x12\n" +
@@ -1986,7 +2161,7 @@ const file_aiprouter_v1_common_proto_rawDesc = "" +
 	"\x1aMODEL_CAPABILITY_STREAMING\x10\b\x12\x1e\n" +
 	"\x1aMODEL_CAPABILITY_REASONING\x10\t\x12\x1b\n" +
 	"\x17MODEL_CAPABILITY_SEARCH\x10\n" +
-	"*\xf4\x01\n" +
+	"*\x90\x02\n" +
 	"\x0fReasoningEffort\x12 \n" +
 	"\x1cREASONING_EFFORT_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15REASONING_EFFORT_NONE\x10\x01\x12\x1c\n" +
@@ -1995,7 +2170,8 @@ const file_aiprouter_v1_common_proto_rawDesc = "" +
 	"\x17REASONING_EFFORT_MEDIUM\x10\x04\x12\x19\n" +
 	"\x15REASONING_EFFORT_HIGH\x10\x05\x12\x1a\n" +
 	"\x16REASONING_EFFORT_XHIGH\x10\x06\x12\x18\n" +
-	"\x14REASONING_EFFORT_MAX\x10\a*\x94\x01\n" +
+	"\x14REASONING_EFFORT_MAX\x10\a\x12\x1a\n" +
+	"\x16REASONING_EFFORT_ULTRA\x10\b*\x94\x01\n" +
 	"\x10ProviderAuthKind\x12\"\n" +
 	"\x1ePROVIDER_AUTH_KIND_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aPROVIDER_AUTH_KIND_API_KEY\x10\x01\x12\x1c\n" +
@@ -2067,7 +2243,11 @@ const file_aiprouter_v1_common_proto_rawDesc = "" +
 	"\x18HEALTH_STATE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14HEALTH_STATE_HEALTHY\x10\x01\x12\x19\n" +
 	"\x15HEALTH_STATE_DEGRADED\x10\x02\x12\x1c\n" +
-	"\x18HEALTH_STATE_UNAVAILABLE\x10\x03*~\n" +
+	"\x18HEALTH_STATE_UNAVAILABLE\x10\x03*\x8e\x01\n" +
+	"\x15ReasoningInterleaving\x12&\n" +
+	"\"REASONING_INTERLEAVING_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bREASONING_INTERLEAVING_NONE\x10\x01\x12,\n" +
+	"(REASONING_INTERLEAVING_REASONING_CONTENT\x10\x02*~\n" +
 	"\fAuditOutcome\x12\x1d\n" +
 	"\x19AUDIT_OUTCOME_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17AUDIT_OUTCOME_SUCCEEDED\x10\x01\x12\x18\n" +
@@ -2095,7 +2275,7 @@ func file_aiprouter_v1_common_proto_rawDescGZIP() []byte {
 	return file_aiprouter_v1_common_proto_rawDescData
 }
 
-var file_aiprouter_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 22)
+var file_aiprouter_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 23)
 var file_aiprouter_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_aiprouter_v1_common_proto_goTypes = []any{
 	(AuthScope)(0),                     // 0: aiprouter.v1.AuthScope
@@ -2118,37 +2298,40 @@ var file_aiprouter_v1_common_proto_goTypes = []any{
 	(PriceSource)(0),                   // 17: aiprouter.v1.PriceSource
 	(AuditAction)(0),                   // 18: aiprouter.v1.AuditAction
 	(HealthState)(0),                   // 19: aiprouter.v1.HealthState
-	(AuditOutcome)(0),                  // 20: aiprouter.v1.AuditOutcome
-	(ProviderOAuthMethod)(0),           // 21: aiprouter.v1.ProviderOAuthMethod
-	(*PageRequest)(nil),                // 22: aiprouter.v1.PageRequest
-	(*PageResponse)(nil),               // 23: aiprouter.v1.PageResponse
-	(*TimeRange)(nil),                  // 24: aiprouter.v1.TimeRange
-	(*Money)(nil),                      // 25: aiprouter.v1.Money
-	(*ErrorDetail)(nil),                // 26: aiprouter.v1.ErrorDetail
-	(*Model)(nil),                      // 27: aiprouter.v1.Model
-	(*InferenceKey)(nil),               // 28: aiprouter.v1.InferenceKey
-	(*timestamppb.Timestamp)(nil),      // 29: google.protobuf.Timestamp
-	(*descriptorpb.MethodOptions)(nil), // 30: google.protobuf.MethodOptions
+	(ReasoningInterleaving)(0),         // 20: aiprouter.v1.ReasoningInterleaving
+	(AuditOutcome)(0),                  // 21: aiprouter.v1.AuditOutcome
+	(ProviderOAuthMethod)(0),           // 22: aiprouter.v1.ProviderOAuthMethod
+	(*PageRequest)(nil),                // 23: aiprouter.v1.PageRequest
+	(*PageResponse)(nil),               // 24: aiprouter.v1.PageResponse
+	(*TimeRange)(nil),                  // 25: aiprouter.v1.TimeRange
+	(*Money)(nil),                      // 26: aiprouter.v1.Money
+	(*ErrorDetail)(nil),                // 27: aiprouter.v1.ErrorDetail
+	(*Model)(nil),                      // 28: aiprouter.v1.Model
+	(*InferenceKey)(nil),               // 29: aiprouter.v1.InferenceKey
+	(*timestamppb.Timestamp)(nil),      // 30: google.protobuf.Timestamp
+	(*descriptorpb.MethodOptions)(nil), // 31: google.protobuf.MethodOptions
 }
 var file_aiprouter_v1_common_proto_depIdxs = []int32{
-	29, // 0: aiprouter.v1.TimeRange.start:type_name -> google.protobuf.Timestamp
-	29, // 1: aiprouter.v1.TimeRange.end:type_name -> google.protobuf.Timestamp
+	30, // 0: aiprouter.v1.TimeRange.start:type_name -> google.protobuf.Timestamp
+	30, // 1: aiprouter.v1.TimeRange.end:type_name -> google.protobuf.Timestamp
 	2,  // 2: aiprouter.v1.ErrorDetail.reason:type_name -> aiprouter.v1.ErrorReason
 	9,  // 3: aiprouter.v1.Model.capabilities:type_name -> aiprouter.v1.ModelCapability
 	8,  // 4: aiprouter.v1.Model.api_shapes:type_name -> aiprouter.v1.ApiShape
 	10, // 5: aiprouter.v1.Model.reasoning_efforts:type_name -> aiprouter.v1.ReasoningEffort
-	3,  // 6: aiprouter.v1.InferenceKey.kind:type_name -> aiprouter.v1.KeyKind
-	4,  // 7: aiprouter.v1.InferenceKey.state:type_name -> aiprouter.v1.KeyState
-	29, // 8: aiprouter.v1.InferenceKey.created_at:type_name -> google.protobuf.Timestamp
-	29, // 9: aiprouter.v1.InferenceKey.expires_at:type_name -> google.protobuf.Timestamp
-	29, // 10: aiprouter.v1.InferenceKey.last_used_at:type_name -> google.protobuf.Timestamp
-	30, // 11: aiprouter.v1.auth_scope:extendee -> google.protobuf.MethodOptions
-	0,  // 12: aiprouter.v1.auth_scope:type_name -> aiprouter.v1.AuthScope
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	12, // [12:13] is the sub-list for extension type_name
-	11, // [11:12] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	10, // 6: aiprouter.v1.Model.default_reasoning_effort:type_name -> aiprouter.v1.ReasoningEffort
+	20, // 7: aiprouter.v1.Model.reasoning_interleaving:type_name -> aiprouter.v1.ReasoningInterleaving
+	3,  // 8: aiprouter.v1.InferenceKey.kind:type_name -> aiprouter.v1.KeyKind
+	4,  // 9: aiprouter.v1.InferenceKey.state:type_name -> aiprouter.v1.KeyState
+	30, // 10: aiprouter.v1.InferenceKey.created_at:type_name -> google.protobuf.Timestamp
+	30, // 11: aiprouter.v1.InferenceKey.expires_at:type_name -> google.protobuf.Timestamp
+	30, // 12: aiprouter.v1.InferenceKey.last_used_at:type_name -> google.protobuf.Timestamp
+	31, // 13: aiprouter.v1.auth_scope:extendee -> google.protobuf.MethodOptions
+	0,  // 14: aiprouter.v1.auth_scope:type_name -> aiprouter.v1.AuthScope
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	14, // [14:15] is the sub-list for extension type_name
+	13, // [13:14] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_aiprouter_v1_common_proto_init() }
@@ -2163,7 +2346,7 @@ func file_aiprouter_v1_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aiprouter_v1_common_proto_rawDesc), len(file_aiprouter_v1_common_proto_rawDesc)),
-			NumEnums:      22,
+			NumEnums:      23,
 			NumMessages:   7,
 			NumExtensions: 1,
 			NumServices:   0,

@@ -328,3 +328,45 @@ func TestJevDecisionPresenceAndTargetHints(t *testing.T) {
 		t.Fatal("JEV custom wire changed")
 	}
 }
+
+func TestModelExportMetadataPresence(t *testing.T) {
+	descriptor := (&v1.Model{}).ProtoReflect().Descriptor()
+	for number := protoreflect.FieldNumber(8); number <= 18; number++ {
+		field := descriptor.Fields().ByNumber(number)
+		if field == nil || !field.HasPresence() {
+			t.Fatalf("export metadata lacks presence: %d", number)
+		}
+	}
+	values := []*v1.Model{
+		{Id: "unknown"},
+		{Id: "explicit-negative", FastRowAvailable: proto.Bool(false), SupportsReasoningEffort: proto.Bool(false), SupportsThinkingToggle: proto.Bool(false), DefaultThinkingEnabled: proto.Bool(false), SupportsReasoningSummaries: proto.Bool(false), ReasoningInterleaving: v1.ReasoningInterleaving_REASONING_INTERLEAVING_NONE.Enum(), SupportsReasoning: proto.Bool(false), SupportsTools: proto.Bool(false), ReasoningEffortsKnown: proto.Bool(true)},
+		{Id: "declared", FastRowAvailable: proto.Bool(true), DefaultReasoningEffort: v1.ReasoningEffort_REASONING_EFFORT_ULTRA.Enum(), ReasoningEfforts: []v1.ReasoningEffort{v1.ReasoningEffort_REASONING_EFFORT_ULTRA}, ReasoningEffortsKnown: proto.Bool(true), MaxInputTokens: proto.Uint64(922000), ContextLimit: proto.Uint64(1050000), ReasoningInterleaving: v1.ReasoningInterleaving_REASONING_INTERLEAVING_REASONING_CONTENT.Enum()},
+	}
+	for _, value := range values {
+		wire, err := proto.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := &v1.Model{}
+		if err = proto.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(value, decoded) {
+			t.Fatal("binary metadata presence lost")
+		}
+		json, err := protojson.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded = &v1.Model{}
+		if err = protojson.Unmarshal(json, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(value, decoded) {
+			t.Fatal("JSON metadata presence lost")
+		}
+	}
+	if values[0].FastRowAvailable != nil || values[0].ReasoningEffortsKnown != nil || values[0].MaxInputTokens != nil {
+		t.Fatal("unknown metadata must remain absent")
+	}
+}

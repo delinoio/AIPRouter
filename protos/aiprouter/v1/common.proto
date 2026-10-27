@@ -126,6 +126,7 @@ enum ReasoningEffort {
   REASONING_EFFORT_HIGH = 5;
   REASONING_EFFORT_XHIGH = 6;
   REASONING_EFFORT_MAX = 7;
+  REASONING_EFFORT_ULTRA = 8;
 }
 
 enum ProviderAuthKind {
@@ -238,6 +239,14 @@ message ErrorDetail {
   string request_id = 2;
   optional uint32 retry_after_seconds = 3;
 }
+
+// Explicit NONE suppresses interleaving; absence/UNSPECIFIED is unknown.
+enum ReasoningInterleaving {
+  REASONING_INTERLEAVING_UNSPECIFIED = 0;
+  REASONING_INTERLEAVING_NONE = 1;
+  REASONING_INTERLEAVING_REASONING_CONTENT = 2;
+}
+
 message Model {
   string id = 1;
   string display_name = 2;
@@ -246,6 +255,26 @@ message Model {
   optional uint64 context_limit = 5;
   optional uint64 output_limit = 6;
   repeated ReasoningEffort reasoning_efforts = 7;
+  // Authoritative routed Fast availability. Only true authorizes exporting a Fast row;
+  // never infer an alias from model names, native status, or a missing value.
+  optional bool fast_row_available = 8;
+  // Only a source-declared default within the effective ladder; never synthesize one.
+  optional ReasoningEffort default_reasoning_effort = 9;
+  optional bool supports_reasoning_effort = 10;
+  optional bool supports_thinking_toggle = 11;
+  optional bool default_thinking_enabled = 12;
+  optional bool supports_reasoning_summaries = 13;
+  // REASONING_CONTENT maps to the fixed reasoning_content client field.
+  optional ReasoningInterleaving reasoning_interleaving = 14;
+  // Authoritative input ceiling, distinct from context_limit. Never infer from it.
+  optional uint64 max_input_tokens = 15;
+  // Explicit negative evidence must survive alongside legacy positive capabilities.
+  optional bool supports_reasoning = 16;
+  optional bool supports_tools = 17;
+  // True with an empty reasoning_efforts list means a declared empty ladder.
+  // Absent/false with an empty list means unknown. A nonempty legacy list is known.
+  // Producers must not combine false with a nonempty list.
+  optional bool reasoning_efforts_known = 18;
 }
 message InferenceKey {
   string id = 1;

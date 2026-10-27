@@ -327,3 +327,45 @@ test("JEV configuration preserves absence, defaults, and target hints", async ()
   assert.equal(decoded.jevDecision?.sessionPinTtlSeconds, 0);
   assert.equal(ProviderWire.JEV_DECISION, 5);
 });
+
+test("model export metadata distinguishes unknown, negative evidence, and empty ladders", async () => {
+  const { ModelSchema, ReasoningEffort, ReasoningInterleaving } =
+    await import("../src/index.js");
+  const absent = create(ModelSchema, { id: "unknown" });
+  const negative = create(ModelSchema, {
+    fastRowAvailable: false,
+    supportsReasoningEffort: false,
+    supportsThinkingToggle: false,
+    defaultThinkingEnabled: false,
+    supportsReasoningSummaries: false,
+    supportsReasoning: false,
+    supportsTools: false,
+    reasoningEffortsKnown: true,
+    reasoningInterleaving: ReasoningInterleaving.NONE,
+  });
+  const positive = create(ModelSchema, {
+    fastRowAvailable: true,
+    defaultReasoningEffort: ReasoningEffort.ULTRA,
+    reasoningEfforts: [ReasoningEffort.ULTRA],
+    reasoningEffortsKnown: true,
+    contextLimit: 1050000n,
+    maxInputTokens: 922000n,
+    reasoningInterleaving: ReasoningInterleaving.REASONING_CONTENT,
+  });
+  for (const value of [absent, negative, positive])
+    assert.deepEqual(
+      fromBinary(ModelSchema, toBinary(ModelSchema, value)),
+      value,
+    );
+  assert.equal(absent.fastRowAvailable, undefined);
+  assert.equal(absent.maxInputTokens, undefined);
+  assert.equal(absent.reasoningEffortsKnown, undefined);
+  assert.equal(negative.fastRowAvailable, false);
+  assert.deepEqual(negative.reasoningEfforts, []);
+  assert.equal(negative.reasoningEffortsKnown, true);
+  assert.notEqual(positive.maxInputTokens, positive.contextLimit);
+  assert.equal(
+    (toJson(ModelSchema, negative) as Record<string, unknown>).fastRowAvailable,
+    false,
+  );
+});
