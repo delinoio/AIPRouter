@@ -100,7 +100,34 @@ func TestJEVExplicitPresetCredentialLane(t *testing.T) {
 		t.Fatal("JEV pin bypass accepted")
 	}
 	c = Connection{Provider: "custom", Wire: JEVDecision, BaseURL: "https://api.typesafe.ai/v1/systemone", APIKey: "key"}
-	if e := ValidateConnection(c); e == nil {
-		t.Fatal("custom JEV accepted")
+	if e := ValidateConnection(c); e != nil {
+		t.Fatal(e)
 	}
+	for _, base := range []string{"https://api.typesafe.ai/v1/systemone", "https://decision.example.test/custom"} {
+		c.BaseURL = base
+		if e := ValidateConnection(c); e != nil {
+			t.Fatal(e)
+		}
+		if _, e := Resolve(c, "decision-service-model", InboundResponses); e == nil {
+			t.Fatal("custom JEV became direct inference route")
+		}
+		catalog, _, e := a.Discover(context.Background(), testScope, c)
+		if e != nil || catalog.State != ValidationUnknown || len(catalog.Models) != 0 {
+			t.Fatal(catalog, e)
+		}
+	}
+	c.APIKey = ""
+	if ValidateConnection(c) == nil {
+		t.Fatal("custom JEV without credential accepted")
+	}
+	c.APIKey = "key"
+	c.ModelWires = map[string]Wire{"model": Chat}
+	if ValidateConnection(c) == nil {
+		t.Fatal("custom JEV model pin bypass accepted")
+	}
+	c = Connection{Provider: "jev", Wire: JEVDecision, APIKey: "key", BaseURL: "https://decision.example.test/custom"}
+	if ValidateConnection(c) == nil {
+		t.Fatal("preset JEV destination overridden")
+	}
+
 }

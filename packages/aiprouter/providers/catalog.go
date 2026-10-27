@@ -175,12 +175,12 @@ func validURL(raw string) bool {
 	return e == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "" && !strings.ContainsAny(raw, "{}\r\n")
 }
 func supportedCustom(w Wire) bool {
-	return w == Chat || w == Responses || w == Anthropic || w == Google
+	return w == Chat || w == Responses || w == Anthropic || w == Google || w == JEVDecision
 }
 func ValidateConnection(c Connection) error {
 	p, ok := Lookup(c.Provider)
 	if c.Provider == "custom" {
-		p = Preset{ID: "custom", Wire: c.Wire, Auth: Key, AllowBaseURLOverride: true}
+		p = Preset{ID: "custom", Wire: c.Wire, Auth: Key, AllowBaseURLOverride: true, CredentialOnly: c.Wire == JEVDecision}
 		ok = supportedCustom(c.Wire)
 	}
 	if !ok || p.Excluded || p.Deprecated != "" {
@@ -251,7 +251,7 @@ func Resolve(c Connection, model string, inbound Inbound) (Route, error) {
 	}
 	p, _ := Lookup(c.Provider)
 	if c.Provider == "custom" {
-		p = Preset{ID: "custom", Wire: c.Wire, Auth: Key}
+		p = Preset{ID: "custom", Wire: c.Wire, Auth: Key, CredentialOnly: c.Wire == JEVDecision}
 	}
 	if p.CredentialOnly {
 		return Route{}, ErrProvider

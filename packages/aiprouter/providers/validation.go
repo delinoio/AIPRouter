@@ -56,7 +56,7 @@ func (a *Auth) ValidateRemote(ctx context.Context, s core.Scope, c Connection) (
 	if c.Credential != nil && c.Credential.Scope != s {
 		return Validation{}, ErrScope
 	}
-	if p, ok := Lookup(c.Provider); ok && p.CredentialOnly {
+	if p, ok := Lookup(c.Provider); (ok && p.CredentialOnly) || (c.Provider == "custom" && c.Wire == JEVDecision) {
 		if err := ValidateConnection(c); err != nil {
 			return Validation{}, err
 		}
