@@ -7,14 +7,9 @@ import (
 	"errors"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
-	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/zed"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/pricing"
-	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
 	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
-	"google.golang.org/protobuf/proto"
-	"net/http"
-	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -23,12 +18,16 @@ import (
 // An adapter is allocated per HTTP request or WebSocket. It never caches authorization.
 // WebSocket execution admits one active turn at a time; each turn replaces its lease.
 type inferenceAdapter struct {
-	s           *store.Store
-	telemetry   *telemetry
-	mu          sync.Mutex
-	lease       store.Lease
-	connections map[string]providerData
-	prices      *pricing.Snapshot
+	s                            *store.Store
+	telemetry                    *telemetry
+	mu                           sync.Mutex
+	lease                        store.Lease
+	connections                  map[string]providerData
+	prices                       *pricing.Snapshot
+	selections                   map[string]routeSelection
+	versions                     map[string]string
+	activeAccount, activeVersion string
+	attempted                    map[string]map[string]bool
 }
 
 func inferenceError(e error) error {
@@ -49,7 +48,15 @@ func (a *inferenceAdapter) Admit(ctx context.Context, raw string) (inference.Pri
 	if e != nil {
 		return inference.Principal{}, nil, inferenceError(e)
 	}
+	prices, e := currentPricingSnapshot(ctx, a.s, a.prices)
+	if e != nil {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = a.s.Release(cleanup, l)
+		return inference.Principal{}, nil, inferenceError(e)
+	}
 	a.mu.Lock()
+	a.prices = prices
 	a.lease = l
 	a.mu.Unlock()
 	var once sync.Once
@@ -88,185 +95,41 @@ func (a *inferenceAdapter) Dispatch(ctx context.Context, p inference.Principal, 
 	if e != nil {
 		return e
 	}
+	a.mu.Lock()
+	account, version := a.activeAccount, a.activeVersion
+	a.mu.Unlock()
+	if account != "" {
+		return inferenceError(a.s.WithAccountDispatch(ctx, l, account, version, start))
+	}
 	return inferenceError(a.s.WithDispatch(ctx, l, start))
 }
 
 func scopeOf(p inference.Principal) core.Scope {
 	return core.Scope{OrganizationID: p.OrganizationID, UserID: p.UserID, Generation: p.MembershipGeneration}
 }
-func (a *inferenceAdapter) models(ctx context.Context, sc core.Scope) ([]inference.Model, error) {
-	ids, e := a.s.ListPrivate(ctx, sc, string(routeKind))
-	if e != nil {
-		return nil, e
-	}
-	out := []inference.Model{}
-	seen := map[string]bool{}
-	for _, id := range ids {
-		b, e := a.s.GetPrivate(ctx, sc, string(routeKind), id)
-		if e != nil {
-			return nil, e
-		}
-		var route v1.Route
-		if e = proto.Unmarshal(b, &route); e != nil {
-			return nil, e
-		}
-		if route.Enabled && !seen[route.ModelId] {
-			out = append(out, inference.Model{ID: route.ModelId, Object: "model", OwnedBy: "aiprouter"})
-			seen[route.ModelId] = true
-		}
-	}
-	return out, nil
-}
-func (a *inferenceAdapter) Models(ctx context.Context, p inference.Principal) ([]inference.Model, error) {
-	return a.models(ctx, scopeOf(p))
-}
 func (a *inferenceAdapter) provider(ctx context.Context, sc core.Scope, id string) (providerData, error) {
+	d, _, e := a.providerVersion(ctx, sc, id)
+	return d, e
+}
+func (a *inferenceAdapter) providerVersion(ctx context.Context, sc core.Scope, id string) (providerData, string, error) {
 	var d providerData
-	b, e := a.s.GetPrivate(ctx, sc, string(providerKind), id)
+	b, v, e := a.s.GetPrivateVersion(ctx, sc, string(providerKind), id)
 	if e != nil {
-		return d, e
+		return d, "", e
 	}
-	e = json.Unmarshal(b, &d)
-	if e != nil {
-		return d, e
+	if e = json.Unmarshal(b, &d); e != nil {
+		return d, "", e
 	}
-	if d.Metadata == nil || d.Metadata.State != v1.ConnectionState_CONNECTION_STATE_READY {
-		return d, inference.ErrNoCredential
+	if d.Metadata == nil || d.Metadata.Id != id || d.Metadata.State != v1.ConnectionState_CONNECTION_STATE_READY {
+		return d, "", inference.ErrNoCredential
 	}
-	return d, nil
-}
-func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, model string, op inference.Operation) (inference.Route, error) {
-	sc := scopeOf(p)
-	ids, e := a.s.ListPrivate(ctx, sc, string(routeKind))
-	if e != nil {
-		return inference.Route{}, inferenceError(e)
+	if d.Metadata.CooldownUntil != nil && d.Metadata.CooldownUntil.AsTime().After(time.Now()) {
+		return d, "", inference.ErrNoCredential
 	}
-	var chosen *v1.Route
-	for _, id := range ids {
-		b, e := a.s.GetPrivate(ctx, sc, string(routeKind), id)
-		if e != nil {
-			return inference.Route{}, inferenceError(e)
-		}
-		var route v1.Route
-		if e = proto.Unmarshal(b, &route); e != nil {
-			return inference.Route{}, inference.ErrUnavailable
-		}
-		if route.Enabled && route.ModelId == model {
-			if chosen != nil {
-				return inference.Route{}, &inference.Error{Status: 409, Code: "ambiguous_model_route"}
-			}
-			chosen = &route
-		}
+	if d.Credential != nil && d.Credential.Scope != sc {
+		return d, "", inference.ErrNoCredential
 	}
-	if chosen == nil {
-		return inference.Route{}, &inference.Error{Status: 404, Code: "model_not_found"}
-	}
-	sort.SliceStable(chosen.Targets, func(i, j int) bool { return chosen.Targets[i].Priority < chosen.Targets[j].Priority })
-	a.connections = map[string]providerData{}
-	out := inference.Route{}
-	for _, target := range chosen.Targets {
-		connectionIDs := []string{target.GetConnectionId()}
-		if target.GetPoolId() != "" {
-			b, e := a.s.GetPrivate(ctx, sc, string(poolKind), target.GetPoolId())
-			if e != nil {
-				return out, inferenceError(e)
-			}
-			var pool v1.Pool
-			if json.Unmarshal(b, &pool) != nil {
-				return out, inference.ErrUnavailable
-			}
-			sort.SliceStable(pool.Members, func(i, j int) bool { return pool.Members[i].Priority < pool.Members[j].Priority })
-			connectionIDs = nil
-			for _, member := range pool.Members {
-				connectionIDs = append(connectionIDs, member.ConnectionId)
-			}
-		}
-		for _, id := range connectionIDs {
-			d, e := a.provider(ctx, sc, id)
-			if errors.Is(e, inference.ErrNoCredential) {
-				continue
-			}
-			if e != nil {
-				return out, inferenceError(e)
-			}
-			a.connections[id] = d
-			upstreamModel := target.ModelId
-			if upstreamModel == "" {
-				upstreamModel = model
-			}
-			resolved, e := providers.Resolve(providerConnection(d), upstreamModel, providers.InboundChat)
-			if e != nil {
-				return out, inference.ErrUnsupported
-			}
-			wire := inference.Wire(resolved.Wire)
-			switch wire {
-			case "google":
-				wire = "google-gemini"
-			case "cursor":
-				wire = "cursor-agent"
-			case "zed":
-				switch zed.NormalizeProvider("", resolved.Model) {
-				case zed.OpenAI:
-					wire = zed.WireOpenAI
-				case zed.Google:
-					wire = zed.WireGoogle
-				case zed.XAI:
-					wire = zed.WireXAI
-				default:
-					wire = zed.WireAnthropic
-				}
-			}
-			auth := inference.APIKey
-			if d.Metadata.AuthKind == v1.ProviderAuthKind_PROVIDER_AUTH_KIND_NO_AUTH {
-				auth = inference.Anonymous
-			} else if d.Metadata.AuthKind == v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH {
-				auth = inference.OAuth
-			}
-			t := inference.Target{Provider: id, BaseURL: resolved.BaseURL, Model: resolved.Model, Wire: wire, Auth: auth, Headers: resolved.Headers}
-
-			if d.Metadata.StallTimeoutSeconds != nil {
-				v := time.Duration(*d.Metadata.StallTimeoutSeconds) * time.Second
-				t.StallTimeout = &v
-			}
-			if chosen.Strategy == v1.RoutingStrategy_ROUTING_STRATEGY_FALLBACK {
-				t.Retry.FallbackOn429 = true
-				t.Retry.FallbackOn5xx = true
-			}
-			out.Targets = append(out.Targets, t)
-		}
-	}
-	out.MaxSends = len(out.Targets)
-	if out.MaxSends == 0 {
-		return out, inference.ErrNoCredential
-	}
-	return out, nil
-}
-func (a *inferenceAdapter) Select(ctx context.Context, p inference.Principal, t inference.Target, previous string) (inference.Credential, error) {
-	if e := a.BeforeSend(ctx, p); e != nil {
-		return inference.Credential{}, e
-	}
-	if previous == t.Provider {
-		return inference.Credential{}, inference.ErrNoCredential
-	}
-	d, e := a.provider(ctx, scopeOf(p), t.Provider)
-	if e != nil {
-		return inference.Credential{}, inferenceError(e)
-	}
-	secret := d.Secret
-	headers := make(http.Header)
-	if d.Credential != nil {
-		secret = d.Credential.AccessToken
-		if d.Credential.ProjectID != "" {
-			headers.Set("X-Aiprouter-Google-Project", d.Credential.ProjectID)
-		}
-	}
-	return inference.Credential{AccountID: t.Provider, Secret: secret, Headers: headers}, nil
-}
-func (a *inferenceAdapter) Refresh(ctx context.Context, p inference.Principal, t inference.Target, c inference.Credential) (inference.Credential, error) {
-	if e := a.BeforeSend(ctx, p); e != nil {
-		return c, e
-	}
-	return c, inference.ErrUnsupported
+	return d, v, nil
 }
 func (a *inferenceAdapter) Load(ctx context.Context, p inference.Principal, id string) (inference.Continuation, error) {
 	var c inference.Continuation
@@ -296,9 +159,16 @@ func (a *inferenceAdapter) Record(ctx context.Context, p inference.Principal, r 
 		return e
 	}
 	provider := r.Provider
-	if d, ok := a.connections[provider]; ok {
+	a.mu.Lock()
+	account := r.AccountID
+	if account == "" {
+		account = provider
+	}
+	if d, ok := a.connections[account]; ok {
 		provider = d.Metadata.ProviderId
 	}
+	prices := a.prices
+	a.mu.Unlock()
 	code := ""
 	if r.Canceled {
 		code = "canceled"
@@ -306,16 +176,53 @@ func (a *inferenceAdapter) Record(ctx context.Context, p inference.Principal, r 
 		code = "upstream_error"
 	}
 	u := store.Usage{Model: r.Model, Provider: provider, ErrorCode: code, InputTokens: r.Usage.InputTokens, OutputTokens: r.Usage.OutputTokens}
+	switch r.Outcome {
+	case inference.OutcomeSuccess:
+		u.Outcome = store.OutcomeSucceeded
+	case inference.OutcomeUpstreamError:
+		u.Outcome = store.OutcomeUpstreamError
+	case inference.OutcomeGatewayError:
+		u.Outcome = store.OutcomeGatewayError
+	case inference.OutcomeRateLimited:
+		u.Outcome = store.OutcomeRateLimited
+	case inference.OutcomeCanceled:
+		u.Outcome = store.OutcomeCanceled
+	default:
+		switch {
+		case r.Canceled:
+			u.Outcome = store.OutcomeCanceled
+		case r.Status == 429:
+			u.Outcome = store.OutcomeRateLimited
+		case r.Status >= 200 && r.Status < 300:
+			u.Outcome = store.OutcomeSucceeded
+		default:
+			u.Outcome = store.OutcomeUnknown
+		}
+	}
+
+	switch u.Outcome {
+	case store.OutcomeUpstreamError, store.OutcomeGatewayError, store.OutcomeRateLimited, store.OutcomeCanceled:
+		u.ErrorCode = string(u.Outcome)
+	case store.OutcomeUnknown:
+		if r.Status >= 400 {
+			u.ErrorCode = "unknown"
+		}
+	}
 	if r.Usage.InputTokens == nil || r.Usage.OutputTokens == nil {
 		a.telemetry.Event(ctx, "usage_unknown")
 	}
-	if a.prices != nil {
-		estimate := a.prices.Estimate(pricing.Request{Provider: provider, Model: r.Model, Status: pricing.Reported, Usage: &pricing.Usage{InputTokens: r.Usage.InputTokens, OutputTokens: r.Usage.OutputTokens, CachedInputTokens: r.Usage.CacheReadTokens, CacheCreationInputTokens: r.Usage.CacheWriteTokens}}, time.Now())
+	if prices != nil {
+		tier := pricing.Tier{}
+		if r.ServiceTier != "" {
+			tier.Response = &r.ServiceTier
+		}
+		estimate := prices.Estimate(pricing.Request{Provider: provider, Model: r.Model, Tier: tier, Status: pricing.Reported, Usage: &pricing.Usage{InputTokens: r.Usage.InputTokens, OutputTokens: r.Usage.OutputTokens, CachedInputTokens: r.Usage.CacheReadTokens, CacheCreationInputTokens: r.Usage.CacheWriteTokens}}, time.Now())
 		u.Price, _ = json.Marshal(estimate)
 		u.Provenance = estimate.SnapshotID
 		if estimate.Known && r.UnmeasuredAttempts == 0 {
 			cost := strconv.FormatFloat(estimate.Cost.Total, 'f', 12, 64)
 			u.Cost = &cost
+			u.PriceKnown = true
 		} else {
 			a.telemetry.Event(ctx, "cost_unknown")
 		}
