@@ -178,6 +178,11 @@ func TestProviderRefreshUncertainNeverRetries(t *testing.T) {
 	if sends.Load() != 1 {
 		t.Fatalf("rotating token sent %d times", sends.Load())
 	}
+	listed, listErr := m.ListProviderConnections(ctx, connect.NewRequest(&v1.ListProviderConnectionsRequest{OrganizationId: sc.OrganizationID}))
+	if listErr != nil || len(listed.Msg.Connections) != 1 || listed.Msg.Connections[0].State != v1.ConnectionState_CONNECTION_STATE_AUTHORIZATION_REQUIRED {
+		t.Fatalf("uncertain login not visible: %v %v", listed, listErr)
+	}
+
 	if _, err := m.store.GetPrivate(ctx, sc, string(providerKind), d.Metadata.Id); !errors.Is(err, store.ErrReauthentication) {
 		t.Fatalf("uncertain usable: %v", err)
 	}
@@ -305,5 +310,57 @@ func TestProviderOAuthPendingPollPersistsInterval(t *testing.T) {
 	}
 	if json.Unmarshal(raw, &f) != nil || f.Flow.Interval != 10*time.Second || !f.Flow.ExpiresAt.Equal(expires) {
 		t.Fatal("poll state or original expiry changed")
+	}
+}
+
+func TestProviderRefreshRevokedKeyCannotSend(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	d := oauthSavedProvider(t, m, ctx, sc)
+	lease := oauthLease(t, m, ctx, sc)
+	if err := m.store.RevokeKey(ctx, sc, lease.Principal.KeyID); err != nil {
+		t.Fatal(err)
+	}
+	var sends atomic.Int32
+	executor := oauthTestExecutor(func(context.Context, core.Scope, *http.Request) (*http.Response, error) {
+		sends.Add(1)
+		return oauthResponse(`{}`), nil
+	})
+	if _, err := refreshProviderCredentialWithExecutor(ctx, m.store, lease, d.Metadata.Id, executor); err == nil {
+		t.Fatal("revoked key refreshed")
+	}
+	if sends.Load() != 0 {
+		t.Fatal("revoked key sent")
+	}
+}
+func TestProviderCatalogPersistsOnlyCurrentScope(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	d := providerData{Metadata: &v1.ProviderConnection{Id: core.ID(), OrganizationId: sc.OrganizationID, ProviderId: "openai", Name: "native", BaseUrl: "https://chatgpt.com/backend-api/codex", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH, State: v1.ConnectionState_CONNECTION_STATE_READY}, Credential: &providers.Credential{Scope: sc, Provider: "openai", AccessToken: "native-token", AccountID: "account"}}
+	if err := m.put(ctx, sc, providerKind, d.Metadata.Id, d); err != nil {
+		t.Fatal(err)
+	}
+	const row = `{"slug":"gpt-native","display_name":"Native","context_window":12345,"instructions":"provider-supplied-template","future_field":{"enabled":false}}`
+	m.providerExecutor = oauthTestExecutor(func(_ context.Context, scope core.Scope, r *http.Request) (*http.Response, error) {
+		if scope != sc || r.Header.Get("Authorization") != "Bearer native-token" || r.Header.Get("ChatGPT-Account-Id") != "account" {
+			t.Error("catalog ownership mismatch")
+		}
+		return oauthResponse(`{"models":[` + row + `]}`), nil
+	})
+	result, err := m.ListProviderModels(ctx, connect.NewRequest(&v1.ListProviderModelsRequest{OrganizationId: sc.OrganizationID, ConnectionId: d.Metadata.Id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Msg.Models) != 1 || result.Msg.Models[0].Id != "gpt-native" {
+		t.Fatal("catalog absent")
+	}
+	raw, err := m.store.GetPrivate(ctx, sc, string(providerKind), d.Metadata.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved providerData
+	if json.Unmarshal(raw, &saved) != nil || saved.Models == nil || saved.ModelsDiscoveredAt.IsZero() || len(saved.CodexCatalog) != 1 || string(saved.CodexCatalog[0]) != row {
+		t.Fatal("exact native metadata not persisted")
+	}
+	if strings.Contains(result.Msg.String(), "provider-supplied-template") || strings.Contains(result.Msg.String(), "native-token") {
+		t.Fatal("private fields in management model response")
 	}
 }

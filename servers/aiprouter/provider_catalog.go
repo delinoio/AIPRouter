@@ -52,7 +52,25 @@ func catalogMessage(p providers.Preset) *v1.ProviderDefinition {
 	if p.AllowKeyAuthOverride && auth != v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY {
 		auths = append(auths, v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY)
 	}
-	return &v1.ProviderDefinition{Id: p.ID, DisplayName: p.Label, AuthKinds: auths, ApiShapes: shapes}
+	if len(providers.AuthMethods(p.ID)) > 0 && auth != v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH {
+		auths = append(auths, v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH)
+	}
+	out := &v1.ProviderDefinition{Id: p.ID, DisplayName: p.Label, AuthKinds: auths, ApiShapes: shapes}
+	for _, method := range providers.AuthMethods(p.ID) {
+		switch method {
+		case providers.PKCE:
+			out.OauthMethods = append(out.OauthMethods, v1.ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_PKCE)
+		case providers.Device:
+			out.OauthMethods = append(out.OauthMethods, v1.ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_DEVICE)
+		case providers.BrowserPoll:
+			out.OauthMethods = append(out.OauthMethods, v1.ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_BROWSER_POLL)
+		case providers.ExplicitToken:
+			out.OauthMethods = append(out.OauthMethods, v1.ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_EXPLICIT_TOKEN)
+		case providers.NativeCallback:
+			out.OauthMethods = append(out.OauthMethods, v1.ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_NATIVE_CALLBACK)
+		}
+	}
+	return out
 }
 func providerModel(p providers.Preset, id string) *v1.Model {
 	out := &v1.Model{Id: id, DisplayName: id, ApiShapes: catalogMessage(p).ApiShapes}

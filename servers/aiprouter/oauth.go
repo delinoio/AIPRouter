@@ -174,6 +174,12 @@ func (m *management) GetProviderOAuth(ctx context.Context, r *connect.Request[v1
 		if f.Flow.Method == providers.Device || f.Flow.Method == providers.BrowserPoll {
 			d, e := m.exchangeProviderFlow(ctx, sc, id, "", "")
 			if errors.Is(e, providers.ErrPending) || errors.Is(e, store.ErrBusy) {
+				if updated, readErr := m.store.GetProviderFlow(ctx, sc, id); readErr == nil {
+					var pending providerOAuthFlow
+					if json.Unmarshal(updated, &pending) == nil {
+						out = flowMessage(id, pending)
+					}
+				}
 				return connect.NewResponse(&v1.GetProviderOAuthResponse{Authorization: out}), nil
 			}
 			if e != nil {

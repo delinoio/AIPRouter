@@ -5,8 +5,10 @@ import (
 	"connectrpc.com/connect"
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
 	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
 	"google.golang.org/protobuf/proto"
 	"net/url"
@@ -80,6 +82,13 @@ func (m *management) ListProviderConnections(ctx context.Context, r *connect.Req
 		}
 		if e = json.Unmarshal(raw, &d); e != nil {
 			return nil, rpcError(e)
+		}
+		if _, _, usableErr := m.store.GetPrivateVersion(ctx, sc, string(providerKind), id); errors.Is(usableErr, store.ErrReauthentication) {
+			if d.Metadata != nil {
+				d.Metadata.State = v1.ConnectionState_CONNECTION_STATE_AUTHORIZATION_REQUIRED
+			}
+		} else if usableErr != nil {
+			return nil, rpcError(usableErr)
 		}
 		out.Connections = append(out.Connections, d.Metadata)
 	}
