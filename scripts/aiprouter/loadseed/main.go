@@ -73,7 +73,7 @@ func run() error {
 	}
 	settings.RPM = 6000
 	settings.Concurrency = 100
-	settings.Destinations = []string{"http://127.0.0.1:18090"}
+	settings.DestinationRules = []store.AllowedDestination{{Origin: "http://127.0.0.1:18090", AllowedCIDRs: []string{"127.0.0.1/32"}}}
 	if err = s.UpdateSettings(ctx, operator, settings); err != nil {
 		return err
 	}
