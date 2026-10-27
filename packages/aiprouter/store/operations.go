@@ -177,6 +177,8 @@ func (s *Store) cleanup(ctx context.Context) error {
 			"UPDATE settings SET usage_history_floor=GREATEST(usage_history_floor,clock_timestamp()-usage_days*interval '1 day')",
 			"DELETE FROM " + s.temp + ".provider_flows WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM " + s.temp + ".provider_states WHERE expires_at<=clock_timestamp()",
+			"DELETE FROM " + s.temp + ".native_quotas WHERE expires_at<=clock_timestamp()",
+			"DELETE FROM " + s.temp + ".native_affinities WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM selection_affinity WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM account_cooldowns WHERE until_at<=clock_timestamp()",
 			"DELETE FROM account_soft_denials WHERE until_at<=clock_timestamp()",
@@ -212,7 +214,7 @@ func (s *Store) cleanup(ctx context.Context) error {
 // InvalidateAfterRestore must run offline, before any listeners or workers start.
 func (s *Store) InvalidateAfterRestore(ctx context.Context) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		for _, q := range []string{"UPDATE api_keys SET revoked=true", "DELETE FROM sessions", "UPDATE invitations SET status='canceled',claim=NULL", "DELETE FROM transfers", "DELETE FROM admissions", "DELETE FROM " + s.temp + ".devices", "DELETE FROM " + s.temp + ".mail_tokens", "DELETE FROM " + s.temp + ".login_states", "DELETE FROM " + s.temp + ".states", "DELETE FROM " + s.temp + ".provider_flows", "DELETE FROM " + s.temp + ".provider_states", "UPDATE private_refresh SET state='uncertain'"} {
+		for _, q := range []string{"UPDATE api_keys SET revoked=true", "DELETE FROM sessions", "UPDATE invitations SET status='canceled',claim=NULL", "DELETE FROM transfers", "DELETE FROM admissions", "DELETE FROM " + s.temp + ".devices", "DELETE FROM " + s.temp + ".mail_tokens", "DELETE FROM " + s.temp + ".login_states", "DELETE FROM " + s.temp + ".states", "DELETE FROM " + s.temp + ".provider_flows", "DELETE FROM " + s.temp + ".provider_states", "DELETE FROM " + s.temp + ".native_quotas", "DELETE FROM " + s.temp + ".native_affinities", "UPDATE private_refresh SET state='uncertain'"} {
 			if _, e := tx.ExecContext(ctx, q); e != nil {
 				return e
 			}
