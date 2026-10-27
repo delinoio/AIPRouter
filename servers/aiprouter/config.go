@@ -17,6 +17,7 @@ type OperatorIdentity struct {
 	Subject string `json:"subject"`
 }
 type Config struct {
+	ConsoleDir                                             string
 	ListenAddr, PublicURL, DatabaseURL                     string
 	OIDCIssuer, OIDCClientID, OIDCClientSecret             string
 	EncryptionKeys                                         map[string][]byte
@@ -27,7 +28,7 @@ type Config struct {
 }
 
 func loadConfig(getenv func(string) string) (Config, error) {
-	c := Config{ListenAddr: getenv("AIPROUTER_LISTEN_ADDR"), PublicURL: strings.TrimRight(getenv("AIPROUTER_PUBLIC_URL"), "/"), DatabaseURL: getenv("AIPROUTER_DATABASE_URL"), OIDCIssuer: getenv("AIPROUTER_OIDC_ISSUER"), OIDCClientID: getenv("AIPROUTER_OIDC_CLIENT_ID"), OIDCClientSecret: getenv("AIPROUTER_OIDC_CLIENT_SECRET"), ActiveKey: getenv("AIPROUTER_ENCRYPTION_ACTIVE_KEY"), SMTPAddr: getenv("AIPROUTER_SMTP_ADDR"), SMTPFrom: getenv("AIPROUTER_SMTP_FROM"), SMTPUsername: getenv("AIPROUTER_SMTP_USERNAME"), SMTPPassword: getenv("AIPROUTER_SMTP_PASSWORD"), R2Endpoint: getenv("AIPROUTER_R2_ENDPOINT"), R2Bucket: getenv("AIPROUTER_R2_BUCKET"), R2AccessKeyID: getenv("AIPROUTER_R2_ACCESS_KEY_ID"), R2SecretAccessKey: getenv("AIPROUTER_R2_SECRET_ACCESS_KEY")}
+	c := Config{ConsoleDir: getenv("AIPROUTER_CONSOLE_DIR"), ListenAddr: getenv("AIPROUTER_LISTEN_ADDR"), PublicURL: strings.TrimRight(getenv("AIPROUTER_PUBLIC_URL"), "/"), DatabaseURL: getenv("AIPROUTER_DATABASE_URL"), OIDCIssuer: getenv("AIPROUTER_OIDC_ISSUER"), OIDCClientID: getenv("AIPROUTER_OIDC_CLIENT_ID"), OIDCClientSecret: getenv("AIPROUTER_OIDC_CLIENT_SECRET"), ActiveKey: getenv("AIPROUTER_ENCRYPTION_ACTIVE_KEY"), SMTPAddr: getenv("AIPROUTER_SMTP_ADDR"), SMTPFrom: getenv("AIPROUTER_SMTP_FROM"), SMTPUsername: getenv("AIPROUTER_SMTP_USERNAME"), SMTPPassword: getenv("AIPROUTER_SMTP_PASSWORD"), R2Endpoint: getenv("AIPROUTER_R2_ENDPOINT"), R2Bucket: getenv("AIPROUTER_R2_BUCKET"), R2AccessKeyID: getenv("AIPROUTER_R2_ACCESS_KEY_ID"), R2SecretAccessKey: getenv("AIPROUTER_R2_SECRET_ACCESS_KEY")}
 	if c.ListenAddr == "" {
 		c.ListenAddr = "127.0.0.1:8080"
 	}

@@ -93,7 +93,7 @@ func TestOIDCCodeFlow(t *testing.T) {
 		verified = valid
 		fixture.logged = false
 		start := httptest.NewRecorder()
-		a.login(start, httptest.NewRequest("GET", "/auth/login", nil))
+		a.login(start, httptest.NewRequest("GET", "/auth/login?return_to=%2Fdevice%3Fcode%3Dsynthetic", nil))
 		location, _ := url.Parse(start.Header().Get("Location"))
 		q := location.Query()
 		nonce = q.Get("nonce")
@@ -109,15 +109,15 @@ func TestOIDCCodeFlow(t *testing.T) {
 		out := httptest.NewRecorder()
 		a.callback(out, req)
 		if valid {
-			if out.Code != 303 || !fixture.logged || fixture.issuer != issuer || fixture.sub != "subject-1" {
+			if out.Code != 303 || out.Header().Get("Location") != "/device?code=synthetic" || !fixture.logged || fixture.issuer != issuer || fixture.sub != "subject-1" {
 				t.Fatalf("login failed: %d", out.Code)
 			}
-		} else if out.Code != 403 || fixture.logged {
+		} else if out.Code != 303 || out.Header().Get("Location") != "/sign-in?error=unverified_email" || fixture.logged {
 			t.Fatalf("unverified email accepted: %d", out.Code)
 		}
 		replay := httptest.NewRecorder()
 		a.callback(replay, req)
-		if replay.Code != 400 {
+		if replay.Code != 303 || replay.Header().Get("Location") != "/sign-in?error=login_expired" {
 			t.Fatal("state replay accepted")
 		}
 	}
@@ -136,7 +136,7 @@ func TestCallbackRequiresBrowserState(t *testing.T) {
 	a := Auth{}
 	w := httptest.NewRecorder()
 	a.callback(w, httptest.NewRequest("GET", "/auth/callback?state=x&code=x", nil))
-	if w.Code != 400 {
+	if w.Code != 303 || w.Header().Get("Location") != "/sign-in?error=login_expired" {
 		t.Fatal(w.Code)
 	}
 }
@@ -162,7 +162,7 @@ func TestHTTPSLoginCookieBinding(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: c.Name, Value: parts[0] + ".wrong-binding"})
 	out := httptest.NewRecorder()
 	a.callback(out, req)
-	if out.Code != 400 || f.logged {
+	if out.Code != 303 || out.Header().Get("Location") != "/sign-in?error=login_expired" || f.logged {
 		t.Fatal("wrong browser binding accepted")
 	}
 }

@@ -19,7 +19,7 @@ import (
 var errAuthentication = errors.New("authentication required")
 
 type Identity struct{ UserID, Issuer, Subject, Email string }
-type LoginState struct{ Verifier, Nonce, Binding string }
+type LoginState struct{ Verifier, Nonce, Binding, ReturnTo string }
 type AuthStore interface {
 	SaveLogin(context.Context, string, LoginState) error
 	ConsumeLogin(context.Context, string, string) (LoginState, error)
@@ -70,8 +70,8 @@ func (a *Auth) cookie(w http.ResponseWriter, name, value string, age int) {
 func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 	state, nonce, verifier := randomToken(), randomToken(), oauth2.GenerateVerifier()
 	binding := randomToken()
-	if e := a.store.SaveLogin(r.Context(), hashToken(state), LoginState{Verifier: verifier, Nonce: nonce, Binding: binding}); e != nil {
-		http.Error(w, "authentication unavailable", 503)
+	if e := a.store.SaveLogin(r.Context(), hashToken(state), LoginState{Verifier: verifier, Nonce: nonce, Binding: binding, ReturnTo: safeReturnTo(r.URL.Query().Get("return_to"))}); e != nil {
+		a.loginError(w, r, "authentication_unavailable")
 		return
 	}
 	a.cookie(w, a.loginCookieName(), state+"."+binding, 600)
@@ -87,51 +87,59 @@ func (a *Auth) callback(w http.ResponseWriter, r *http.Request) {
 		parts = strings.Split(c.Value, ".")
 	}
 	if e != nil || len(parts) != 2 || state == "" || subtle.ConstantTimeCompare([]byte(parts[0]), []byte(state)) != 1 {
-		http.Error(w, "invalid login state", 400)
+		a.loginError(w, r, "login_expired")
 		return
 	}
 	a.cookie(w, a.loginCookieName(), "", -1)
 	saved, e := a.store.ConsumeLogin(r.Context(), hashToken(state), parts[1])
 	if e != nil {
-		http.Error(w, "invalid or expired login state", 400)
+		a.loginError(w, r, "login_expired")
 		return
 	}
 	if r.URL.Query().Get("error") != "" || r.URL.Query().Get("code") == "" {
-		http.Error(w, "login denied", 401)
+		a.loginError(w, r, "login_denied")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	token, e := a.oauth.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(saved.Verifier))
 	if e != nil {
-		http.Error(w, "identity exchange failed", 401)
+		a.loginError(w, r, "authentication_unavailable")
 		return
 	}
 	raw, ok := token.Extra("id_token").(string)
 	if !ok {
-		http.Error(w, "identity token missing", 401)
+		a.loginError(w, r, "login_denied")
 		return
 	}
 	id, e := a.verifier.Verify(ctx, raw)
 	if e != nil || id.Nonce != saved.Nonce || id.Subject == "" || id.Issuer != a.config.OIDCIssuer {
-		http.Error(w, "invalid identity token", 401)
+		a.loginError(w, r, "login_denied")
 		return
 	}
 	var claims struct {
 		Email         string `json:"email"`
 		EmailVerified bool   `json:"email_verified"`
 	}
-	if id.Claims(&claims) != nil || !claims.EmailVerified || claims.Email == "" {
-		http.Error(w, "verified email required", 403)
+	if id.Claims(&claims) != nil {
+		a.loginError(w, r, "login_denied")
+		return
+	}
+	if claims.Email == "" {
+		a.loginError(w, r, "missing_email")
+		return
+	}
+	if !claims.EmailVerified {
+		a.loginError(w, r, "unverified_email")
 		return
 	}
 	session, e := a.store.Login(ctx, id.Issuer, id.Subject, claims.Email)
 	if e != nil {
-		http.Error(w, "authentication unavailable", 503)
+		a.loginError(w, r, "authentication_unavailable")
 		return
 	}
 	a.cookie(w, a.cookieName(), session, 7*24*60*60)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, safeReturnTo(saved.ReturnTo), http.StatusSeeOther)
 }
 func (a *Auth) authenticate(r *http.Request) (Identity, error) {
 	c, e := r.Cookie(a.cookieName())
@@ -167,4 +175,10 @@ func (a *Auth) loginCookieName() string {
 		return "__Host-aiprouter-login"
 	}
 	return "aiprouter-login"
+}
+
+func (a *Auth) loginError(w http.ResponseWriter, r *http.Request, code string) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, "/sign-in?error="+code, http.StatusSeeOther)
 }

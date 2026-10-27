@@ -3,17 +3,30 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
 )
 
 type persistentAuth struct{ s *store.Store }
 
 func (p persistentAuth) SaveLogin(ctx context.Context, state string, l LoginState) error {
-	return p.s.SaveLoginState(ctx, store.LoginState{State: state, Binding: l.Binding, Nonce: l.Nonce, Verifier: l.Verifier})
+	payload, e := json.Marshal(struct{ Verifier, ReturnTo string }{l.Verifier, l.ReturnTo})
+	if e != nil {
+		return e
+	}
+	return p.s.SaveLoginState(ctx, store.LoginState{State: state, Binding: l.Binding, Nonce: l.Nonce, Verifier: string(payload)})
 }
 func (p persistentAuth) ConsumeLogin(ctx context.Context, state, binding string) (LoginState, error) {
 	l, e := p.s.ConsumeLoginState(ctx, state, binding)
-	return LoginState{Verifier: l.Verifier, Nonce: l.Nonce, Binding: l.Binding}, e
+	if e != nil {
+		return LoginState{}, e
+	}
+	var payload struct{ Verifier, ReturnTo string }
+	if json.Unmarshal([]byte(l.Verifier), &payload) != nil || payload.Verifier == "" {
+		return LoginState{}, errors.New("invalid login state")
+	}
+	return LoginState{Verifier: payload.Verifier, ReturnTo: payload.ReturnTo, Nonce: l.Nonce, Binding: l.Binding}, nil
 }
 func (p persistentAuth) Login(ctx context.Context, issuer, subject, email string) (string, error) {
 	u, e := p.s.RegisterIdentity(ctx, issuer, subject, email, true)
