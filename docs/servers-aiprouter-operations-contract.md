@@ -2,7 +2,7 @@
 
 ## Scope
 
-Owns server deployment integration and the planned supporting paths `packaging/aiprouter` (Compose, npm distribution, observability examples) and `scripts/aiprouter` (fixtures, security/integration validation, reproducible load tests). This server-domain contract owns these support paths because they deliver and verify the service and CLI together.
+Owns server deployment integration and the supporting paths `packaging/aiprouter` (Compose, npm distribution, observability examples) and `scripts/aiprouter` (fixtures, security/integration validation, reproducible load tests). This server-domain contract owns these support paths because they deliver and verify the service and CLI together.
 
 ## Runtime and Language
 
@@ -77,13 +77,13 @@ The observability rules above apply to every deployable, packaging example, fixt
 - [ ] OIDC, role changes, key lifecycle, invitations, ownership transfer, and deletion obey the exact authorization and race boundaries above.
 - [ ] Limits, cancellation, DB outage, unknown usage, and revoked/removed principals produce the specified observable results.
 - [ ] PostgreSQL temporary state is encrypted, bounded, backup-excluded, and inaccessible immediately at expiry; cleanup runs every minute.
-- [ ] Generated image artifacts use R2, per-user 200-file retention, 24-hour TTL, specified image-size limits, and correctly bounded signed URLs.
+- [ ] Generated media artifacts use R2, the shared per-user 200-file quota, 24-hour TTL, separate image/video size limits, and correctly bounded signed URLs.
 - [ ] Price changes do not rewrite historical cost estimates; unknown values and missing counts remain visible.
 - [ ] The CLI supports approved platforms, device approval, OS credential storage, named profiles, explicit settings confirmation, safe restoration, and required loopback relays.
 - [ ] Local program execution as a provider and the associated execution-agent features are absent.
 - [ ] Compose installation/upgrade/restore fixtures cover the documented operational boundaries, including post-restore invalidation and master-key rotation.
 - [ ] Logs, metrics, traces, audits, dashboards, and three default alert examples satisfy access and redaction rules.
-- [ ] Public guidance and internal design/contracts cover the agreed scope; internal runbooks and concrete visual design are excluded.
+- [ ] Public guidance and internal design/contracts cover the agreed scope, including the separately approved console design; internal runbooks remain excluded.
 - [ ] Automated security/integration tests and code review are complete.
 - [ ] Reproducible load tests publish workload conditions, resource use, latency, and error rates without asserting a fixed guarantee.
 - [ ] Mock/build/contract/integration results are clearly separated from live provider/account, production, and native OS verification. Live verification is not a first-release gate.
@@ -117,13 +117,14 @@ Use this environment for the agreed development, CI, integration, and reproducib
 9. **CLI settings/services:** target-platform builds and mocked credential-store/service/permission behavior, backup and restore, preservation of edits, conflict recovery, multi-profile ports, retained keys during switches, port-conflict failure, and offline disconnect.
 10. **Temporary state:** encryption, TTL/count/byte boundaries, oldest-first eviction, explicit continuation failure, immediate expiry denial, one-minute cleanup, and no cross-tenant restoration.
 11. **Image artifacts:** per-organization/user limits, 50 MiB image and 100 MiB response boundaries, 200-file eviction, 24-hour expiry, authorization at URL issuance, five-minute maximum URL lifetime bounded by artifact expiry, and unavailable deleted objects.
+    **Hosted video artifacts:** separate 200 MiB per-video and 600 MiB per-turn boundaries, the shared image/video file quota, and the same expiry, publication, deletion, and download authorization rules. Test indirect downloads against destination policy, cancellation, and the shared physical-send budget.
 12. **Deletion races:** membership removal, organization/account deletion, running responses, token refresh, pending jobs, and logging do not recreate deleted private state; retained records obey anonymization and retention policies.
 13. **Failures:** DB outage produces 503 for new requests, permits only dispatched response completion, stops further sends, and exposes usage-write failure. Test client cancellation, partial streams, and unknown usage.
 14. **Pricing:** absent usage/price is not zero, missing counts are exposed, only operators edit common prices, historical estimates remain fixed, and reference cache/tier rules are preserved.
 15. **Security:** destination-policy bypass, secret/content exposure, device-code replay, session/key invalidation, and tenant boundaries.
 16. **Recovery:** temporary-state exclusion from backup, key separation, maintenance re-encryption, previous-image/DB restoration, and invalidation of keys/sessions/invitations/device approvals before service admission.
 17. **Observability:** request IDs, metrics/traces, role-scoped audits, all three alert conditions, and unknown/failure outcomes never represented as successful recording.
-18. **Web/accessibility:** English, responsive behavior, keyboard/focus/dialog requirements, and WCAG 2.2 AA checks within the stated automated validation boundary. Concrete visual design remains a later decision.
+18. **Web/accessibility:** English, responsive behavior, keyboard/focus/dialog requirements, and WCAG 2.2 AA checks within the stated automated validation boundary. Use the separately approved [console design](apps-aiprouter-console-design.md).
 19. **Non-regression:** unrelated client settings and user edits survive configuration changes; other tenants/users remain unchanged; repository workflow/security/license boundaries are preserved.
 20. **Load:** deterministic workload reproduction with recorded hardware/resources, concurrency, latency, and error results; do not conflate this with live-provider capacity or a guaranteed SLO.
 
