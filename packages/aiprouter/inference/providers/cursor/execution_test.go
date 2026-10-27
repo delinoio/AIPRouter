@@ -95,11 +95,12 @@ func (m *memoryAdapterStore) Save(ctx context.Context, id string, b []byte, ttl 
 }
 
 type duplexFixture struct {
-	server     *httptest.Server
-	mu         sync.Mutex
-	runs       map[string]*fixtureRun
-	ackInitial chan struct{}
-	errors     chan error
+	server        *httptest.Server
+	mu            sync.Mutex
+	runs          map[string]*fixtureRun
+	ackInitial    chan struct{}
+	extraContexts uint64
+	errors        chan error
 }
 type fixtureRun struct {
 	frames     chan []byte
@@ -236,11 +237,21 @@ func (f *duplexFixture) serve(w http.ResponseWriter, r *http.Request) {
 			f.fail(w, "KV reply lost correlation/content")
 			return
 		}
-	case 2:
+	default:
+		if sequence > 2+f.extraContexts {
+			f.fail(w, "unexpected append %d", sequence)
+			return
+		}
 		exec, _ := m.sub(2)
-		if exec.get(1).value != 2 || exec.get(10).number == 0 {
+		if exec.get(1).value != sequence || exec.get(10).number == 0 {
 			f.fail(w, "context reply lost correlation")
 			return
+		}
+		if sequence < 2+f.extraContexts {
+			if !emit(Frame{Payload: pb(2, join(pv(1, sequence+1), pb(10, nil)))}) {
+				return
+			}
+			break
 		}
 		if !emit(Frame{Payload: pb(3, run.checkpoint)}) {
 			return
@@ -254,9 +265,6 @@ func (f *duplexFixture) serve(w http.ResponseWriter, r *http.Request) {
 		if !emit(Frame{Flags: 2, Payload: []byte(`{}`)}) {
 			return
 		}
-	default:
-		f.fail(w, "unexpected append %d", sequence)
-		return
 	}
 	w.Header().Set("Content-Type", "application/proto")
 	w.WriteHeader(200)
@@ -673,8 +681,10 @@ func TestExecuteAppendResponseBoundAndStatus(t *testing.T) {
 }
 
 type integrationAuth struct {
-	mu         sync.Mutex
-	dispatches int
+	mu          sync.Mutex
+	dispatches  int
+	revokeAfter int
+	denied      int
 }
 
 func (*integrationAuth) Admit(context.Context, string) (inference.Principal, func(), error) {
@@ -690,6 +700,11 @@ func (a *integrationAuth) Dispatch(ctx context.Context, p inference.Principal, s
 		return err
 	}
 	a.mu.Lock()
+	if a.revokeAfter > 0 && a.dispatches >= a.revokeAfter {
+		a.denied++
+		a.mu.Unlock()
+		return inference.ErrUnauthorized
+	}
 	a.dispatches++
 	a.mu.Unlock()
 	return start(ctx)
@@ -731,16 +746,26 @@ func (s *integrationState) SaveProviderState(ctx context.Context, _ inference.Pr
 }
 
 func TestCoreExecutingAdapterRegistrationAndSharedBudget(t *testing.T) {
-	for _, budget := range []int{2, 4} {
-		t.Run(fmt.Sprint(budget), func(t *testing.T) {
+	for _, tc := range []struct {
+		name                       string
+		budget, revokeAfter, sends int
+		success                    bool
+	}{
+		{"short_budget", 2, 0, 2, false},
+		{"legacy_four_send_budget", 4, 0, 4, false},
+		{"cursor_physical_budget", 258, 0, 8, true},
+		{"revoked_later_append", 258, 5, 5, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			f := newDuplexFixture(t)
+			f.extraContexts = 4
 			close(f.ackInitial)
-			auth := &integrationAuth{}
+			auth := &integrationAuth{revokeAfter: tc.revokeAfter}
 			usage := &integrationUsage{}
 			store := &integrationState{}
 			target := input(simpleRequest).Target
 			target.BaseURL = f.server.URL
-			h, err := inference.New(inference.Config{Adapters: map[inference.Wire]inference.Adapter{Wire: New()}, Authorizer: auth, Router: integrationRouter{inference.Route{Targets: []inference.Target{target}, MaxSends: budget}}, Credentials: integrationCredentials{}, Usage: usage, ProviderStates: store, Destinations: inference.DestinationPolicy{ApprovedOrigins: []string{f.server.URL}}})
+			h, err := inference.New(inference.Config{Adapters: map[inference.Wire]inference.Adapter{Wire: New()}, Authorizer: auth, Router: integrationRouter{inference.Route{Targets: []inference.Target{target}, MaxSends: tc.budget}}, Credentials: integrationCredentials{}, Usage: usage, ProviderStates: store, Destinations: inference.DestinationPolicy{ApprovedOrigins: []string{f.server.URL}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -753,16 +778,34 @@ func TestCoreExecutingAdapterRegistrationAndSharedBudget(t *testing.T) {
 			request.Header.Set("Authorization", "Bearer client-fixture")
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, request)
-			if usage.record.Sends != budget {
-				t.Fatalf("actual shared budget=%d, want %d; response=%d %s", usage.record.Sends, budget, rec.Code, rec.Body.String())
+			if usage.record.Sends != tc.sends {
+				t.Fatalf("actual shared budget=%d, want %d; response=%d %s", usage.record.Sends, tc.sends, rec.Code, rec.Body.String())
 			}
 			auth.mu.Lock()
 			dispatches := auth.dispatches
+			denied := auth.denied
 			auth.mu.Unlock()
-			if dispatches != budget {
+			if tc.revokeAfter > 0 && denied != 1 {
+				t.Fatalf("revoked dispatch attempts=%d, want 1", denied)
+			}
+			f.mu.Lock()
+			runs, appends := len(f.runs), uint64(0)
+			for _, run := range f.runs {
+				appends += run.sequence
+			}
+			f.mu.Unlock()
+			if runs != 1 || int(appends)+runs != tc.sends {
+				t.Fatalf("physical requests: registrations=%d appends=%d, want %d total", runs, appends, tc.sends)
+			}
+			select {
+			case err := <-f.errors:
+				t.Fatal(err)
+			default:
+			}
+			if dispatches != tc.sends {
 				t.Fatalf("dispatch authorization count=%d", dispatches)
 			}
-			if budget == 4 {
+			if tc.success {
 				if !strings.Contains(rec.Body.String(), "[DONE]") {
 					t.Fatalf("registered adapter failed: %s", rec.Body.String())
 				}
@@ -775,8 +818,19 @@ func TestCoreExecutingAdapterRegistrationAndSharedBudget(t *testing.T) {
 				if saves != 1 {
 					t.Fatalf("state saves=%d", saves)
 				}
-			} else if strings.Contains(rec.Body.String(), "[DONE]") {
-				t.Fatal("budget refusal became successful terminal")
+			} else {
+				if strings.Contains(rec.Body.String(), "[DONE]") || !strings.Contains(rec.Body.String(), "\"error\"") {
+					t.Fatalf("refusal did not produce a failed terminal: %s", rec.Body.String())
+				}
+				if tc.revokeAfter > 0 && !strings.Contains(rec.Body.String(), "hello before acknowledgement") {
+					t.Fatalf("later revocation did not follow visible output: %s", rec.Body.String())
+				}
+				store.mu.Lock()
+				saves := store.saves
+				store.mu.Unlock()
+				if saves != 0 {
+					t.Fatalf("failed stream persisted %d states", saves)
+				}
 			}
 		})
 	}
