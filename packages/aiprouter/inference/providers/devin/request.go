@@ -168,10 +168,32 @@ func messages(input object, wire inference.Wire) ([]message, error) {
 		}
 		if wire == inference.Responses {
 			switch str(m["type"]) {
+			case "additional_tools":
+				continue
+			case "tool_search_call":
+				args := str(m["arguments"])
+				if args == "" {
+					b, _ := json.Marshal(m["arguments"])
+					args = string(b)
+				}
+				appendMessage(message{role: "assistant", calls: [][]byte{toolCall(str(m["call_id"]), "tool_search", args)}})
+				continue
+			case "tool_search_output":
+				payload := object{"tools": arr(m["tools"])}
+				if status := str(m["status"]); status != "" {
+					payload["status"] = status
+				}
+				b, _ := json.Marshal(payload)
+				appendMessage(message{role: "tool", callID: str(m["call_id"]), text: string(b)})
+				continue
+			case "custom_tool_call":
+				args, _ := json.Marshal(object{"input": str(m["input"])})
+				appendMessage(message{role: "assistant", calls: [][]byte{toolCall(str(m["call_id"]), str(m["name"]), string(args))}})
+				continue
 			case "function_call":
 				appendMessage(message{role: "assistant", calls: [][]byte{toolCall(str(m["call_id"]), str(m["name"]), str(m["arguments"]))}})
 				continue
-			case "function_call_output":
+			case "function_call_output", "custom_tool_call_output":
 				t, images, err := content(m["output"])
 				if err != nil {
 					return nil, err
@@ -319,7 +341,7 @@ func numeric(input object, key string, fallback float64) (float64, error) {
 	return n, nil
 }
 
-func buildChat(input object, in inference.AdapterInput, meta []byte) ([]byte, error) {
+func buildChat(input object, in inference.AdapterInput, meta []byte, options ...Options) ([]byte, error) {
 	if in.Wire != inference.Chat && in.Wire != inference.Responses && in.Wire != inference.Anthropic {
 		return nil, inference.ErrUnsupported
 	}
@@ -349,7 +371,19 @@ func buildChat(input object, in inference.AdapterInput, meta []byte) ([]byte, er
 	if effort == "" {
 		effort = str(obj(input["reasoning"])["effort"])
 	}
-	model = resolveModel(model, effort)
+	var opts Options
+	if len(options) > 0 {
+		opts = options[0]
+	}
+	resolved, err := ResolveModel(opts.Catalog, model, effort)
+	if err != nil {
+		return nil, err
+	}
+	model = resolved.UID
+	caps := ResolveCaps(opts, resolved)
+	if input["max_tokens"] == nil && input["max_output_tokens"] == nil && input["max_completion_tokens"] == nil && caps.Output > 0 {
+		input["max_output_tokens"] = float64(caps.Output)
+	}
 	tools, err := buildTools(input, model)
 	if err != nil {
 		return nil, err
@@ -366,6 +400,13 @@ func buildChat(input object, in inference.AdapterInput, meta []byte) ([]byte, er
 		if m.text != "" {
 			system = append(system, m.text)
 		}
+	}
+	plan, err := planTools(input)
+	if err != nil {
+		return nil, err
+	}
+	if nudge := plan.nudge(); nudge != "" {
+		system = append(system, nudge)
 	}
 	b := textField(blob(nil, 1, meta), 2, sanitizeInstructions(strings.Join(system, "\n\n")))
 	var pending []string
@@ -418,6 +459,10 @@ func buildChat(input object, in inference.AdapterInput, meta []byte) ([]byte, er
 		}
 		if source == 2 {
 			for _, call := range m.calls {
+				call, err = lowerHistoryCall(call, plan)
+				if err != nil {
+					return nil, err
+				}
 				p = blob(p, 6, call)
 			}
 			for _, f := range []struct {
@@ -504,38 +549,17 @@ func truncateUnits(s string, n int) string {
 
 func buildTools(input object, model string) ([][]byte, error) {
 	var out [][]byte
-	choice := input["tool_choice"]
-	if choice == "none" || str(obj(choice)["type"]) == "none" {
-		return nil, nil
+	plan, err := planTools(input)
+	if err != nil {
+		return nil, err
 	}
-	// The wire has no required/forced tool-choice field. Reject it until the
-	// executor supplies the pinned tool-choice policy, instead of silently ignoring it.
-	if choice != nil && choice != "auto" && str(obj(choice)["type"]) != "auto" {
-		return nil, inference.ErrUnsupported
-	}
-	for _, raw := range arr(input["tools"]) {
-		t := obj(raw)
-		if typ := str(t["type"]); typ != "" && typ != "function" {
-			return nil, inference.ErrUnsupported
-		}
-		if fn := obj(t["function"]); fn != nil {
-			t = fn
-		}
-		name := str(t["name"])
-		if name == "" {
-			return nil, badRequest()
-		}
-		desc := sanitizeInstructions(str(t["description"]))
+	for _, tool := range plan.tools {
+		name := tool.name
+		desc := sanitizeInstructions(tool.description)
 		if len(utf16.Encode([]rune(desc))) > 6998 {
 			desc = truncateUnits(desc, 6974) + "\n…(truncated for cloud)"
 		}
-		params := t["parameters"]
-		if params == nil {
-			params = t["input_schema"]
-		}
-		if params == nil {
-			params = object{"type": "object", "properties": object{}}
-		}
+		params := tool.parameters
 		if strings.HasPrefix(strings.ToLower(model), "gemini-") || strings.HasPrefix(strings.ToUpper(model), "MODEL_GOOGLE_GEMINI_") {
 			var err error
 			params, err = rewriteSchema(params, 0)

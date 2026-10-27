@@ -123,6 +123,10 @@ func metadata(secret string, chat bool) ([]byte, error) {
 }
 
 func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inference.AdapterRequest, error) {
+	return a.build(ctx, in, Options{})
+}
+
+func (a *Adapter) build(ctx context.Context, in inference.AdapterInput, options Options) (inference.AdapterRequest, error) {
 	var out inference.AdapterRequest
 	if err := ctx.Err(); err != nil {
 		return out, err
@@ -160,7 +164,7 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 		out.Body = number(textField(blob(nil, 1, meta), 2, query), 3, 5)
 		return out, nil
 	}
-	b, err := buildChat(input, in, meta)
+	b, err := buildChat(input, in, meta, options)
 	if err != nil {
 		return out, err
 	}

@@ -490,5 +490,6 @@ func FuzzWire(f *testing.F) {
 		_ = walk(b, func(field) error { return nil })
 		_, _ = modelUsage(b)
 		_, _ = searchResponse(b)
+		_, _ = ParseCatalog(b)
 	})
 }

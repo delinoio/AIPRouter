@@ -46,14 +46,17 @@ func newStream(ctx context.Context, source io.ReadCloser) io.ReadCloser {
 }
 
 type chatStream struct {
-	id      string
-	created int64
-	writer  io.Writer
-	tools   map[string]int
-	names   map[string]string
-	last    string
-	finish  string
-	usage   object
+	id        string
+	created   int64
+	writer    io.Writer
+	tools     map[string]int
+	names     map[string]string
+	last      string
+	finish    string
+	usage     object
+	state     *ResponseContext
+	held      [][]byte
+	heldBytes int
 }
 
 func (s *chatStream) emit(delta object, finish any, usage object) error {
@@ -62,6 +65,9 @@ func (s *chatStream) emit(delta object, finish any, usage object) error {
 		choices = append(choices, object{"index": 0, "delta": delta, "finish_reason": finish})
 	}
 	chunk := object{"id": s.id, "object": "chat.completion.chunk", "created": s.created, "choices": choices}
+	if s.state != nil {
+		chunk["model"] = s.state.Model
+	}
 	if usage != nil {
 		chunk["usage"] = usage
 	}
@@ -72,7 +78,16 @@ func (s *chatStream) emit(delta object, finish any, usage object) error {
 	if len(b) > 2<<20 {
 		return errLimit
 	}
-	_, err = s.writer.Write(append(append([]byte("data: "), b...), []byte("\n\n")...))
+	encoded := append(append([]byte("data: "), b...), []byte("\n\n")...)
+	if s.state != nil && s.state.Inbound == inference.Anthropic && delta["reasoning_content"] == nil && delta["reasoning_signature"] == nil {
+		if s.heldBytes+len(encoded) > 32<<20 {
+			return &inference.Error{Status: 413, Code: "translation_buffer_limit"}
+		}
+		s.held = append(s.held, encoded)
+		s.heldBytes += len(encoded)
+		return nil
+	}
+	_, err = s.writer.Write(encoded)
 	return err
 }
 
@@ -104,6 +119,7 @@ func transcode(ctx context.Context, r io.Reader, w io.Writer) error {
 		return err
 	}
 	s := chatStream{id: "chatcmpl-" + id, created: time.Now().Unix(), writer: w, tools: map[string]int{}, names: map[string]string{}, finish: "stop", usage: object{}}
+	s.state, _ = ctx.Value(responseContextKey{}).(*ResponseContext)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -130,6 +146,15 @@ func transcode(ctx context.Context, r io.Reader, w io.Writer) error {
 					return err
 				}
 			}
+			for _, event := range s.held {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if _, err := w.Write(event); err != nil {
+					return err
+				}
+			}
+			s.held = nil
 			_, err = io.WriteString(w, "data: [DONE]\n\n")
 			return err
 		}
@@ -277,6 +302,13 @@ func (s *chatStream) tool(b []byte) error {
 		return errLimit
 	}
 	if id != "" && name != "" {
+		if s.state != nil {
+			var err error
+			name, err = s.state.RestoreToolName(name)
+			if err != nil {
+				return err
+			}
+		}
 		index, exists := s.tools[id]
 		if !exists {
 			if len(s.tools) >= 1024 {

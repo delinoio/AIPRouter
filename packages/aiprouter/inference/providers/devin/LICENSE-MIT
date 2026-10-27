@@ -5,6 +5,14 @@ src/oauth/devin/api-base.ts, src/web-search/{devin-executor,sources,alpha-search
 tests/providers/devin-{adapter,hardening,chat-wire-fixes}.test.ts,
 tests/web-search/devin-web-search.test.ts.
 
+Additional adapted policy and fixtures:
+src/adapters/devin/live-models.ts, src/adapters/devin/cloud-direct/catalog.ts,
+src/adapters/tool-catalog-nudge.ts, src/adapters/exec-tool-result-normalize.ts,
+src/responses/parser-tools.ts,
+src/responses/tool-search-compat.ts,
+src/types/tools.ts, src/claude/devin-output-order.ts,
+tests/providers/devin-family-resolution.test.ts and devin-output-budget.test.ts.
+
 The cloud-direct implementation in opencodex is derived from
 rsvedant/opencode-windsurf-auth (src/cloud-direct/).
 New Go implementation is licensed Apache-2.0; adapted material retains these notices.
