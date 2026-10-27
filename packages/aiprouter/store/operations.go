@@ -9,7 +9,10 @@ import (
 	"time"
 )
 
+type AllowedDestination = core.DestinationRule
+
 type Settings struct {
+	DestinationRules                                      []AllowedDestination
 	Revision                                              int64
 	RPM, Concurrency, UsageDays, AggregateDays, AuditDays int
 	Destinations                                          []string
@@ -184,7 +187,7 @@ func (s *Store) cleanup(ctx context.Context) error {
 			"DELETE FROM " + s.temp + ".states WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM " + s.temp + ".login_states WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM sessions WHERE created_at<=clock_timestamp()-interval '7 days' OR last_seen<=clock_timestamp()-interval '24 hours'",
-			"UPDATE invitations SET status='failed',delivery_state='failed',claim=NULL WHERE status='pending' AND attempts>=3 AND claim_until<=clock_timestamp()",
+			"UPDATE invitations SET status='failed',delivery_state='failed',claim=NULL WHERE status='pending' AND delivery_state<>'sent' AND claim IS NOT NULL AND attempts>=3 AND claim_until<=clock_timestamp()",
 			"DELETE FROM " + s.temp + ".mail_tokens WHERE invitation_id IN(SELECT id FROM invitations WHERE status<>'pending' OR expires_at<=clock_timestamp())",
 			// Keep terminal metadata briefly for authenticated recipient inspection; raw mail tokens are already removed.
 			"DELETE FROM invitations WHERE expires_at<=clock_timestamp()-interval '24 hours'",

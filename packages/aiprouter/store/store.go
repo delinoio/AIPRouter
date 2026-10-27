@@ -28,16 +28,18 @@ type LimitError struct{ RetryAfter time.Duration }
 func (e *LimitError) Error() string { return "rate or concurrency limit exceeded" }
 
 type Options struct {
-	Schema    string
-	Keys      *core.Envelope
-	Operators []core.Identity
+	Schema     string
+	InstanceID string
+	Keys       *core.Envelope
+	Operators  []core.Identity
 }
 type Store struct {
-	db        *sql.DB
-	schema    string
-	temp      string
-	keys      *core.Envelope
-	operators map[core.Identity]bool
+	instanceID string
+	db         *sql.DB
+	schema     string
+	temp       string
+	keys       *core.Envelope
+	operators  map[core.Identity]bool
 }
 
 //go:embed migrations/001.sql
@@ -52,6 +54,9 @@ var migration3 string
 //go:embed migrations/004.sql
 var migration4 string
 
+//go:embed migrations/005.sql
+var migration5 string
+
 func Open(ctx context.Context, dsn string, o Options) (*Store, error) {
 	if o.Schema == "" {
 		o.Schema = "aiprouter"
@@ -63,7 +68,10 @@ func Open(ctx context.Context, dsn string, o Options) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db, schema: o.Schema, temp: o.Schema + "_temp", keys: o.Keys, operators: map[core.Identity]bool{}}
+	if o.InstanceID == "" {
+		o.InstanceID = core.ID()
+	}
+	s := &Store{instanceID: o.InstanceID, db: db, schema: o.Schema, temp: o.Schema + "_temp", keys: o.Keys, operators: map[core.Identity]bool{}}
 	for _, i := range o.Operators {
 		s.operators[i] = true
 	}
@@ -80,7 +88,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if _, e := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", s.schema+":migration"); e != nil {
 			return e
 		}
-		_, e := tx.ExecContext(ctx, strings.NewReplacer("{{schema}}", s.schema, "{{temp}}", s.temp).Replace(migration+"\n"+migration2+"\n"+migration3+"\n"+migration4))
+		_, e := tx.ExecContext(ctx, strings.NewReplacer("{{schema}}", s.schema, "{{temp}}", s.temp).Replace(migration+"\n"+migration2+"\n"+migration3+"\n"+migration4+"\n"+migration5))
 		return e
 	})
 }

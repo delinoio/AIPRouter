@@ -263,7 +263,7 @@ func (s *Store) finishMail(ctx context.Context, tx *sql.Tx, m Mail, outcome Mail
 		status = "failed"
 		delivery = "failed"
 	}
-	res, e := tx.ExecContext(ctx, "UPDATE invitations SET status=$3,delivery_state=$5,claim=NULL,next_attempt=clock_timestamp()+$4*interval '1 second' WHERE id=$1 AND claim=$2 AND status='pending'", m.ID, m.Claim, status, delay.Seconds(), delivery)
+	res, e := tx.ExecContext(ctx, "UPDATE invitations SET status=$3,delivery_state=$5,claim=NULL,claim_until=NULL,next_attempt=clock_timestamp()+$4*interval '1 second' WHERE id=$1 AND claim=$2 AND status='pending'", m.ID, m.Claim, status, delay.Seconds(), delivery)
 	if e != nil {
 		return e
 	}

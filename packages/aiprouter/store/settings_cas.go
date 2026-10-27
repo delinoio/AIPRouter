@@ -16,7 +16,23 @@ func readSettings(ctx context.Context, tx *sql.Tx, lock bool) (v Settings, e err
 	var dest []byte
 	e = tx.QueryRowContext(ctx, q).Scan(&v.RPM, &v.Concurrency, &v.UsageDays, &v.AggregateDays, &v.AuditDays, &dest, &v.Prices, &v.Revision)
 	if e == nil {
-		e = json.Unmarshal(dest, &v.Destinations)
+		e = json.Unmarshal(dest, &v.DestinationRules)
+		if e != nil {
+			v.DestinationRules = nil
+			e = json.Unmarshal(dest, &v.Destinations)
+			if e == nil {
+				for _, origin := range v.Destinations {
+					v.DestinationRules = append(v.DestinationRules, AllowedDestination{Origin: origin})
+				}
+			}
+		}
+		if e == nil {
+			v.DestinationRules, e = core.NormalizeDestinationRules(v.DestinationRules)
+			v.Destinations = nil
+			for _, r := range v.DestinationRules {
+				v.Destinations = append(v.Destinations, r.Origin)
+			}
+		}
 	}
 	return
 }
@@ -33,7 +49,21 @@ func (s *Store) writeSettings(ctx context.Context, tx *sql.Tx, i core.Identity, 
 	if _, e := tx.ExecContext(ctx, "UPDATE settings SET usage_history_floor=GREATEST(usage_history_floor,clock_timestamp()-LEAST(usage_days,$1)*interval '1 day')", v.UsageDays); e != nil {
 		return v, e
 	}
-	d, e := json.Marshal(v.Destinations)
+	if v.DestinationRules == nil {
+		for _, origin := range v.Destinations {
+			v.DestinationRules = append(v.DestinationRules, AllowedDestination{Origin: origin})
+		}
+	}
+	rules, e := core.NormalizeDestinationRules(v.DestinationRules)
+	if e != nil {
+		return v, e
+	}
+	v.DestinationRules = rules
+	v.Destinations = nil
+	for _, r := range rules {
+		v.Destinations = append(v.Destinations, r.Origin)
+	}
+	d, e := json.Marshal(rules)
 	if e != nil {
 		return v, e
 	}

@@ -37,6 +37,9 @@ func testStore(t *testing.T) *Store {
 	if e = s.Migrate(context.Background()); e != nil {
 		t.Fatal(e)
 	}
+	if e = s.RegisterAdmissionInstance(context.Background()); e != nil {
+		t.Fatal(e)
+	}
 	return s
 }
 func user(t *testing.T, s *Store, subject string) User {
@@ -892,6 +895,9 @@ func TestStateAndAdmissionAcrossInstances(t *testing.T) {
 	}
 	defer second.Close()
 	if e = second.Migrate(ctx); e != nil {
+		t.Fatal(e)
+	}
+	if e = second.RegisterAdmissionInstance(ctx); e != nil {
 		t.Fatal(e)
 	}
 	value, e := second.GetState(ctx, sc, core.Responses, "restart")

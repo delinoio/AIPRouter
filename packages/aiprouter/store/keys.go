@@ -136,6 +136,9 @@ func (s *Store) Admit(ctx context.Context, raw string) (l Lease, e error) {
 		if e != nil {
 			return e
 		}
+		if e = s.guardInstance(ctx, tx, s.instanceID, true); e != nil {
+			return e
+		}
 		var rpm, concurrent, n, active int
 		var retry float64
 		e = tx.QueryRowContext(ctx, `SELECT rpm,concurrency FROM settings WHERE singleton`).Scan(&rpm, &concurrent)
@@ -153,7 +156,7 @@ func (s *Store) Admit(ctx context.Context, raw string) (l Lease, e error) {
 			return &LimitError{time.Duration(retry * float64(time.Second))}
 		}
 		l = Lease{p, core.ID()}
-		_, e = tx.ExecContext(ctx, "INSERT INTO admissions(id,org_id,user_id,key_id,generation) VALUES($1,$2,$3,$4,$5)", l.ID, p.Scope.OrganizationID, p.Scope.UserID, p.KeyID, p.Scope.Generation)
+		_, e = tx.ExecContext(ctx, "INSERT INTO admissions(id,org_id,user_id,key_id,generation,instance_id) VALUES($1,$2,$3,$4,$5,$6)", l.ID, p.Scope.OrganizationID, p.Scope.UserID, p.KeyID, p.Scope.Generation, s.instanceID)
 		if e != nil {
 			return e
 		}
@@ -174,7 +177,11 @@ func (s *Store) checkLease(ctx context.Context, tx *sql.Tx, l Lease) error {
 	if !ok {
 		return ErrForbidden
 	}
-	return nil
+	var instance string
+	if e := tx.QueryRowContext(ctx, "SELECT instance_id FROM admissions WHERE id=$1", l.ID).Scan(&instance); e != nil {
+		return noRows(e)
+	}
+	return s.guardInstance(ctx, tx, instance, false)
 }
 func (s *Store) CheckDispatch(ctx context.Context, l Lease) error {
 	return s.tx(ctx, func(tx *sql.Tx) error { return s.checkLease(ctx, tx, l) })
@@ -200,6 +207,10 @@ func (s *Store) Release(ctx context.Context, l Lease) error {
 			return e
 		}
 		_, e := tx.ExecContext(ctx, "UPDATE admissions SET released=true WHERE id=$1 AND org_id=$2 AND user_id=$3 AND key_id=$4 AND generation=$5", l.ID, l.Principal.Scope.OrganizationID, l.Principal.Scope.UserID, l.Principal.KeyID, l.Principal.Scope.Generation)
+		if e != nil {
+			return e
+		}
+		_, e = tx.ExecContext(ctx, "DELETE FROM mistral_waiters WHERE admission_id=$1 AND org_id=$2 AND user_id=$3 AND key_id=$4 AND generation=$5", l.ID, l.Principal.Scope.OrganizationID, l.Principal.Scope.UserID, l.Principal.KeyID, l.Principal.Scope.Generation)
 		return e
 	})
 }
