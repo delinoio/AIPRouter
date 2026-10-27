@@ -1,0 +1,273 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+package aiprouter.v1;
+
+import "aiprouter/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/delinoio/AIPRouter/protos/aiprouter/v1;aiprouterv1";
+
+// Provider IDs are catalog identifiers from the pinned compatibility inventory, not a closed vendor enum.
+message ProviderDefinition {
+  string id = 1;
+  string display_name = 2;
+  repeated ProviderAuthKind auth_kinds = 3;
+  repeated ApiShape api_shapes = 4;
+}
+
+// Metadata only. No read RPC exposes credential values, OAuth codes, or tokens.
+message ProviderConnection {
+  string id = 1;
+  string organization_id = 2;
+  string provider_id = 3;
+  string name = 4;
+  string base_url = 5;
+  ProviderAuthKind auth_kind = 6;
+  ConnectionState state = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp cooldown_until = 9;
+  optional uint32 stall_timeout_seconds = 10;
+}
+message ProviderOAuth {
+  string id = 1;
+  OAuthState state = 2;
+  string authorization_url = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  string connection_id = 5;
+  optional string user_code = 6;
+  optional uint32 poll_interval_seconds = 7;
+}
+message PoolMember {
+  string connection_id = 1;
+  uint32 priority = 2;
+  uint32 weight = 3;
+}
+message Pool {
+  string id = 1;
+  string organization_id = 2;
+  string name = 3;
+  PoolStrategy strategy = 4;
+  repeated PoolMember members = 5;
+}
+message RouteTarget {
+  oneof target {
+    string connection_id = 1;
+    string pool_id = 2;
+  }
+  string model_id = 3;
+  uint32 priority = 4;
+  uint32 weight = 5;
+}
+message Route {
+  string id = 1;
+  string organization_id = 2;
+  string model_id = 3;
+  RoutingStrategy strategy = 4;
+  repeated RouteTarget targets = 5;
+  bool enabled = 6;
+}
+service ProviderService {
+  rpc ListProviderCatalog(ListProviderCatalogRequest) returns (ListProviderCatalogResponse) {
+    option (auth_scope) = AUTH_SCOPE_WEB_SESSION;
+  }
+  rpc ListProviderConnections(ListProviderConnectionsRequest) returns (ListProviderConnectionsResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc CreateProviderConnection(CreateProviderConnectionRequest) returns (CreateProviderConnectionResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc UpdateProviderConnection(UpdateProviderConnectionRequest) returns (UpdateProviderConnectionResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc DeleteProviderConnection(DeleteProviderConnectionRequest) returns (DeleteProviderConnectionResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc BeginProviderOAuth(BeginProviderOAuthRequest) returns (BeginProviderOAuthResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc GetProviderOAuth(GetProviderOAuthRequest) returns (GetProviderOAuthResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc CompleteProviderOAuth(CompleteProviderOAuthRequest) returns (CompleteProviderOAuthResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc CancelProviderOAuth(CancelProviderOAuthRequest) returns (CancelProviderOAuthResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc ListProviderModels(ListProviderModelsRequest) returns (ListProviderModelsResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+}
+message ListProviderCatalogRequest {}
+message ListProviderCatalogResponse {
+  repeated ProviderDefinition providers = 1;
+}
+message ListProviderConnectionsRequest {
+  string organization_id = 1;
+  PageRequest page = 2;
+}
+message ListProviderConnectionsResponse {
+  repeated ProviderConnection connections = 1;
+  PageResponse page = 2;
+}
+message CreateProviderConnectionRequest {
+  string organization_id = 1;
+  string provider_id = 2;
+  string name = 3;
+  string base_url = 4;
+  ProviderAuthKind auth_kind = 5;
+  optional string api_key = 6;
+  optional uint32 stall_timeout_seconds = 7;
+}
+message CreateProviderConnectionResponse {
+  ProviderConnection connection = 1;
+}
+message UpdateProviderConnectionRequest {
+  string organization_id = 1;
+  string connection_id = 2;
+  optional string name = 3;
+  optional string base_url = 4;
+  optional string api_key = 5;
+  optional bool enabled = 6;
+  optional uint32 stall_timeout_seconds = 7;
+  bool reset_stall_timeout = 8;
+}
+message UpdateProviderConnectionResponse {
+  ProviderConnection connection = 1;
+}
+message DeleteProviderConnectionRequest {
+  string organization_id = 1;
+  string connection_id = 2;
+}
+message DeleteProviderConnectionResponse {}
+message BeginProviderOAuthRequest {
+  string organization_id = 1;
+  string provider_id = 2;
+  string name = 3;
+  optional string connection_id = 4;
+}
+message BeginProviderOAuthResponse {
+  ProviderOAuth authorization = 1;
+}
+message GetProviderOAuthRequest {
+  string organization_id = 1;
+  string authorization_id = 2;
+}
+message GetProviderOAuthResponse {
+  ProviderOAuth authorization = 1;
+}
+message CompleteProviderOAuthRequest {
+  string organization_id = 1;
+  string authorization_id = 2;
+  string code = 3;
+  string state = 4;
+}
+message CompleteProviderOAuthResponse {
+  ProviderConnection connection = 1;
+}
+message CancelProviderOAuthRequest {
+  string organization_id = 1;
+  string authorization_id = 2;
+}
+message CancelProviderOAuthResponse {}
+message ListProviderModelsRequest {
+  string organization_id = 1;
+  string connection_id = 2;
+}
+message ListProviderModelsResponse {
+  repeated Model models = 1;
+}
+service PoolService {
+  rpc ListPools(ListPoolsRequest) returns (ListPoolsResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc CreatePool(CreatePoolRequest) returns (CreatePoolResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc UpdatePool(UpdatePoolRequest) returns (UpdatePoolResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc DeletePool(DeletePoolRequest) returns (DeletePoolResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+}
+message ListPoolsRequest {
+  string organization_id = 1;
+  PageRequest page = 2;
+}
+message ListPoolsResponse {
+  repeated Pool pools = 1;
+  PageResponse page = 2;
+}
+message CreatePoolRequest {
+  string organization_id = 1;
+  string name = 2;
+  PoolStrategy strategy = 3;
+  repeated PoolMember members = 4;
+}
+message CreatePoolResponse {
+  Pool pool = 1;
+}
+message UpdatePoolRequest {
+  string organization_id = 1;
+  string pool_id = 2;
+  string name = 3;
+  PoolStrategy strategy = 4;
+  repeated PoolMember members = 5;
+}
+message UpdatePoolResponse {
+  Pool pool = 1;
+}
+message DeletePoolRequest {
+  string organization_id = 1;
+  string pool_id = 2;
+}
+message DeletePoolResponse {}
+service RoutingService {
+  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc CreateRoute(CreateRouteRequest) returns (CreateRouteResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc UpdateRoute(UpdateRouteRequest) returns (UpdateRouteResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+  rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse) {
+    option (auth_scope) = AUTH_SCOPE_ORGANIZATION_MEMBER;
+  }
+}
+message ListRoutesRequest {
+  string organization_id = 1;
+  PageRequest page = 2;
+}
+message ListRoutesResponse {
+  repeated Route routes = 1;
+  PageResponse page = 2;
+}
+message CreateRouteRequest {
+  string organization_id = 1;
+  string model_id = 2;
+  RoutingStrategy strategy = 3;
+  repeated RouteTarget targets = 4;
+  bool enabled = 5;
+}
+message CreateRouteResponse {
+  Route route = 1;
+}
+message UpdateRouteRequest {
+  string organization_id = 1;
+  string route_id = 2;
+  string model_id = 3;
+  RoutingStrategy strategy = 4;
+  repeated RouteTarget targets = 5;
+  bool enabled = 6;
+}
+message UpdateRouteResponse {
+  Route route = 1;
+}
+message DeleteRouteRequest {
+  string organization_id = 1;
+  string route_id = 2;
+}
+message DeleteRouteResponse {}
