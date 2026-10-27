@@ -386,3 +386,55 @@ func TestNativeFillFirstExcludedActiveSuccessor(t *testing.T) {
 		t.Fatalf("successor: %v %v", got, e)
 	}
 }
+
+func TestNativeWorkspaceDenialPreservesAffinity(t *testing.T) {
+	a, sc, key := poolRoutingFixture(t, v1.PoolStrategy_POOL_STRATEGY_PRIORITY)
+	p := admitRouting(t, a, key)
+	ctx := context.Background()
+	l, e := a.current(p)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, version, e := a.s.GetPrivateVersion(ctx, sc, "provider", "a")
+	if e != nil {
+		t.Fatal(e)
+	}
+	target := inference.Target{Provider: "logical", Model: "gpt-6-astra", Auth: inference.OAuth}
+	s := nativeSelectionState{Provider: "openai", Group: "native/openai/test", Version: "config", Session: "session", ActiveSession: "active"}
+	for _, session := range []string{s.Session, s.ActiveSession} {
+		snap, e := a.s.GetNativeAffinity(ctx, l, s.Group, s.Version, session)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if session == s.Session {
+			s.Epoch = snap.Epoch
+		} else {
+			s.ActiveEpoch = snap.Epoch
+		}
+		if e = a.s.FinishNativeAffinity(ctx, l, s.Group, s.Version, session, "a", version, snap.Epoch, true); e != nil {
+			t.Fatal(e)
+		}
+	}
+	a.native = map[string]nativeSelectionState{selectionKey(target): s}
+	in := inference.AdapterInput{Principal: p, Target: target, Credential: inference.Credential{AccountID: "a", CredentialVersion: version}}
+	for _, body := range []string{`{"code":"codex_workspace_access_denied"}`, `{"error":{"code":"workspace_access_denied"}}`, `{"detail":{"code":"codex_entitlement_missing"}}`, `{"code":"entitlement_missing"}`} {
+		if e = a.failNative(ctx, in, inference.HTTPFailure{Status: 403, Body: []byte(body)}); e != nil {
+			t.Fatal(e)
+		}
+		for _, session := range []string{s.Session, s.ActiveSession} {
+			snap, e := a.s.GetNativeAffinity(ctx, l, s.Group, s.Version, session)
+			if e != nil || snap.AccountID != "a" {
+				t.Fatalf("structured refusal cleared %s: %+v %v", session, snap, e)
+			}
+		}
+	}
+	if e = a.failNative(ctx, in, inference.HTTPFailure{Status: 403, Body: []byte(`{"error":{"message":"workspace_access_denied"}}`)}); e != nil {
+		t.Fatal(e)
+	}
+	for _, session := range []string{s.Session, s.ActiveSession} {
+		snap, e := a.s.GetNativeAffinity(ctx, l, s.Group, s.Version, session)
+		if e != nil || snap.AccountID != "" {
+			t.Fatalf("ordinary 403 retained %s: %+v %v", session, snap, e)
+		}
+	}
+}

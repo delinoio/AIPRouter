@@ -479,7 +479,7 @@ func (a *inferenceAdapter) failNative(ctx context.Context, in inference.AdapterI
 	}
 	clear := false
 	if s.Provider == "openai" {
-		clear = f.Status == http.StatusUnauthorized || f.Status == http.StatusForbidden || f.Status == http.StatusTooManyRequests || f.Status == http.StatusPaymentRequired
+		clear = f.Status == http.StatusUnauthorized || f.Status == http.StatusForbidden && !nativeHealthWorkspaceDenied(f) || f.Status == http.StatusTooManyRequests || f.Status == http.StatusPaymentRequired
 	} else {
 		clear = anthropicRevoked(f) || anthropicAccountRefusal(f)
 		if f.Status == 429 {
