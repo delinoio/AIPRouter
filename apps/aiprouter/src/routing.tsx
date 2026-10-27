@@ -1,0 +1,710 @@
+// SPDX-License-Identifier: Apache-2.0
+import { useState } from "react";
+import { useQuery } from "@connectrpc/connect-query";
+import {
+  PoolService,
+  RoutingService,
+  ProviderService,
+  PoolStrategy,
+  RoutingStrategy,
+  ConnectionState,
+  type Pool,
+  type Route,
+  type ProviderConnection,
+  type RouteTarget,
+} from "@aiprouter/client";
+import { useApi, type PageProps, pageSize } from "./api";
+import { useAction } from "./actions";
+import { usePersonalResources } from "./resources";
+import {
+  PageHeader,
+  Button,
+  Card,
+  Field,
+  Dialog,
+  ConfirmDialog,
+  ErrorNotice,
+  Loading,
+  EmptyState,
+  Notice,
+  Pagination,
+  Badge,
+  enumLabel,
+} from "./ui";
+export function PoolsPage({ organization }: PageProps) {
+  const api = useApi();
+  const action = useAction();
+  const [token, setToken] = useState("");
+  const [edit, setEdit] = useState<Pool | true>();
+  const [remove, setRemove] = useState<Pool>();
+  const query = useQuery(PoolService.method.listPools, {
+    organizationId: organization.id,
+    page: { pageSize, pageToken: token },
+  });
+  const { connections: accounts, pools } = usePersonalResources(
+    organization.id,
+  );
+  return (
+    <>
+      <PageHeader
+        title="Account pools"
+        description={`Only yours in ${organization.name}.`}
+        action={
+          <Button variant="primary" onClick={() => setEdit(true)}>
+            Create pool
+          </Button>
+        }
+      />
+      <Notice>
+        Pools group your own connections. Strategy and provider policies
+        determine which account serves a request.
+      </Notice>
+      {action.feedback}
+      <ErrorNotice error={query.error} />
+      {query.isPending ? (
+        <Loading />
+      ) : query.data?.pools.length === 0 ? (
+        <EmptyState title="Create your first pool">
+          Connect providers before adding them to a pool.
+        </EmptyState>
+      ) : (
+        <div className="records">
+          {query.data?.pools.map((pool) => (
+            <Card key={pool.id} className="record">
+              <div>
+                <h2>{pool.name}</h2>
+                <p>{enumLabel(PoolStrategy[pool.strategy])}</p>
+                <ol>
+                  {pool.members
+                    .toSorted((a, b) => a.priority - b.priority)
+                    .map((m) => (
+                      <li key={m.connectionId}>
+                        {accounts.data?.find((c) => c.id === m.connectionId)
+                          ?.name ??
+                          `Unavailable connection (${m.connectionId})`}{" "}
+                        · Weight {m.weight}
+                      </li>
+                    ))}
+                </ol>
+              </div>
+              <div className="actions">
+                <Button onClick={() => setEdit(pool)}>Edit pool</Button>
+                <Button variant="danger" onClick={() => setRemove(pool)}>
+                  Delete
+                </Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+      <Pagination
+        next={query.data?.page?.nextPageToken}
+        onNext={setToken}
+        onFirst={() => setToken("")}
+        hasPrevious={!!token}
+      />
+      {edit && (
+        <PoolEditor
+          pool={edit === true ? undefined : edit}
+          accounts={accounts.data ?? []}
+          partial={false}
+          error={action.error ?? accounts.error}
+          pending={action.pending}
+          onClose={() => setEdit(undefined)}
+          onSave={(v) => {
+            void action.run<unknown>(
+              () =>
+                edit === true
+                  ? api.pool.createPool({
+                      organizationId: organization.id,
+                      ...v,
+                    })
+                  : api.pool.updatePool({
+                      organizationId: organization.id,
+                      poolId: edit.id,
+                      ...v,
+                    }),
+              () => setEdit(undefined),
+            );
+          }}
+        />
+      )}
+      {remove && (
+        <ConfirmDialog
+          title={`Delete ${remove.name}?`}
+          confirmLabel="Delete pool"
+          onClose={() => setRemove(undefined)}
+          pending={action.pending}
+          error={action.error}
+          onConfirm={() => {
+            void action.run(
+              () =>
+                api.pool.deletePool({
+                  organizationId: organization.id,
+                  poolId: remove.id,
+                }),
+              () => setRemove(undefined),
+              "Pool deleted.",
+            );
+          }}
+        >
+          Connections remain available. Routes using this pool must be repaired
+          before future requests can use them.{" "}
+          <a href={`?organization=${organization.id}&page=routing`}>
+            Review routing
+          </a>
+          .
+        </ConfirmDialog>
+      )}
+    </>
+  );
+}
+type PoolValues = {
+  name: string;
+  strategy: PoolStrategy;
+  members: { connectionId: string; priority: number; weight: number }[];
+};
+function PoolEditor({
+  pool,
+  accounts,
+  partial,
+  onClose,
+  onSave,
+  pending,
+  error,
+}: {
+  pool?: Pool;
+  accounts: ProviderConnection[];
+  partial: boolean;
+  onClose: () => void;
+  onSave: (v: PoolValues) => void;
+  pending: boolean;
+  error: unknown;
+}) {
+  const [name, setName] = useState(pool?.name ?? "");
+  const [strategy, setStrategy] = useState(
+    pool?.strategy ?? PoolStrategy.PRIORITY,
+  );
+  const [members, setMembers] = useState(
+    pool?.members.map((m) => ({
+      connectionId: m.connectionId,
+      priority: m.priority,
+      weight: m.weight,
+    })) ?? [],
+  );
+  return (
+    <Dialog title={pool ? "Edit pool" : "Create pool"} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave({
+            name: name.trim(),
+            strategy,
+            members: members.map((m, i) => ({ ...m, priority: i })),
+          });
+        }}
+      >
+        <Field label="Pool name">
+          <input
+            required
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        <Field label="Strategy">
+          <select
+            value={strategy}
+            onChange={(e) => setStrategy(Number(e.target.value))}
+          >
+            {[
+              PoolStrategy.PRIORITY,
+              PoolStrategy.ROUND_ROBIN,
+              PoolStrategy.LEAST_RECENTLY_USED,
+            ].map((s) => (
+              <option key={s} value={s}>
+                {enumLabel(PoolStrategy[s])}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <fieldset>
+          <legend>Your connections, in priority order</legend>
+          {members.map((m, i) => (
+            <div key={m.connectionId} className="target-row">
+              <strong>
+                {accounts.find((a) => a.id === m.connectionId)?.name ??
+                  "Unavailable connection"}
+              </strong>
+              <Field label="Weight">
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={m.weight}
+                  onChange={(e) =>
+                    setMembers((old) =>
+                      old.map((x, j) =>
+                        j === i ? { ...x, weight: Number(e.target.value) } : x,
+                      ),
+                    )
+                  }
+                />
+              </Field>
+              <Button
+                disabled={i === 0}
+                onClick={() =>
+                  setMembers((old) => {
+                    const next = [...old];
+                    [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                    return next;
+                  })
+                }
+              >
+                Move up
+              </Button>
+              <Button
+                onClick={() =>
+                  setMembers((old) => old.filter((_, j) => j !== i))
+                }
+              >
+                Remove
+              </Button>
+            </div>
+          ))}
+          <Field label="Add a connection">
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value)
+                  setMembers((old) => [
+                    ...old,
+                    {
+                      connectionId: e.target.value,
+                      priority: old.length,
+                      weight: 1,
+                    },
+                  ]);
+              }}
+            >
+              <option value="">Choose your connection</option>
+              {accounts
+                .filter(
+                  (a) =>
+                    a.state === ConnectionState.READY &&
+                    !members.some((m) => m.connectionId === a.id),
+                )
+                .map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+            </select>
+          </Field>
+        </fieldset>
+        {partial && (
+          <Notice tone="warning">
+            Only the first {pageSize} connections are available in this editor.
+          </Notice>
+        )}
+        <ErrorNotice error={error} />
+        <div className="actions">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={pending || !name.trim() || !members.length}
+          >
+            Save pool
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+export function RoutingPage({ organization }: PageProps) {
+  const api = useApi();
+  const action = useAction();
+  const [token, setToken] = useState("");
+  const [edit, setEdit] = useState<Route | true>();
+  const [remove, setRemove] = useState<Route>();
+  const query = useQuery(RoutingService.method.listRoutes, {
+    organizationId: organization.id,
+    page: { pageSize, pageToken: token },
+  });
+  const { connections: accounts, pools } = usePersonalResources(
+    organization.id,
+  );
+  return (
+    <>
+      <PageHeader
+        title="Your routing"
+        description={`Only yours in ${organization.name}.`}
+        action={
+          <Button variant="primary" onClick={() => setEdit(true)}>
+            Create route
+          </Button>
+        }
+      />
+      <Notice>
+        Model aliases choose your primary and fallback connections. Retry
+        behavior follows each provider's policy.
+      </Notice>
+      {action.feedback}
+      <ErrorNotice error={query.error} />
+      {query.isPending ? (
+        <Loading />
+      ) : query.data?.routes.length === 0 ? (
+        <EmptyState title="Configure your first model route">
+          Add a provider connection, then map a model alias to it.
+        </EmptyState>
+      ) : (
+        <div className="records">
+          {query.data?.routes.map((route) => (
+            <Card key={route.id} className="record">
+              <div>
+                <h2>{route.modelId}</h2>
+                <Badge>{route.enabled ? "Enabled" : "Disabled"}</Badge>
+                <p>{enumLabel(RoutingStrategy[route.strategy])}</p>
+                <ol>
+                  {route.targets
+                    .toSorted((a, b) => a.priority - b.priority)
+                    .map((t, i) => (
+                      <li key={i}>
+                        {t.target.case === "connectionId"
+                          ? (accounts.data?.find((c) => c.id === t.target.value)
+                              ?.name ?? "Unavailable connection")
+                          : (pools.data?.find((p) => p.id === t.target.value)
+                              ?.name ?? "Unavailable pool")}{" "}
+                        → {t.modelId} · Weight {t.weight}
+                      </li>
+                    ))}
+                </ol>
+              </div>
+              <div className="actions">
+                <Button onClick={() => setEdit(route)}>Edit route</Button>
+                <Button variant="danger" onClick={() => setRemove(route)}>
+                  Delete
+                </Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+      <Pagination
+        next={query.data?.page?.nextPageToken}
+        onNext={setToken}
+        onFirst={() => setToken("")}
+        hasPrevious={!!token}
+      />
+      {edit && (
+        <RouteEditor
+          route={edit === true ? undefined : edit}
+          accounts={accounts.data ?? []}
+          pools={pools.data ?? []}
+          partial={false}
+          pending={action.pending}
+          error={action.error ?? accounts.error ?? pools.error}
+          onClose={() => setEdit(undefined)}
+          onSave={(v) => {
+            void action.run<unknown>(
+              () =>
+                edit === true
+                  ? api.routing.createRoute({
+                      organizationId: organization.id,
+                      ...v,
+                    })
+                  : api.routing.updateRoute({
+                      organizationId: organization.id,
+                      routeId: edit.id,
+                      ...v,
+                    }),
+              () => setEdit(undefined),
+            );
+          }}
+        />
+      )}
+      {remove && (
+        <ConfirmDialog
+          title={`Delete route ${remove.modelId}?`}
+          confirmLabel="Delete route"
+          onClose={() => setRemove(undefined)}
+          pending={action.pending}
+          error={action.error}
+          onConfirm={() => {
+            void action.run(
+              () =>
+                api.routing.deleteRoute({
+                  organizationId: organization.id,
+                  routeId: remove.id,
+                }),
+              () => setRemove(undefined),
+              "Route deleted.",
+            );
+          }}
+        >
+          New requests for this alias can no longer use this route. Provider
+          connections and pools remain available.
+        </ConfirmDialog>
+      )}
+    </>
+  );
+}
+type TargetValue = {
+  target:
+    { case: "connectionId"; value: string } | { case: "poolId"; value: string };
+  modelId: string;
+  priority: number;
+  weight: number;
+};
+type RouteValues = {
+  modelId: string;
+  strategy: RoutingStrategy;
+  targets: TargetValue[];
+  enabled: boolean;
+};
+function RouteEditor({
+  route,
+  accounts,
+  pools,
+  partial,
+  pending,
+  error,
+  onClose,
+  onSave,
+}: {
+  route?: Route;
+  accounts: ProviderConnection[];
+  pools: Pool[];
+  partial: boolean;
+  pending: boolean;
+  error: unknown;
+  onClose: () => void;
+  onSave: (v: RouteValues) => void;
+}) {
+  const [name, setName] = useState(route?.modelId ?? "");
+  const [strategy, setStrategy] = useState(
+    route?.strategy ?? RoutingStrategy.FALLBACK,
+  );
+  const [enabled, setEnabled] = useState(route?.enabled ?? true);
+  const [targets, setTargets] = useState<TargetValue[]>(
+    route?.targets
+      .filter(
+        (t): t is RouteTarget & { target: TargetValue["target"] } =>
+          !!t.target.case,
+      )
+      .map((t) => ({
+        target: t.target,
+        modelId: t.modelId,
+        priority: t.priority,
+        weight: t.weight,
+      }))
+      .toSorted((a, b) => a.priority - b.priority) ?? [],
+  );
+  return (
+    <Dialog
+      title={route ? "Edit routing" : "Create route"}
+      onClose={onClose}
+      wide
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave({
+            modelId: name.trim(),
+            strategy,
+            enabled,
+            targets: targets.map((t, i) => ({ ...t, priority: i })),
+          });
+        }}
+      >
+        <Field label="Model alias">
+          <input
+            autoFocus
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        <Field label="Routing strategy">
+          <select
+            value={strategy}
+            onChange={(e) => setStrategy(Number(e.target.value))}
+          >
+            {[
+              RoutingStrategy.DIRECT,
+              RoutingStrategy.FALLBACK,
+              RoutingStrategy.WEIGHTED,
+              RoutingStrategy.ROUND_ROBIN,
+            ].map((s) => (
+              <option key={s} value={s}>
+                {enumLabel(RoutingStrategy[s])}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          Enabled
+        </label>
+        <h3>Ordered targets</h3>
+        {targets.map((t, i) => (
+          <fieldset key={i}>
+            <legend>{i === 0 ? "Primary" : `Fallback ${i}`}</legend>
+            <Field label="Connection or pool">
+              <select
+                value={`${t.target.case}:${t.target.value}`}
+                required
+                onChange={(e) => {
+                  const [kind, ...value] = e.target.value.split(":");
+                  setTargets((old) =>
+                    old.map((x, j) =>
+                      j === i
+                        ? {
+                            ...x,
+                            target: {
+                              case: kind as "connectionId" | "poolId",
+                              value: value.join(":"),
+                            },
+                          }
+                        : x,
+                    ),
+                  );
+                }}
+              >
+                <option value="">Choose a target</option>
+                {!accounts.some(
+                  (a) =>
+                    t.target.case === "connectionId" && a.id === t.target.value,
+                ) &&
+                  !pools.some(
+                    (p) =>
+                      t.target.case === "poolId" && p.id === t.target.value,
+                  ) &&
+                  t.target.value && (
+                    <option value={`${t.target.case}:${t.target.value}`}>
+                      Unavailable target
+                    </option>
+                  )}
+                {accounts
+                  .filter(
+                    (a) =>
+                      a.state === ConnectionState.READY ||
+                      t.target.value === a.id,
+                  )
+                  .map((a) => (
+                    <option key={a.id} value={`connectionId:${a.id}`}>
+                      {a.name}
+                      {a.state !== ConnectionState.READY
+                        ? " (unavailable)"
+                        : ""}
+                    </option>
+                  ))}
+                {pools.map((p) => (
+                  <option key={p.id} value={`poolId:${p.id}`}>
+                    Pool: {p.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Provider model ID">
+              <input
+                required
+                value={t.modelId}
+                onChange={(e) =>
+                  setTargets((old) =>
+                    old.map((x, j) =>
+                      j === i ? { ...x, modelId: e.target.value } : x,
+                    ),
+                  )
+                }
+              />
+            </Field>
+            <Field label="Weight">
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                value={t.weight}
+                onChange={(e) =>
+                  setTargets((old) =>
+                    old.map((x, j) =>
+                      j === i ? { ...x, weight: Number(e.target.value) } : x,
+                    ),
+                  )
+                }
+              />
+            </Field>
+            <div className="actions">
+              <Button
+                disabled={i === 0}
+                onClick={() =>
+                  setTargets((old) => {
+                    const next = [...old];
+                    [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                    return next;
+                  })
+                }
+              >
+                Move up
+              </Button>
+              <Button
+                onClick={() =>
+                  setTargets((old) => old.filter((_, j) => j !== i))
+                }
+              >
+                Remove target
+              </Button>
+            </div>
+          </fieldset>
+        ))}
+        <Button
+          onClick={() =>
+            setTargets((old) => [
+              ...old,
+              {
+                target: { case: "connectionId", value: "" },
+                modelId: "",
+                priority: old.length,
+                weight: 1,
+              },
+            ])
+          }
+        >
+          Add target
+        </Button>
+        {strategy === RoutingStrategy.DIRECT && targets.length !== 1 && (
+          <Notice tone="warning">
+            Direct routing needs exactly one target.
+          </Notice>
+        )}
+        {partial && (
+          <Notice tone="warning">
+            This editor shows the first {pageSize} connections and pools.
+          </Notice>
+        )}
+        <ErrorNotice error={error} />
+        <div className="actions">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={
+              pending ||
+              !name.trim() ||
+              !targets.length ||
+              targets.some((t) => !t.target.value || !t.modelId.trim()) ||
+              (strategy === RoutingStrategy.DIRECT && targets.length !== 1)
+            }
+          >
+            Save routing
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
