@@ -16,12 +16,15 @@ import (
 
 type requestKey struct{}
 type requestState struct {
-	mu      sync.Mutex
-	built   bool
-	aliases map[string]string
-	model   string
-	wire    inference.Wire
-	report  SchemaLossReport
+	mu       sync.Mutex
+	built    bool
+	aliases  map[string]string
+	model    string
+	wire     inference.Wire
+	report   SchemaLossReport
+	binding  string
+	replay   []replayEntry
+	complete bool
 }
 
 // PrepareContext allocates state for one Build/Decode attempt. The executor must
@@ -61,6 +64,7 @@ func stateForResponse(ctx context.Context) *responseState {
 	if s, _ := ctx.Value(requestKey{}).(*requestState); s != nil {
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		r.request = s
 		r.model = s.model
 		r.wire = s.wire
 		r.aliases = make(map[string]string, len(s.aliases))

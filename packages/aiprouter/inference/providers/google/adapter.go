@@ -187,6 +187,9 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	}
 	model = a.normalizeGeneration(body, root, model)
 	aliases := compileToolNames(body)
+	if state != nil {
+		state.restoreCalls(body, aliases)
+	}
 	report := SchemaLossReport{Version: 1, EndpointClass: "ai-studio", Categories: map[string]int{}}
 	if a.cca {
 		report.EndpointClass = "cloud-code-assist"
@@ -305,6 +308,7 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 		responseWire = inference.Anthropic
 	}
 	if state != nil {
+		state.binding = replayBinding(in)
 		state.built = true
 		state.aliases = aliases
 		state.report = report

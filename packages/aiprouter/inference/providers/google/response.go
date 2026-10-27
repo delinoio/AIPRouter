@@ -84,12 +84,15 @@ func (a *Adapter) Decode(ctx context.Context, response *http.Response) (*http.Re
 	if err != nil {
 		return nil, protocol()
 	}
+	state.completeReplay()
 	out.Body = io.NopCloser(bytes.NewReader(data))
 	out.Header.Set("Content-Type", "application/json")
 	return out, nil
 }
 
 type responseState struct {
+	request                             *requestState
+	replay                              []replayEntry
 	blocks                              []any
 	id, model, reason, thoughtSignature string
 	terminal                            bool
@@ -323,6 +326,11 @@ func (a *Adapter) convert(root object, s *responseState) (object, error) {
 			}
 			if realSignature(sig) {
 				tool["extra_content"] = opaqueSignature(sig)
+				if key := replayKey(name, args); key != "" {
+					bounded := requestState{replay: s.replay}
+					bounded.remember(key, sig)
+					s.replay = bounded.replay
+				}
 			}
 			calls = append(calls, tool)
 			block := object{"type": "tool_use", "id": id, "name": name, "input": args}
@@ -487,6 +495,7 @@ func (r *streamReader) Read(p []byte) (int, error) {
 				_ = r.Close()
 				return 0, failure(502, "google_incomplete_stream")
 			}
+			r.state.completeReplay()
 			terminal := object{"id": r.state.id, "object": "chat.completion.chunk", "model": r.state.model, "choices": []any{object{"index": 0, "delta": object{}, "finish_reason": r.state.finish()}}, "usage": r.state.usage}
 			r.pending = append(r.pending, encodeEvent(terminal)...)
 			r.pending = append(r.pending, []byte("data: [DONE]\n\n")...)
