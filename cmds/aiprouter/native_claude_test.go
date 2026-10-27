@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeClaudeFixture(t *testing.T, path, content string) {
@@ -340,5 +341,189 @@ func TestClaudeNativeOwnedEditRefusesRefreshAndRestore(t *testing.T) {
 	current, _ := os.ReadFile(changes[0].Path)
 	if !bytes.Equal(current, edited) || len(state.Records["claude"].Files) != 2 {
 		t.Fatal("conflict lost settings or backup")
+	}
+}
+
+func TestClaudeNativeLoopbackBypassPreservesUserValues(t *testing.T) {
+	for _, test := range []struct {
+		before any
+		after  string
+	}{
+		{nil, "127.0.0.1,localhost,::1,0.0.0.0"},
+		{"private.example,localhost, ", "private.example,localhost,127.0.0.1,::1,0.0.0.0"},
+		{"*", "*"},
+		{"127.0.0.1 LOCALHOST [::1] 0.0.0.0", "127.0.0.1 LOCALHOST [::1] 0.0.0.0"},
+	} {
+		got, err := claudeLoopbackBypass(test.before)
+		if err != nil || got != test.after {
+			t.Fatalf("bypass mismatch: %q %v", got, err)
+		}
+	}
+	if _, err := claudeLoopbackBypass(false); err == nil {
+		t.Fatal("non-string bypass replaced")
+	}
+}
+
+// This fixture creates proof only inside the test binary. Production callers
+// obtain the capability through the runtime controller after trust and consent.
+func claudeReadyFixture(profile string, mode NativeCompatibilityMode) NativeRuntimeReady {
+	proxy := "http://aiprouter:TEST_PROXY_SECRET@127.0.0.1:17844"
+	ca := filepath.Join(os.TempDir(), "fixture-ca.pem")
+	return NativeRuntimeReady{Profile: profile, Mode: mode, Build: NativeCompatibilityClaudeBuild, ProxyURL: proxy, CAPath: ca, proof: &nativeReadyProof{profile: profile, mode: mode, build: NativeCompatibilityClaudeBuild, proxyURL: proxy, caPath: ca, expires: time.Now().Add(time.Minute)}}
+}
+
+func TestClaudeNativeCompatibilityReadiness(t *testing.T) {
+	profile := testProfile()
+	resolver := Resolver{Home: realTemp(t), OS: "darwin", Env: map[string]string{}}
+	ready := claudeReadyFixture(profile.Name, NativeCompatibilityClaudeFirstParty)
+	for name, mutate := range map[string]func(*NativeRuntimeReady){
+		"missing":       func(r *NativeRuntimeReady) { r.proof = nil },
+		"changed-proxy": func(r *NativeRuntimeReady) { r.ProxyURL = "http://foreign.test" },
+		"expired":       func(r *NativeRuntimeReady) { r.proof.expires = time.Now().Add(-time.Second) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := claudeReadyFixture(profile.Name, NativeCompatibilityClaudeFirstParty)
+			mutate(&r)
+			if _, err := PlanClaudeCompatibility(resolver, emptyState(), profile, "", nil, r); err == nil {
+				t.Fatal("invalid readiness accepted")
+			}
+		})
+	}
+	other := claudeReadyFixture("other-profile", NativeCompatibilityClaudeFirstParty)
+	if _, err := PlanClaudeCompatibility(resolver, emptyState(), profile, "", nil, other); err == nil {
+		t.Fatal("another profile capability accepted")
+	}
+	changes, err := PlanClaudeCompatibility(resolver, emptyState(), profile, "", nil, ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var preview bytes.Buffer
+	Preview(&preview, changes)
+	if strings.Contains(preview.String(), "TEST_PROXY_SECRET") {
+		t.Fatal("proxy secret leaked")
+	}
+	ready.proof.expires = time.Now().Add(-time.Second)
+	state := emptyState()
+	if err := testDisk(t).Apply(&state, "claude", profile.Name, changes, answer(true)); err == nil {
+		t.Fatal("expired readiness accepted after preview")
+	}
+}
+
+func TestClaudeNativeCompatibilityFirstPartyRestore(t *testing.T) {
+	profile := testProfile()
+	resolver := Resolver{Home: realTemp(t), OS: "darwin", Env: map[string]string{}}
+	path, _ := resolver.Resolve("claude")
+	original := "{\"env\":{\"NO_PROXY\":\"private.example\",\"ANTHROPIC_API_KEY\":\"NATIVE_VENDOR_KEY\"},\"user\":true}\n"
+	writeClaudeFixture(t, path, original)
+	cacheDir := filepath.Join(filepath.Dir(path), "cache", "model-catalog")
+	cache := filepath.Join(cacheDir, "organization-cc.json")
+	untouched := filepath.Join(cacheDir, "organization-ccd.json")
+	writeClaudeFixture(t, cache, "{\"old\":true}\n")
+	secondCache := filepath.Join(cacheDir, "second-cc.json")
+	writeClaudeFixture(t, secondCache, "{}\n")
+	writeClaudeFixture(t, untouched, "{\"desktop\":true}\n")
+	state := emptyState()
+	disk := testDisk(t)
+	ready := claudeReadyFixture(profile.Name, NativeCompatibilityClaudeFirstParty)
+	changes, err := PlanClaudeCompatibility(resolver, state, profile, "UNUSED_REMOTE_KEY", nil, ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 3 || !changes[1].Remove || changes[0].RemoteKey {
+		t.Fatal("wrong compatibility transaction")
+	}
+	if bytes.Contains(changes[0].After, []byte("UNUSED_REMOTE_KEY")) || bytes.Contains(changes[0].After, []byte("HTTP_PROXY")) {
+		t.Fatal("unexpected credentials or proxy field")
+	}
+	if err := disk.Apply(&state, "claude", profile.Name, changes, answer(true)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(cache); !os.IsNotExist(err) {
+		t.Fatal("CLI served catalog not invalidated")
+	}
+	changes, err = PlanClaudeCompatibility(resolver, state, profile, "", nil, ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 3 || !changes[1].Remove || changes[1].Existed {
+		t.Fatal("removed cache baseline not retained")
+	}
+	if err := disk.Apply(&state, "claude", profile.Name, changes, answer(true)); err != nil {
+		t.Fatal(err)
+	}
+	if err := disk.Restore(&state, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	for target, want := range map[string]string{path: original, cache: "{\"old\":true}\n", secondCache: "{}\n", untouched: "{\"desktop\":true}\n"} {
+		got, _ := os.ReadFile(target)
+		if string(got) != want {
+			t.Fatalf("restoration mismatch %s", target)
+		}
+	}
+}
+
+func TestClaudeNativeCompatibilityPickerRestore(t *testing.T) {
+	profile := testProfile()
+	resolver := Resolver{Home: realTemp(t), OS: "windows", Env: map[string]string{}}
+	path, _ := resolver.Resolve("claude-desktop")
+	meta := filepath.Join(filepath.Dir(path), "_meta.json")
+	original := "{\"entries\":[{\"id\":\"standard\",\"name\":\"Standard\"}],\"appliedId\":\"standard\"}\n"
+	writeClaudeFixture(t, meta, original)
+	state := emptyState()
+	disk := testDisk(t)
+	ready := claudeReadyFixture(profile.Name, NativeCompatibilityClaudePicker)
+	changes, err := PlanClaudeCompatibility(resolver, state, profile, "", nil, ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := parseDocument(changes[0].After, JSON)
+	if err != nil || len(doc) != 1 || doc["egressProxyUrl"] != ready.ProxyURL {
+		t.Fatal("wrong picker profile")
+	}
+	if err := disk.Apply(&state, "claude-desktop", profile.Name, changes, answer(true)); err != nil {
+		t.Fatal(err)
+	}
+	changes, err = PlanClaudeCompatibility(resolver, state, profile, "", nil, ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := disk.Apply(&state, "claude-desktop", profile.Name, changes, answer(true)); err != nil {
+		t.Fatal(err)
+	}
+	if err := disk.Restore(&state, "claude-desktop"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(meta)
+	if string(got) != original {
+		t.Fatal("picker selection not restored")
+	}
+}
+
+func TestClaudeNativeCompatibilityForeignSettingsAndCatalogRace(t *testing.T) {
+	profile := testProfile()
+	resolver := Resolver{Home: realTemp(t), OS: "darwin", Env: map[string]string{}}
+	path, _ := resolver.Resolve("claude")
+	ready := claudeReadyFixture(profile.Name, NativeCompatibilityClaudeFirstParty)
+	writeClaudeFixture(t, path, "{\"env\":{\"HTTPS_PROXY\":\"http://foreign.example\"}}")
+	if _, err := PlanClaudeCompatibility(resolver, emptyState(), profile, "", nil, ready); err == nil {
+		t.Fatal("foreign proxy replaced")
+	}
+	writeClaudeFixture(t, path, "{}")
+	desktop, _ := resolver.Resolve("claude-desktop")
+	meta := filepath.Join(filepath.Dir(desktop), "_meta.json")
+	writeClaudeFixture(t, meta, "{\"entries\":[{\"id\":\"gateway\",\"name\":\"Gateway\"}],\"appliedId\":\"gateway\"}")
+	writeClaudeFixture(t, filepath.Join(filepath.Dir(desktop), "gateway.json"), "{\"inferenceProvider\":\"gateway\"}")
+	if _, err := PlanClaudeCompatibility(resolver, emptyState(), profile, "", nil, ready); err == nil {
+		t.Fatal("gateway silently treated as first-party")
+	}
+	writeClaudeFixture(t, meta, "{\"entries\":[]}")
+	changes, err := PlanClaudeCompatibility(resolver, emptyState(), profile, "", nil, ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeClaudeFixture(t, filepath.Join(filepath.Dir(path), "cache", "model-catalog", "late-cc.json"), "{}")
+	state := emptyState()
+	if err := testDisk(t).Apply(&state, "claude", profile.Name, changes, answer(true)); err == nil {
+		t.Fatal("new unpreviewed served catalog accepted")
 	}
 }
