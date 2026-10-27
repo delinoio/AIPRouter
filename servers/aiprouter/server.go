@@ -89,7 +89,7 @@ func (s *server) serveInference(w http.ResponseWriter, r *http.Request) {
 
 	adapter := &inferenceAdapter{s: s.store, telemetry: s.telemetry, prices: prices}
 	adapters := providerAdapters()
-	h, e := inference.New(inference.Config{Adapters: adapters, RecoveryPolicies: providerRecoveryPolicies(adapters), Authorizer: adapter, Router: adapter, Credentials: adapter, Continuations: adapter, LiveBindings: adapter, SocketDialer: outboundSocketDialer{}, Usage: adapter, Artifacts: artifactAdapter{service: s.artifacts, auth: adapter}, Observer: s.telemetry, Logger: s.telemetry.logger, Destinations: inference.DestinationPolicy{ApprovedOrigins: settings.Destinations}, MaxRequestBytes: 100 << 20})
+	h, e := inference.New(inference.Config{Adapters: adapters, RecoveryPolicies: adapter.recoveryPolicies(providerRecoveryPolicies(adapters)), RecoveryDestinations: adapter, Authorizer: adapter, Router: adapter, Views: adapter, Credentials: adapter, Continuations: adapter, ProviderStates: adapter, LiveBindings: adapter, SocketDialer: outboundSocketDialer{}, Usage: adapter, Artifacts: artifactAdapter{service: s.artifacts, auth: adapter}, Observer: s.telemetry, Logger: s.telemetry.logger, Destinations: inference.DestinationPolicy{ApprovedOrigins: settings.Destinations}, MaxRequestBytes: 100 << 20})
 	if e != nil {
 		http.Error(w, "inference unavailable", 503)
 		return

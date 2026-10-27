@@ -60,7 +60,7 @@ func (a *inferenceAdapter) ResolveBinding(ctx context.Context, p inference.Princ
 	if e != nil || version != stored.CredentialVersion {
 		return stored.Binding, inference.Credential{}, inference.ErrContinuation
 	}
-	credential, e := a.Select(ctx, p, stored.Binding.Target, "")
+	credential, e := a.SelectBound(ctx, p, stored.Binding.Target, stored.Binding.AccountID)
 	if e != nil || credential.AccountID != stored.Binding.AccountID {
 		return stored.Binding, inference.Credential{}, inference.ErrContinuation
 	}

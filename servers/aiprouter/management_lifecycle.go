@@ -15,6 +15,14 @@ import (
 func invitation(i store.Invitation) *v1.Invitation {
 	state := v1.LifecycleState_LIFECYCLE_STATE_PENDING
 	delivery := v1.DeliveryState_DELIVERY_STATE_QUEUED
+	switch i.DeliveryState {
+	case "sent":
+		delivery = v1.DeliveryState_DELIVERY_STATE_SENT
+	case "retry_pending":
+		delivery = v1.DeliveryState_DELIVERY_STATE_RETRY_PENDING
+	case "failed":
+		delivery = v1.DeliveryState_DELIVERY_STATE_FAILED
+	}
 	switch i.Status {
 	case "expired":
 		state = v1.LifecycleState_LIFECYCLE_STATE_EXPIRED

@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
 	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -19,10 +20,11 @@ type identityKey struct{}
 type bearerKey struct{}
 type sessionKey struct{}
 type management struct {
-	store     *store.Store
-	auth      *Auth
-	telemetry *telemetry
-	inference *inferenceAdapter
+	providerExecutor providers.Executor
+	store            *store.Store
+	auth             *Auth
+	telemetry        *telemetry
+	inference        *inferenceAdapter
 }
 
 func identity(ctx context.Context) Identity { i, _ := ctx.Value(identityKey{}).(Identity); return i }
@@ -66,7 +68,21 @@ func bearer(r *http.Request) string {
 	return strings.TrimSpace(strings.TrimPrefix(v, "Bearer "))
 }
 func connectErrorHTTP(w http.ResponseWriter, r *http.Request, code connect.Code, message string) {
-	_ = connect.NewErrorWriter().Write(w, r, connect.NewError(code, errors.New(message)))
+	e := connect.NewError(code, errors.New(message))
+	reason := v1.ErrorReason_ERROR_REASON_UNSPECIFIED
+	switch code {
+	case connect.CodePermissionDenied:
+		reason = v1.ErrorReason_ERROR_REASON_PERMISSION_DENIED
+	case connect.CodeUnauthenticated:
+		reason = v1.ErrorReason_ERROR_REASON_AUTHENTICATION_REQUIRED
+	case connect.CodeUnavailable:
+		reason = v1.ErrorReason_ERROR_REASON_DATABASE_UNAVAILABLE
+	}
+	if detail, err := connect.NewErrorDetail(&v1.ErrorDetail{Reason: reason, RequestId: requestID(r.Context())}); err == nil {
+		e.AddDetail(detail)
+	}
+	e.Meta().Set("X-Request-ID", requestID(r.Context()))
+	_ = connect.NewErrorWriter().Write(w, r, e)
 }
 func rpcError(err error) error {
 	if err == nil {
