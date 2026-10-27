@@ -109,3 +109,47 @@ Codex ordinary configuration preserves native provider identity, merges service 
 There is no unattended catalog refresher. Rerun `configure` to preview refreshed settings/catalogs. Source-preserving YAML flow-map and flow-sequence insertion is supported; shared anchored containers and unsupported alias shapes refuse. Not every upstream model-effort/default/modality mapping has complete parity. Filesystem recovery preserves conflicts; fixture tests do not establish safety against every external native writer race.
 
 Optional first-party TLS and experimental Desktop behavior have separate consent and cleanup requirements. See [native compatibility](native-compatibility.md).
+
+## Cursor Private Inference: manual gateway setup
+
+Cursor Private Inference is a separate local-agent build of Cursor. This guide follows the pinned compatibility reference, which inspected build 3.18.25; it is not a claim that a current download is available or that every later build behaves the same way. Cursor sign-in is still required. Obtain a suitable build yourself through a trusted Cursor distribution channel. AIPRouter does not download or install it.
+
+Regular Cursor's custom endpoint requests can originate from Cursor's servers, so a loopback address on your computer is not reachable through that workflow. Confirm that you are using the Private Inference build before selecting the loopback option below. Do not modify the application to imitate that build.
+
+This integration is manual. There is no `aiprouter configure --client cursor` command, automatic settings writer, installation detector, installer lookup, or Cursor-specific status card supplied by this guide. Make changes inside Cursor; do not edit its settings database or credential-store entries. Keep any existing gateway values you need to restore, without exposing their secrets.
+
+### Enter the URL and key
+
+1. In AIPRouter, select the intended organization, connect your own providers, and configure the model routes you want to use.
+2. Issue a personal inference key in that organization for direct HTTPS access. Record it securely when shown.
+3. In Cursor Private Inference, open **Settings → Models → Gateway**, then **Configure gateway**.
+4. Enter your server's public origin followed by `/v1`, for example `https://router.example.com/v1`. The hostname is a placeholder; use the actual operator-provided HTTPS address.
+5. Enter the issued AIPRouter inference key in **API Key**. This is an AIPRouter key, not a provider credential or OIDC login token. A placeholder is not valid for the remote service. Saving it here is an intentional additional copy in Cursor's own credential storage.
+6. Select **Refresh model list** and enable the returned model rows you want. Use the exact IDs returned for your organization/user routes; do not assume upstream example IDs exist in your account.
+
+Alternatively, use an existing named AIPRouter connection profile and its HTTP loopback relay on the same computer. Start it using the [relay commands above](#profiles-and-relay-trust). For the default relay port, enter `http://127.0.0.1:17843/v1`; substitute the profile's actual fixed port if different. The relay supplies its profile credential, so Cursor's required API Key field can contain a non-secret placeholder for this option. Do not paste the remote key into that field unnecessarily. This placeholder works only with the local relay, never with the direct HTTPS server.
+
+The relay has no separate local authentication, so other local processes share its access. Keep it on loopback and use it only under that computer trust policy. Stop it when no longer needed. This manual gateway setup does not require optional native TLS compatibility, certificate enrollment, or a public tunnel.
+
+### Models, reasoning, and context
+
+Refreshing the list requests `/v1/models`. A populated picker establishes model-list access, not successful inference, account entitlement, or complete protocol compatibility. Run a non-sensitive test with a selected route and inspect the resulting usage/error metadata. Cursor's local-agent workflow can add a substantial system prompt; allow for its token usage and the target model's context limit.
+
+| Control      | What determines it                                                                                               |
+| ------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Model picker | The gateway's authorized model list; refresh after changing routes or credentials                                |
+| Reasoning    | Advertised capabilities plus the installed Cursor build's own model-family table; some model IDs have no control |
+| Context      | Available model/context metadata and Cursor's UI rules; do not assume an enlarged context window is available    |
+
+A context-window or Max Mode choice is different from a reasoning-effort level. Do not infer `max` or `ultra` support from a label alone. The pinned client can choose a wire protocol from advertised API capabilities, and effort controls may not map identically across Responses and Anthropic Messages. A visible control does not prove that the selected provider received that effort. This guide does not promise upstream effort-row settings, a bundle-derived reasoning table, or an installed-client prediction UI in AIPRouter.
+
+The pinned Private Inference build uses the gateway's model list instead of the regular Cursor catalog; regular-client features such as Tab completion and Cloud Agents must not be assumed available. Configuring a Cursor provider connection in AIPRouter is a separate operation: it supplies an upstream account for routing and does not configure this desktop client. Neither operation authorizes AIPRouter to run local Cursor programs, shell commands, or filesystem tools as a provider backend.
+
+### Check and undo setup
+
+- If authentication fails on the direct server, check the key's organization, expiry, revocation, and membership. Do not replace it with a placeholder.
+- If the picker is empty, check the URL's `/v1` suffix, relay/server availability, and eligible routes, then refresh the model list. Cached client lists can require an app restart.
+- If reasoning/context controls are absent, check the installed client's capabilities and returned model metadata; do not invent model aliases or advertised capabilities to force a control.
+- To undo the manual setup, restore or clear the gateway values inside Cursor and revoke the dedicated AIPRouter key. For the relay option, stop/remove the relay and disconnect its profile when no longer needed. AIPRouter has no Cursor settings backup to restore automatically.
+
+No live Cursor sign-in, installed-app, platform, or provider acceptance is claimed. Cursor platform/build availability is separate from AIPRouter's CLI targets; in particular, the AIPRouter CLI does not target Windows ARM64.

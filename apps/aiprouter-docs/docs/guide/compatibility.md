@@ -26,6 +26,8 @@ The Compose packaging includes the console and API together, PostgreSQL, optiona
 
 Provider OAuth/refresh and advanced pool/routing selection are implemented, with automated fixtures rather than live provider acceptance. Complete provider-specific retry, quota, and discovery parity is not implied. Usage filtering/aggregation still requires its final service verification. Keep unavailable errors visible for unsupported provider methods or missing evidence. Optional [native TLS compatibility](native-compatibility.md) has separate build gates, consent, and cleanup requirements; the native command/runtime tests do not establish real OS trust or installed-application acceptance. The account-UI trial is implemented with independent personal-account checks, separate consent, and a three-minute maximum; these safeguards and automated tests do not establish live native-account acceptance.
 
+[Cursor Private Inference setup](clients.md#cursor-private-inference-manual-gateway-setup) is manual URL/key/model guidance. It is separate from the Cursor network provider and does not include automatic client mutation, installation, or real-app acceptance. Its reasoning/context controls depend on the installed client as well as gateway metadata.
+
 ## Explicit differences
 
 AIPRouter isolates personal credentials and routing by both organization and user. It requires OIDC, scoped inference keys, bounded encrypted temporary state, and R2 media expiry. Revocation, removal, cancellation, and database outages stop additional sends. Historical cost estimates retain the price used for the request. Local program execution as a provider and associated execution-agent features are excluded.
