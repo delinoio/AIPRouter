@@ -2,7 +2,7 @@
 
 ## Scope
 
-Owns planned `protos/aiprouter/v1`: versioned Protobuf schemas and committed generated Go bindings.
+Owns `protos/aiprouter/v1`: versioned Protobuf schemas and committed generated Go bindings.
 
 ## Runtime and Language
 
@@ -14,7 +14,18 @@ Server, console, and CLI connection-flow consumers.
 
 ## Interfaces and Contracts
 
-Define versioned Connect RPC contracts for organization, member, key, provider, usage, and operator management, plus the CLI/browser connection flow. Concrete message and method schemas are required implementation work, not established by this onboarding. Keep public inference wire protocols under the service compatibility contract. A stable public management API for external automation is excluded from the first release. Inference keys do not imply management permissions. New persisted entities use UUID v7; preserve externally required protocol ID shapes.
+Define versioned Connect RPC contracts for organization, member, key, provider, usage, and operator management, plus the CLI/browser connection flow. `management.proto` owns concrete messages and methods. `authorization.proto` declares method authorization scopes; runtime handlers enforce those scopes. Keep public inference wire protocols under the service compatibility contract. A stable public management API for external automation is excluded from the first release. Inference keys do not imply management permissions. New persisted entities use UUID v7; preserve externally required protocol ID shapes.
+
+### Service boundaries
+
+- `AccountService`, `OrganizationService`, `MembershipService`, `InvitationService`, and `OwnershipService` own identity and organization lifecycle.
+- `KeyService`, `ProviderService`, `PoolService`, and `RoutingService` manage personal resources within a selected organization.
+- `UsageService` and `AuditService` expose authorized metadata only.
+- `OperatorService` exposes instance settings and aggregate health without organization inspection parameters.
+- `DeviceAuthorizationService` binds CLI polling, confirmation, and compensation to a device secret. `DeviceApprovalService` requires a browser session and explicit approval.
+- `ClientService` grants only model discovery and self-revocation for the authenticated inference key.
+
+RPC paths use `/aiprouter.v1.<Service>/<Method>`. Personal requests select an organization; the authenticated session determines the user. Optional token and price fields distinguish unknown values from known zero. Decimal costs use strings. Never add prompts, responses, or stored secret values to metadata messages.
 
 ## Storage
 
@@ -30,7 +41,7 @@ Use structured logs and request identifiers. Never log provider secrets, API key
 
 ## Build and Test
 
-Generate reproducibly, check generated output for drift, and run Go tests and TypeScript consumer tests. Add protocol contract tests for authentication, error mapping, field presence, and cross-tenant isolation; use the [operations scenarios](servers-aiprouter-operations-contract.md).
+Run `protos/aiprouter/generate.sh` to generate Go, Connect Go, and TypeScript bindings. The script pins protoc 33.0 and the generator versions; install workspace dependencies first. Run `protos/aiprouter/generate.sh --check` to compare bytes and file sets without rewriting. Run `buf lint`, `buf format --diff --exit-code`, `go test ./protos/aiprouter/...`, and `pnpm --filter @aiprouter/client typecheck` plus its `test` command. Add protocol contract tests for authentication, error mapping, field presence, and cross-tenant isolation; use the [operations scenarios](servers-aiprouter-operations-contract.md).
 
 ## Dependencies and Integrations
 
