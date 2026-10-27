@@ -392,20 +392,24 @@ function AuthenticatedApp() {
         {page === "account" ? (
           account
         ) : page === "create" ? (
-          <OnboardingPage
-            onOrganizationCreated={(o) => {
-              window.location.assign(`?organization=${o.id}&page=overview`);
-            }}
-          />
+          <DirtyContext value={setDirty}>
+            <OnboardingPage
+              onOrganizationCreated={(o) => {
+                window.location.assign(`/?organization=${o.id}&page=overview`);
+              }}
+            />
+          </DirtyContext>
         ) : organizations.isPending ? (
           <Loading />
         ) : !organizations.data?.length ? (
-          <OnboardingPage
-            onOrganizationCreated={(o) => {
-              changeScope(o.id);
-              void organizations.refetch();
-            }}
-          />
+          <DirtyContext value={setDirty}>
+            <OnboardingPage
+              onOrganizationCreated={(o) => {
+                changeScope(o.id);
+                void organizations.refetch();
+              }}
+            />
+          </DirtyContext>
         ) : !selected ? (
           <Card>
             <h1>Choose your organization</h1>
