@@ -18,6 +18,7 @@ import (
 // An adapter is allocated per HTTP request or WebSocket. It never caches authorization.
 // WebSocket execution admits one active turn at a time; each turn replaces its lease.
 type inferenceAdapter struct {
+	native                       map[string]nativeSelectionState
 	jev                          *jevRequestPin
 	s                            *store.Store
 	telemetry                    *telemetry
@@ -262,12 +263,16 @@ func (a *inferenceAdapter) Record(ctx context.Context, p inference.Principal, r 
 		}
 	}
 	a.telemetry.logger.InfoContext(ctx, "usage processing", "request_id", requestID(ctx), "inference_request_id", r.RequestID, "usage_id", l.ID)
+	nativeErr := a.finishNative(ctx, p, r)
+	if nativeErr != nil {
+		a.telemetry.Event(ctx, "native_affinity_update_failed")
+	}
 	pinErr := a.finishJEV(ctx, r)
 	if pinErr != nil {
 		a.telemetry.Event(ctx, "jev_pin_update_failed")
 	}
 	e = a.s.RecordUsage(ctx, l, u)
-	return errors.Join(e, pinErr)
+	return errors.Join(e, pinErr, nativeErr)
 }
 
 var _ inference.Dispatcher = (*inferenceAdapter)(nil)

@@ -137,6 +137,12 @@ func modelEvidence(d providerData, model string, now time.Time) (routeModelView,
 			}
 		}
 	}
+	if fast := fastModelEvidence(d, model, now); fast != nil {
+		if out.Metadata == nil {
+			out.Metadata = map[string]any{}
+		}
+		out.Metadata["fast_row_available"] = *fast
+	}
 	if out.Name == "" {
 		out.Name = model
 	}
@@ -210,7 +216,7 @@ func (a *inferenceAdapter) modelViews(ctx context.Context, sc core.Scope) ([]rou
 			out = append(out, *view)
 		}
 	}
-	return out, nil
+	return expandFastModelViews(out), nil
 }
 
 // A route can use multiple accounts or models. Publish only their shared facts;
@@ -573,7 +579,7 @@ func (a *inferenceAdapter) clientModels(ctx context.Context, sc core.Scope) ([]*
 			}
 		}
 
-		for key, dest := range map[string]**bool{"supports_reasoning": &m.SupportsReasoning, "supports_reasoning_effort": &m.SupportsReasoningEffort, "supports_thinking_toggle": &m.SupportsThinkingToggle, "default_thinking_enabled": &m.DefaultThinkingEnabled, "supports_reasoning_summaries": &m.SupportsReasoningSummaries, "supports_tools": &m.SupportsTools} {
+		for key, dest := range map[string]**bool{"supports_reasoning": &m.SupportsReasoning, "supports_reasoning_effort": &m.SupportsReasoningEffort, "supports_thinking_toggle": &m.SupportsThinkingToggle, "default_thinking_enabled": &m.DefaultThinkingEnabled, "supports_reasoning_summaries": &m.SupportsReasoningSummaries, "supports_tools": &m.SupportsTools, "fast_row_available": &m.FastRowAvailable} {
 			if value, ok := view.Metadata[key].(bool); ok {
 				v := value
 				*dest = &v

@@ -46,6 +46,9 @@ func (p serviceRecoveryPolicy) RecoverHTTP(ctx context.Context, in inference.Ada
 	if err := ctx.Err(); err != nil {
 		return inference.RecoveryDecision{}, err
 	}
+	if err := p.adapter.failNative(ctx, in, f); err != nil {
+		return inference.RecoveryDecision{}, err
+	}
 	if err := p.adapter.observeMistral(ctx, in, f); err != nil {
 		return inference.RecoveryDecision{}, err
 	}

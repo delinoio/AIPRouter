@@ -16,6 +16,7 @@ import (
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/policy"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/azure"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/dsh"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/google"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/kiro"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/zed"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
@@ -25,6 +26,7 @@ import (
 )
 
 type routeSelection struct {
+	pool     *v1.Pool
 	request  store.SelectionRequest
 	target   inference.Target
 	provider string
@@ -36,6 +38,9 @@ func selectionVersion(v any) string {
 	return hex.EncodeToString(h[:])
 }
 func routeWire(r providers.Route) inference.Wire {
+	if r.Preset.ID == "google-vertex" {
+		return google.WireVertex
+	}
 	w := inference.Wire(r.Wire)
 	switch w {
 	case "google":
@@ -111,10 +116,17 @@ func resolvedProviderRoute(ctx context.Context, d providerData, model string) (p
 		}
 	}
 	r.BaseURL, r.Model, r.Wire = resolved.BaseURL, resolved.Model, resolved.Wire
+	if d.Metadata.ProviderId == "google-vertex" {
+		_, _, base, e := selectedVertexMetadata(d)
+		if e != nil {
+			return r, nil, e
+		}
+		r.BaseURL, resolved.BaseURL, resolved.Endpoint = base, base, ""
+	}
 	return r, &resolved, nil
 }
 func sameCredentialLane(a, b inference.Target) bool {
-	return a.BaseURL == b.BaseURL && a.Model == b.Model && a.Wire == b.Wire && a.Auth == b.Auth && a.Endpoint == b.Endpoint && policyIdentity(a) == policyIdentity(b)
+	return a.BaseURL == b.BaseURL && a.Model == b.Model && a.Wire == b.Wire && a.Auth == b.Auth && a.Endpoint == b.Endpoint && policyIdentity(a) == policyIdentity(b) && a.Fast == b.Fast && selectionVersion(a.FastPolicy) == selectionVersion(b.FastPolicy)
 }
 
 func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, model string, op inference.Operation) (inference.Route, error) {
@@ -126,17 +138,9 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 	if e != nil {
 		return inference.Route{}, e
 	}
-	var chosen *v1.Route
-	for _, r := range routes {
-		if routeAliasMatches(r.ModelId, model) {
-			if chosen != nil {
-				return inference.Route{}, &inference.Error{Status: 409, Code: "ambiguous_model_route"}
-			}
-			chosen = r
-		}
-	}
-	if chosen == nil {
-		return inference.Route{}, &inference.Error{Status: 404, Code: "model_not_found"}
+	chosen, syntheticFast, e := chooseFastRoute(routes, model)
+	if e != nil {
+		return inference.Route{}, e
 	}
 	routeBytes, routeVersion, e := a.s.GetPrivateVersion(ctx, sc, string(routeKind), chosen.Id)
 	if e != nil {
@@ -191,6 +195,11 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 			if e != nil {
 				return out, e
 			}
+			if syntheticFast {
+				if e = applyFastTarget(ctx, d, upstream, &t); e != nil {
+					return out, e
+				}
+			}
 			if target.Provider == "" {
 				target = t
 				provider = d.Metadata.ProviderId
@@ -221,7 +230,7 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 				req.AffinityTTL = 24 * time.Hour
 			}
 		}
-		selections[selectionKey(target)] = routeSelection{req, target, provider}
+		selections[selectionKey(target)] = routeSelection{request: req, target: target, provider: provider, pool: pool}
 		targetWeights[selectionKey(target)] = int(rt.Weight)
 		out.Targets = append(out.Targets, target)
 	}
@@ -237,6 +246,7 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 	a.selections = selections
 	a.connections = connections
 	a.attempted = map[string]map[string]bool{}
+	a.native = map[string]nativeSelectionState{}
 	a.mu.Unlock()
 	out, e = a.selectJEVRoute(ctx, p, chosen, out, selections)
 	if e != nil {
@@ -288,11 +298,14 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 }
 
 func credentialFor(ctx context.Context, d providerData, t inference.Target) (inference.Credential, error) {
-	current, e := targetForContext(ctx, d, t.Model)
+	current, e := selectedTargetForContext(ctx, d, t)
 	if e != nil || !sameCredentialLane(t, current) {
 		return inference.Credential{}, inference.ErrNoCredential
 	}
 	r, _, e := resolvedProviderRoute(ctx, d, t.Model)
+	if fastTargetRequested(t) {
+		r, _, e = resolvedFastProviderRoute(ctx, d, t.Model)
+	}
 	if e != nil {
 		return inference.Credential{}, inference.ErrNoCredential
 	}
@@ -312,6 +325,14 @@ func credentialFor(ctx context.Context, d providerData, t inference.Target) (inf
 		if d.Credential.ProjectID != "" {
 			c.Headers.Set("X-Aiprouter-Google-Project", d.Credential.ProjectID)
 		}
+	}
+	if d.Metadata.ProviderId == "google-vertex" {
+		project, location, _, err := selectedVertexMetadata(d)
+		if err != nil {
+			return inference.Credential{}, err
+		}
+		c.Headers.Set(google.ProjectHeader, project)
+		c.Headers.Set(google.LocationHeader, location)
 	}
 	if r.Wire == providers.Wire(azure.Wire) && d.Metadata.Configuration != nil && d.Metadata.Configuration.MinMaxOutputTokens != nil {
 		raw, err := json.Marshal(azure.Options{MinMaxOutputTokens: d.Metadata.Configuration.GetMinMaxOutputTokens()})
@@ -377,7 +398,7 @@ func (a *inferenceAdapter) Select(ctx context.Context, p inference.Principal, t 
 		if _, eligible := modelEvidence(d, t.Model, time.Now()); !eligible {
 			continue
 		}
-		current, e := targetForContext(ctx, d, t.Model)
+		current, e := selectedTargetForContext(ctx, d, t)
 		if e != nil || !sameCredentialLane(t, current) {
 			continue
 		}
@@ -386,6 +407,10 @@ func (a *inferenceAdapter) Select(ctx context.Context, p inference.Principal, t 
 	}
 	if len(req.Candidates) == 0 {
 		return inference.Credential{}, inference.ErrNoCredential
+	}
+	req, e = a.preselectNative(ctx, p, t, selection.provider, req)
+	if e != nil {
+		return inference.Credential{}, e
 	}
 	receipt, e := a.s.SelectAccount(ctx, lease, req)
 	if errors.Is(e, store.ErrNotFound) {
@@ -616,7 +641,7 @@ func providerInbound(ctx context.Context) providers.Inbound {
 const cursorPhysicalExchangeBudget = 2 + 256
 
 func selectionKey(t inference.Target) string {
-	return selectionVersion([]string{t.Provider, t.BaseURL, t.Model, string(t.Wire), string(t.Auth), t.Endpoint, policyIdentity(t)})
+	return selectionVersion([]string{t.Provider, t.BaseURL, t.Model, string(t.Wire), string(t.Auth), t.Endpoint, policyIdentity(t), selectionVersion(t.Fast), selectionVersion(t.FastPolicy)})
 }
 
 func genericAffinityEnabled(pool *v1.Pool, auth inference.AuthMode, provider string) bool {
@@ -634,4 +659,13 @@ func policyIdentity(t inference.Target) string {
 		return ""
 	}
 	return string(t.Policy.Metadata())
+}
+
+// Reapply semantic selectors against the current account before comparing its lane.
+func selectedTargetForContext(ctx context.Context, d providerData, t inference.Target) (inference.Target, error) {
+	current, err := targetForContext(ctx, d, t.Model)
+	if err == nil && fastTargetRequested(t) {
+		err = applyFastTarget(ctx, d, t.Model, &current)
+	}
+	return current, err
 }
