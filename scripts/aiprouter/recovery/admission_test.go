@@ -62,10 +62,17 @@ func TestStoppedInstanceRecovery(t *testing.T) {
 	must(t, err)
 	settings, err := first.Settings(ctx)
 	must(t, err)
-	settings.Concurrency = 2
+	settings.Concurrency = 3
 	must(t, first.UpdateSettings(ctx, operator, settings))
 	stale, err := first.Admit(ctx, key)
 	must(t, err)
+	completed, err := first.Admit(ctx, key)
+	must(t, err)
+	physicalSends := 0
+	must(t, first.WithDispatch(ctx, completed, func(context.Context) error {
+		physicalSends++
+		return nil
+	}))
 	live, err := second.Admit(ctx, key)
 	must(t, err)
 	// Age both deadline and creation time. Cleanup must not guess upstream completion.
@@ -83,7 +90,7 @@ func TestStoppedInstanceRecovery(t *testing.T) {
 	for _, instance := range instances {
 		if instance.ID == first.InstanceID() {
 			found = true
-			if instance.ActiveAdmissions != 1 {
+			if instance.ActiveAdmissions != 2 {
 				t.Fatal("stale admission missing from status")
 			}
 		}
@@ -96,7 +103,34 @@ func TestStoppedInstanceRecovery(t *testing.T) {
 	if _, err = first.Admit(ctx, key); !errors.Is(err, store.ErrInstanceDraining) {
 		t.Fatal("drained boot admitted a request")
 	}
-	must(t, first.CheckDispatch(ctx, stale))
+	if err = first.CheckDispatch(ctx, stale); !errors.Is(err, store.ErrInstanceDraining) {
+		t.Fatalf("drained boot dispatch check: expected ErrInstanceDraining, got %v", err)
+	}
+	for _, lease := range []store.Lease{stale, completed} {
+		err = first.WithDispatch(ctx, lease, func(context.Context) error {
+			physicalSends++
+			return nil
+		})
+		if !errors.Is(err, store.ErrInstanceDraining) {
+			t.Fatalf("drained boot physical-send gate: expected ErrInstanceDraining, got %v", err)
+		}
+	}
+	if physicalSends != 1 {
+		t.Fatal("drained boot invoked a physical-send callback")
+	}
+	// Completion of the pre-drain send can still record usage and release its slot.
+	must(t, first.RecordUsage(ctx, completed, store.Usage{Model: "fixture-completed", Provider: "fixture"}))
+	must(t, first.Release(ctx, completed))
+	var usageCount int
+	must(t, db.QueryRowContext(ctx, "SELECT count(*) FROM "+schema+".usage WHERE id=$1", completed.ID).Scan(&usageCount))
+	if usageCount != 1 {
+		t.Fatal("already-sent completion was not recorded after drain")
+	}
+	var completionReleased bool
+	must(t, db.QueryRowContext(ctx, "SELECT released FROM "+schema+".admissions WHERE id=$1", completed.ID).Scan(&completionReleased))
+	if !completionReleased {
+		t.Fatal("already-sent completion did not release its slot after drain")
+	}
 	if _, err = second.ReconcileTerminatedInstance(ctx, first.InstanceID(), proof, false); err == nil {
 		t.Fatal("reconciliation accepted no upstream-stop acknowledgment")
 	}
