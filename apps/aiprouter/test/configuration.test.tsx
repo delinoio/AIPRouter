@@ -126,9 +126,19 @@ describe("provider configuration mutations", () => {
       screen.getByRole("button", { name: "Add model override" }),
     );
     await user.type(screen.getByLabelText("Model ID 1"), "exact-model");
+    expect(
+      within(screen.getByLabelText("Model format 1")).queryByRole("option", {
+        name: "Google",
+      }),
+    ).toBeNull();
+    expect(
+      within(screen.getByLabelText("Model format 1")).queryByRole("option", {
+        name: "Anthropic",
+      }),
+    ).toBeNull();
     await user.selectOptions(
       screen.getByLabelText("Model format 1"),
-      String(ProviderWire.GOOGLE),
+      String(ProviderWire.RESPONSES),
     );
     await user.click(screen.getByText("Request compatibility policies"));
     await user.selectOptions(
@@ -150,7 +160,7 @@ describe("provider configuration mutations", () => {
       configuration: {
         wire: ProviderWire.ANTHROPIC,
         responsesPath: "/generate",
-        modelWires: { "exact-model": ProviderWire.GOOGLE },
+        modelWires: { "exact-model": ProviderWire.RESPONSES },
         policy: { parallelToolCalls: false, promptCacheKey: false },
       },
       customHeaders: { values: { "X-Private": "private-test-value" } },

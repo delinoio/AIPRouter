@@ -55,6 +55,10 @@ export function configurationValues(draft: ConfigurationDraft) {
       const id = row.id.trim();
       if (!id || Object.hasOwn(modelWires, id))
         throw new Error("Model IDs must be nonempty and unique.");
+      if (row.wire !== ProviderWire.CHAT && row.wire !== ProviderWire.RESPONSES)
+        throw new Error(
+          "Model overrides support only Chat completions or Responses.",
+        );
       modelWires[id] = row.wire;
     }
   const values: Record<string, string> = Object.create(null);
@@ -287,11 +291,17 @@ export function ConfigurationFields({
                       })
                     }
                   >
-                    {wires.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
+                    {wires
+                      .filter(
+                        ([wire]) =>
+                          wire === ProviderWire.CHAT ||
+                          wire === ProviderWire.RESPONSES,
+                      )
+                      .map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
                   </select>
                 </Field>
                 <Button
