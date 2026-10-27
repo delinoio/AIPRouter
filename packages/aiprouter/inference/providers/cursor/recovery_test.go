@@ -196,7 +196,7 @@ func TestNextTurnRotationDoesNotReplayVisibleTurn(t *testing.T) {
 		t.Fatal(events, err)
 	}
 	events, err = s.textEvents("Result]\nsensitive observation")
-	if err != nil || len(events) == 0 || !s.midstreamEcho {
+	if err != nil || len(events) != 0 || !s.midstreamEcho {
 		t.Fatal("observer did not retain finding", err)
 	}
 	for i := 0; i < 4; i++ {

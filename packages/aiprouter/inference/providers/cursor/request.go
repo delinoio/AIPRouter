@@ -181,67 +181,9 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 	} else if history[active].Role != "user" && history[active].Role != "developer" {
 		return bad("cursor_missing_active_user_message")
 	}
-	known := map[string]historyCall{}
-	rootCount, rootBytes := 0, 0
-	if len(state) > 0 {
-		m, e := parse(state)
-		if e != nil {
-			return inference.AdapterRequest{}, nil, inference.ErrContinuation
-		}
-		for _, f := range m {
-			if f.number == 1 {
-				rootCount++
-				b, ok := s.blobs[hex.EncodeToString(f.data)]
-				if !ok {
-					return inference.AdapterRequest{}, nil, inference.ErrContinuation
-				}
-				rootBytes += len(b)
-			}
-		}
-	}
-	for i, h := range history {
-		for _, c := range h.Calls {
-			known[c.ID] = c
-		}
-		if saved != nil && !saved.ReplayOnly && i < len(saved.History) {
-			continue
-		}
-		if i == active {
-			continue
-		}
-		role, content := h.Role, h.Text
-		if role == "developer" {
-			role = "system"
-		}
-		if role == "tool" {
-			c, ok := known[h.CallID]
-			if !ok {
-				return bad("cursor_unpaired_tool_result")
-			}
-			role = "assistant"
-			prefix := "[Tool Result]"
-			if h.IsError {
-				prefix = "[Tool Error]"
-			}
-			content = fmt.Sprintf("%s\n[tool_result]\ncall_id: %s\nname: %s\ninvoked: %s with %s\nis_error: %t\noutput:\n%s", prefix, c.ID, c.Name, c.Name, c.Arguments, h.IsError, content)
-		}
-		if content == "" {
-			continue
-		}
-		var rootContent any = []any{map[string]any{"type": "text", "text": content}}
-		if role == "system" {
-			rootContent = content
-		}
-		b, _ := json.Marshal(map[string]any{"role": role, "content": rootContent})
-		rootCount++
-		rootBytes += len(b)
-		if rootCount > MaxRoots || rootBytes > MaxRootBytes {
-			return bad("cursor_root_envelope_limit")
-		}
-		id := sha256.Sum256(b)
-		s.blobs[hex.EncodeToString(id[:])] = b
-		s.blobBytes += len(b)
-		state = append(state, pb(1, id[:])...)
+	state, err = s.buildRoots(history, active, saved, state, model)
+	if err != nil {
+		return inference.AdapterRequest{}, nil, err
 	}
 	if (saved == nil || saved.ReplayOnly) && nativeModel(model) {
 		turns, err := s.nativeReplay(history, active, tools)

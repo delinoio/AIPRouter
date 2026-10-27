@@ -44,11 +44,9 @@ type pendingExec struct {
 // Session is request-local and has no I/O or global caches. The central executor
 // owns synchronization, cancellation, pacing and all physical sends.
 type Session struct {
+	envelope                      envelopeFilter
 	guardEcho, observeReplay      bool
 	midstreamEcho                 bool
-	echoLine                      string
-	echoLineStart                 bool
-	echoScanned                   int
 	invalidArgument, recoverySafe bool
 	model, conversationID         string
 	owner                         Owner
@@ -72,7 +70,7 @@ type Session struct {
 }
 
 func newSession(model string, tools []tool) *Session {
-	s := &Session{echoLineStart: true, model: model, tools: map[string]tool{}, open: map[string]*openCall{}, completed: map[string]bool{}, pending: map[string]pendingExec{}, blobs: map[string][]byte{}, callIDs: map[string]string{}}
+	s := &Session{model: model, tools: map[string]tool{}, open: map[string]*openCall{}, completed: map[string]bool{}, pending: map[string]pendingExec{}, blobs: map[string][]byte{}, callIDs: map[string]string{}}
 	for _, t := range tools {
 		s.tools[t.WireName] = t
 		if !strings.HasPrefix(strings.TrimPrefix(strings.ToLower(model), "cursor/"), "claude-") && (t.WireName == "exec" || t.WireName == "exec_command" || t.WireName == "shell_command") {
@@ -564,6 +562,17 @@ func (s *Session) finish(cleanEnd bool) ([]Event, error) {
 		}
 		if text != "" {
 			released, err := s.textEvents(text)
+			if err != nil {
+				return nil, err
+			}
+			events = append(events, released...)
+		}
+	}
+	if s.observeReplay {
+		tail := s.envelope.finish()
+		s.midstreamEcho = s.envelope.matched || s.envelope.unverified
+		if tail != "" {
+			released, err := s.parseTextEvents(tail)
 			if err != nil {
 				return nil, err
 			}

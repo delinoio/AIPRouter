@@ -82,38 +82,3 @@ func (s *Session) guardText(chunk string, final bool) (string, error) {
 	s.guardDone = true
 	return text, nil
 }
-
-// Observe bounded line prefixes after visibility. Findings only rotate the next
-// conversation; already-visible output cannot trigger replay.
-func (s *Session) observeEcho(text string) {
-	if !s.observeReplay || s.echoScanned >= 512<<10 {
-		return
-	}
-	if len(text) > (512<<10)-s.echoScanned {
-		text = text[:(512<<10)-s.echoScanned]
-	}
-	s.echoScanned += len(text)
-	for _, r := range text {
-		if r == '\n' {
-			s.echoLine = ""
-			s.echoLineStart = false
-			continue
-		}
-		if len(s.echoLine) >= 160 {
-			continue
-		}
-		s.echoLine += string(r)
-		if s.echoLineStart {
-			continue
-		}
-		probe := strings.TrimLeft(s.echoLine, " \t")
-		if len(s.echoLine)-len(probe) > 128 {
-			continue
-		}
-		for _, marker := range []string{"[Tool Result]", "[Tool Error]", "[tool_result]"} {
-			if strings.HasPrefix(probe, marker) {
-				s.midstreamEcho = true
-			}
-		}
-	}
-}
