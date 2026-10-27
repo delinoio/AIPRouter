@@ -12,6 +12,13 @@ import (
 
 func TestCatalogCompletenessAndCopies(t *testing.T) {
 	all := Catalog()
+	var pinned []json.RawMessage
+	if json.Unmarshal(catalogJSON, &pinned) != nil || len(pinned) != 106 || len(all) != 107 {
+		t.Fatal("pinned/additive catalog inventory changed")
+	}
+	if p, ok := Lookup("exa"); !ok || p.Wire != ExaSearch {
+		t.Fatal("missing owned Exa extension")
+	}
 	ids := map[string]bool{}
 	excluded := map[string]bool{}
 	wires := map[Wire]bool{}
@@ -20,7 +27,9 @@ func TestCatalogCompletenessAndCopies(t *testing.T) {
 			t.Fatalf("invalid/duplicate catalog row %s", p.ID)
 		}
 		ids[p.ID] = true
-		wires[p.Wire] = true
+		if p.ID != "exa" {
+			wires[p.Wire] = true
+		}
 		if p.Excluded {
 			excluded[p.ID] = true
 		}

@@ -21,6 +21,7 @@ const (
 	Anthropic   Wire = "anthropic"
 	Google      Wire = "google"
 	JEVDecision Wire = "jev-decision"
+	ExaSearch   Wire = "exa-search"
 )
 
 type AuthKind string
@@ -123,6 +124,9 @@ func Catalog() []Preset {
 	if err := json.Unmarshal(catalogJSON, &raw); err != nil {
 		panic(err)
 	}
+	// Service-owned hosted credentials are additive; the upstream snapshot stays
+	// exactly reproducible from Revision and never claims these rows as upstream.
+	raw = append(raw, json.RawMessage(exaPresetJSON))
 	out := make([]Preset, 0, len(raw))
 	for _, b := range raw {
 		var p Preset
@@ -185,6 +189,11 @@ func ValidateConnection(c Connection) error {
 	}
 	if !ok || p.Excluded || p.Deprecated != "" {
 		return ErrProvider
+	}
+	if p.ID == "exa" {
+		if c.Credential != nil || !validExaKey(c.APIKey) {
+			return ErrConnection
+		}
 	}
 	if err := ValidateHeaders(c.Headers); err != nil {
 		return err

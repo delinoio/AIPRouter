@@ -7,7 +7,7 @@ import (
 )
 
 func TestPackageInitialization(t *testing.T) {
-	if got := len(Catalog()); got != 106 {
+	if got := len(Catalog()); got != 107 {
 		t.Fatalf("catalog size: %d", got)
 	}
 	for _, tc := range []struct {
