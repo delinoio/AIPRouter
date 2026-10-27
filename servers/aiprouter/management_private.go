@@ -83,7 +83,7 @@ func (m *management) ListProviderConnections(ctx context.Context, r *connect.Req
 		if e = json.Unmarshal(raw, &d); e != nil {
 			return nil, rpcError(e)
 		}
-		if _, _, usableErr := m.store.GetPrivateVersion(ctx, sc, string(providerKind), id); errors.Is(usableErr, store.ErrReauthentication) {
+		if _, _, usableErr := m.store.GetPrivateVersion(ctx, sc, string(providerKind), id); errors.Is(usableErr, store.ErrReauthentication) || errors.Is(usableErr, store.ErrBusy) {
 			if d.Metadata != nil {
 				d.Metadata.State = v1.ConnectionState_CONNECTION_STATE_AUTHORIZATION_REQUIRED
 			}

@@ -3,10 +3,12 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -384,5 +386,91 @@ func TestProviderPoolAffinityPersistsExplicitOptIn(t *testing.T) {
 	listed, err = m.ListPools(ctx, connect.NewRequest(&v1.ListPoolsRequest{OrganizationId: sc.OrganizationID}))
 	if err != nil || len(listed.Msg.Pools) != 1 || listed.Msg.Pools[0].GetAffinityEnabled() {
 		t.Fatalf("default false did not disable affinity: %v %v", listed, err)
+	}
+}
+
+func TestProviderListSurvivesAbandonedRefreshAcrossStores(t *testing.T) {
+	dsn := os.Getenv("AIPROUTER_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("requires PostgreSQL")
+	}
+	ctx := context.Background()
+	keys, err := core.NewEnvelope("test", map[string][]byte{"test": make([]byte, 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := "oauth_" + strings.ReplaceAll(core.ID(), "-", "")
+	options := store.Options{Schema: schema, Keys: keys}
+	first, err := store.Open(ctx, dsn, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = first.Close()
+		db, e := sql.Open("pgx", dsn)
+		if e == nil {
+			defer db.Close()
+			_, _ = db.Exec("DROP SCHEMA IF EXISTS " + schema + "_temp CASCADE")
+			_, _ = db.Exec("DROP SCHEMA IF EXISTS " + schema + " CASCADE")
+		}
+	})
+	if err = first.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	user, _ := testIdentity(t, first, "restart")
+	ctx = context.WithValue(ctx, identityKey{}, Identity{UserID: user.ID})
+	org, err := first.CreateOrganization(ctx, user.ID, "restart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, _, err := first.Membership(ctx, org.ID, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &management{store: first}
+	blocked := oauthSavedProvider(t, m, ctx, scope)
+	healthy := oauthSavedProvider(t, m, ctx, scope)
+	if _, _, _, err = first.ClaimScopePrivateRefresh(ctx, scope, string(providerKind), blocked.Metadata.Id); err != nil {
+		t.Fatal(err)
+	}
+	if err = first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Open(ctx, dsn, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	restarted := &management{store: second}
+	listed, err := restarted.ListProviderConnections(ctx, connect.NewRequest(&v1.ListProviderConnectionsRequest{OrganizationId: scope.OrganizationID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]v1.ConnectionState{}
+	for _, row := range listed.Msg.Connections {
+		states[row.Id] = row.State
+	}
+	if len(states) != 2 || states[blocked.Metadata.Id] != v1.ConnectionState_CONNECTION_STATE_AUTHORIZATION_REQUIRED || states[healthy.Metadata.Id] != v1.ConnectionState_CONNECTION_STATE_READY {
+		t.Fatalf("unexpected metadata states: %v", states)
+	}
+	if strings.Contains(listed.Msg.String(), "rotating-token") {
+		t.Fatal("secret exposed")
+	}
+	if _, _, _, err = second.ClaimScopePrivateRefresh(ctx, scope, string(providerKind), blocked.Metadata.Id); !errors.Is(err, store.ErrBusy) {
+		t.Fatalf("listing released claim: %v", err)
+	}
+	if _, err = second.GetPrivate(ctx, scope, string(providerKind), blocked.Metadata.Id); !errors.Is(err, store.ErrBusy) {
+		t.Fatalf("credential became usable: %v", err)
+	}
+	flow := beginAnthropic(t, restarted, ctx, scope, blocked.Metadata.Id)
+	if _, err = restarted.CancelProviderOAuth(ctx, connect.NewRequest(&v1.CancelProviderOAuthRequest{OrganizationId: scope.OrganizationID, AuthorizationId: flow.Id})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = restarted.DeleteProviderConnection(ctx, connect.NewRequest(&v1.DeleteProviderConnectionRequest{OrganizationId: scope.OrganizationID, ConnectionId: blocked.Metadata.Id})); err != nil {
+		t.Fatal(err)
+	}
+	listed, err = restarted.ListProviderConnections(ctx, connect.NewRequest(&v1.ListProviderConnectionsRequest{OrganizationId: scope.OrganizationID}))
+	if err != nil || len(listed.Msg.Connections) != 1 || listed.Msg.Connections[0].Id != healthy.Metadata.Id {
+		t.Fatalf("delete unavailable: %v %v", listed, err)
 	}
 }
