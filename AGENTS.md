@@ -136,6 +136,7 @@
 
 ## Runtime Baselines
 
+- Use root `pnpm dev` for the application development servers; follow [local environment setup](docs/repository-environment-contract.md#local-development) for prerequisites and lifecycle behavior.
 - Root `.nvmrc` is the canonical Node.js runtime selector for local development workflows.
 - The current required runtime is Node.js `24` (LTS major line).
 - When bumping the runtime baseline, update `.nvmrc` and relevant CI/runtime docs in the same change set.

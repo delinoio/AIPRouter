@@ -4,8 +4,9 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@10.26.2",
   "scripts": {
+    "dev": "node scripts/dev/run.mjs",
     "prepare": "./scripts/install-git-hooks.sh",
-    "test": "node --test scripts/ci/*.test.mjs",
+    "test": "node --test scripts/ci/*.test.mjs scripts/dev/*.test.mjs",
     "format": "node scripts/ci/format-changed.mjs --write",
     "format:check": "node scripts/ci/format-changed.mjs"
   },

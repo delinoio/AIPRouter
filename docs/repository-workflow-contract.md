@@ -8,6 +8,10 @@ The repository contains AIPRouter and its shared development infrastructure: ins
 
 Use Node.js 24 from `.nvmrc` and pnpm 10.26.2 from `package.json`. Run `pnpm install --frozen-lockfile`. The prepare script installs Lefthook through `scripts/install-git-hooks.sh`. Archives without Git metadata skip hook installation. Linked worktrees may use their shared Git hooks directory; unrelated custom hook paths remain protected.
 
+## Development
+
+Run root `pnpm dev` to start the API, console, and documentation servers. Configure external services first under the [environment contract](repository-environment-contract.md#local-development). Run `pnpm test` for launcher lifecycle fixtures as well as formatter and hook fixtures.
+
 ## Formatting
 
 Root `pnpm format` writes fixes and `pnpm format:check` checks without rewriting. Both use pinned Rstack and `rstack.config.ts`. Default local selection compares the merge base of `origin/main` and HEAD, including working changes and untracked files. Explicit `--base <sha> --head <sha>` arguments select that committed comparison. Local `--all` selects existing tracked files. Before the first commit, use `--staged`.
