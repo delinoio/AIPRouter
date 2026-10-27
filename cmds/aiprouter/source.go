@@ -350,7 +350,7 @@ func yamlPatch(b []byte, path []string, value any, replace bool) ([]byte, error)
 	offsets := lineOffsets(b)
 	for i, k := range path {
 		if strings.HasPrefix(k, "[") && strings.HasSuffix(k, "]") {
-			if n.Kind != yaml.SequenceNode || (n.Style&yaml.FlowStyle != 0 && len(n.Content) > 0) {
+			if n.Kind != yaml.SequenceNode {
 				return nil, errors.New("managed YAML selector requires a block sequence")
 			}
 			pair := strings.SplitN(k[1:len(k)-1], "=", 2)
@@ -395,28 +395,28 @@ func yamlPatch(b []byte, path []string, value any, replace bool) ([]byte, error)
 				return nil, e
 			}
 			if n.Style&yaml.FlowStyle != 0 {
-				start := offsets[n.Line-1] + n.Column - 1
-				return append(append(append([]byte{}, b[:start]...), encoded...), b[start+2:]...), nil
+				return yamlFlowInsert(b, n, row, len(n.Content) > 0)
 			}
 			encoded = indentLines(encoded, n.Column-1)
 			start := offsets[n.Line-1]
 			return append(append(append([]byte{}, b[:start]...), encoded...), b[start:]...), nil
 		}
-		if n.Kind == yaml.MappingNode && n.Style&yaml.FlowStyle != 0 && len(n.Content) == 0 {
-			start := offsets[n.Line-1] + n.Column - 1
-			rowStart := offsets[n.Line-1]
-			indent := 0
-			for rowStart+indent < len(b) && b[rowStart+indent] == ' ' {
-				indent++
+		if n.Kind == yaml.MappingNode && n.Style&yaml.FlowStyle != 0 {
+			found := -1
+			for j := 0; j < len(n.Content); j += 2 {
+				if n.Content[j].Value == k {
+					found = j
+					break
+				}
 			}
-			encoded, e := yaml.Marshal(wrap(path[i:], value))
-			if e != nil {
-				return nil, e
+			if found >= 0 {
+				if i < len(path)-1 {
+					n = n.Content[found+1]
+					continue
+				}
+				return nil, errors.New("client contribution already exists without ownership")
 			}
-			if start > rowStart+indent {
-				encoded = append([]byte{'\n'}, indentLines(encoded, indent+2)...)
-			}
-			return append(append(append([]byte{}, b[:start]...), encoded...), b[start+2:]...), nil
+			return yamlFlowInsert(b, n, wrap(path[i:], value), len(n.Content) > 0)
 		}
 		if n.Kind != yaml.MappingNode || n.Style&yaml.FlowStyle != 0 {
 			return nil, errors.New("managed YAML parent must use a block mapping")
@@ -588,4 +588,31 @@ func Patch(b []byte, f Format, fragments []Fragment, replace bool) ([]byte, erro
 		return nil, e
 	}
 	return b, nil
+}
+
+// JSON fragments are valid YAML flow values. Insert only the new member/row;
+// retain every byte of existing flow content, including comments and quotes.
+func yamlFlowInsert(b []byte, n *yaml.Node, value any, comma bool) ([]byte, error) {
+	if n.Anchor != "" {
+		return nil, errors.New("managed YAML flow container is shared by an anchor")
+	}
+	encoded, e := json.Marshal(value)
+	if e != nil {
+		return nil, e
+	}
+	if n.Kind == yaml.MappingNode {
+		encoded = encoded[1 : len(encoded)-1]
+	}
+	if comma {
+		encoded = append(encoded, ',')
+	}
+	start := lineOffsets(b)[n.Line-1] + n.Column
+	out := append([]byte{}, b[:start]...)
+	out = append(out, encoded...)
+	out = append(out, b[start:]...)
+	var check yaml.Node
+	if yaml.Unmarshal(out, &check) != nil {
+		return nil, errors.New("invalid YAML flow insertion")
+	}
+	return out, nil
 }

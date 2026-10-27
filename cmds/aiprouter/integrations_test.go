@@ -105,7 +105,7 @@ func TestOfflineDisconnectCleansLocallyAndRetainsConflict(t *testing.T) {
 	s.Profiles[p.Name] = p
 	path := filepath.Join(realTemp(t), "config")
 	_ = os.WriteFile(path, []byte("edited"), 0600)
-	s.Records["pi"] = Record{Profile: p.Name, Client: "pi", Files: []Backup{{path, []byte("original"), []byte("applied"), true}}}
+	s.Records["pi"] = Record{Profile: p.Name, Client: "pi", Files: []Backup{{Path: path, Before: []byte("original"), After: []byte("applied"), Existed: true}}}
 	store := &memoryStore{values: map[string]string{credentialID(p): "secret"}}
 	services := &mockServices{}
 	api := &mockAPI{revokeErr: errors.New("offline")}

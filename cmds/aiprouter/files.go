@@ -30,6 +30,7 @@ type Record struct {
 	Originals       map[string]Backup `json:"originals,omitempty"`
 }
 type Backup struct {
+	Removed       bool `json:"removed,omitempty"`
 	Path          string
 	Before, After []byte
 	Existed       bool
@@ -237,7 +238,7 @@ func updatedRecord(s State, client, profile string, changes []Change) (Record, e
 		}
 	}
 	for _, c := range changes {
-		b := Backup{c.Path, c.Before, c.After, c.Existed}
+		b := Backup{Path: c.Path, Before: c.Before, After: c.After, Existed: c.Existed, Removed: c.Remove}
 		if _, ok := record.Originals[c.Path]; !ok {
 			record.Originals[c.Path] = b
 		}
@@ -338,7 +339,7 @@ func (d Disk) transact(s *State, desired State, changes []Change, client, profil
 		if exists != c.Existed || !bytes.Equal(b, c.Before) {
 			return ErrConflict
 		}
-		record.Files = append(record.Files, Backup{c.Path, c.Before, c.After, c.Existed})
+		record.Files = append(record.Files, Backup{Path: c.Path, Before: c.Before, After: c.After, Existed: c.Existed, Removed: c.Remove})
 	}
 	pending := filepath.Join(d.Root, "pending.json")
 	if exists(pending) {
@@ -372,7 +373,9 @@ func (d Disk) transact(s *State, desired State, changes []Change, client, profil
 		}
 		if c.Remove {
 			if e = validate(); e == nil {
-				e = os.Remove(c.Path)
+				if c.Existed {
+					e = os.Remove(c.Path)
+				}
 			}
 		} else {
 			e = d.write(c.Path, c.After, validate)
@@ -419,6 +422,13 @@ func (d Disk) Restore(s *State, client string) error {
 		current, exists, e := readConfig(b.Path)
 		if e != nil {
 			return e
+		}
+		if b.Removed {
+			if exists {
+				return ErrConflict
+			}
+			changes = append(changes, Change{Path: b.Path, After: b.Before, Existed: false, Remove: !b.Existed, Locks: nativeLockPaths(r.Client, b.Path)})
+			continue
 		}
 		if !exists {
 			return ErrConflict

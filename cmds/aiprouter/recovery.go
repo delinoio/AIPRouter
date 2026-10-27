@@ -39,7 +39,7 @@ func (a *Application) Recover(s *State) error {
 	if bytes.Equal(actual, intended) {
 		for _, b := range record.Files {
 			current, exists, e := readConfig(b.Path)
-			if e != nil || !exists || !bytes.Equal(current, b.After) {
+			if e != nil || exists == pending.Absent[b.Path] || !bytes.Equal(current, b.After) {
 				return ErrConflict
 			}
 		}
@@ -54,7 +54,7 @@ func (a *Application) Recover(s *State) error {
 		if exists == b.Existed && bytes.Equal(current, b.Before) {
 			continue
 		}
-		if !exists || !bytes.Equal(current, b.After) {
+		if exists == pending.Absent[b.Path] || !bytes.Equal(current, b.After) {
 			return ErrConflict
 		}
 	}
@@ -69,12 +69,12 @@ func (a *Application) Recover(s *State) error {
 		if exists == b.Existed && bytes.Equal(current, b.Before) {
 			continue
 		}
-		if !bytes.Equal(current, b.After) {
+		if exists == pending.Absent[b.Path] || !bytes.Equal(current, b.After) {
 			return ErrConflict
 		}
 		if b.Existed {
-			e = a.Disk.write(b.Path, b.Before, compareFile(b.Path, b.After, true))
-		} else {
+			e = a.Disk.write(b.Path, b.Before, compareFile(b.Path, b.After, !pending.Absent[b.Path]))
+		} else if exists {
 			e = os.Remove(b.Path)
 		}
 		if e != nil {
@@ -89,7 +89,7 @@ func (a *Application) Recover(s *State) error {
 func (a *Application) finishRestore(s *State, p Pending, journal string) error {
 	seen := map[string]bool{}
 	for _, b := range p.Record.Files {
-		if !filepath.IsAbs(b.Path) || seen[b.Path] || !b.Existed {
+		if !filepath.IsAbs(b.Path) || seen[b.Path] {
 			return errors.New("invalid restore journal")
 		}
 		seen[b.Path] = true
@@ -97,7 +97,7 @@ func (a *Application) finishRestore(s *State, p Pending, journal string) error {
 		if e != nil {
 			return e
 		}
-		before := exists && bytes.Equal(current, b.Before)
+		before := exists == b.Existed && bytes.Equal(current, b.Before)
 		after := (!p.Absent[b.Path] && exists && bytes.Equal(current, b.After)) || (p.Absent[b.Path] && !exists)
 		if !before && !after {
 			return ErrConflict
@@ -122,15 +122,17 @@ func (a *Application) finishRestore(s *State, p Pending, journal string) error {
 		if !p.Absent[b.Path] && exists && bytes.Equal(current, b.After) {
 			continue
 		}
-		if !exists || !bytes.Equal(current, b.Before) {
+		if exists != b.Existed || !bytes.Equal(current, b.Before) {
 			return ErrConflict
 		}
 		if p.Absent[b.Path] {
-			if e = compareFile(b.Path, b.Before, true)(); e == nil {
-				e = os.Remove(b.Path)
+			if e = compareFile(b.Path, b.Before, b.Existed)(); e == nil {
+				if exists {
+					e = os.Remove(b.Path)
+				}
 			}
 		} else {
-			e = a.Disk.write(b.Path, b.After, compareFile(b.Path, b.Before, true))
+			e = a.Disk.write(b.Path, b.After, compareFile(b.Path, b.Before, b.Existed))
 		}
 		if e != nil {
 			return e

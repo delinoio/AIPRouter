@@ -26,7 +26,7 @@ func restoreFixture(t *testing.T, firstExisted bool) (Disk, State, []string) {
 		}
 		after := []byte("remote-key-settings-" + filepath.Base(path))
 		_ = os.WriteFile(path, after, 0600)
-		r.Files = append(r.Files, Backup{path, before, after, existed})
+		r.Files = append(r.Files, Backup{Path: path, Before: before, After: after, Existed: existed})
 	}
 	s.Records["cline"] = r
 	s.Active["cline"] = p.Name

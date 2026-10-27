@@ -198,6 +198,12 @@ func projectedDroid(row object) object {
 // Only client-documented derived fields are ignored. Endpoint/authentication,
 // catalog membership, context and unknown fields remain protected.
 func restoreOwned(client string, b Backup, current []byte) ([]byte, bool, error) {
+	if b.Removed {
+		if current != nil {
+			return nil, false, ErrConflict
+		}
+		return b.Before, !b.Existed, nil
+	}
 	if result, e := restoreBytes(b, current); e == nil && (b.Existed || bytes.Equal(current, b.After)) {
 		return result, !b.Existed, nil
 	}
