@@ -201,3 +201,51 @@ func TestNativeAffinityConcurrentFailureCannotResurrect(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeAffinitySuccessCounter(t *testing.T) {
+	s, l, v := nativeFixture(t)
+	ctx := context.Background()
+	a, e := s.GetNativeAffinity(ctx, l, "codex", "pool", "active")
+	if e != nil || a.Successes != 0 {
+		t.Fatal(a, e)
+	}
+	var wg sync.WaitGroup
+	for n := 0; n < 12; n++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if e := s.FinishNativeAffinity(ctx, l, "codex", "pool", "active", "native", v, a.Epoch, true); e != nil {
+				t.Error(e)
+			}
+		}()
+	}
+	wg.Wait()
+	counted, e := s.GetNativeAffinity(ctx, l, "codex", "pool", "active")
+	if e != nil || counted.Successes != 12 || counted.Epoch != a.Epoch {
+		t.Fatal(counted, e)
+	}
+	if e = s.PutPrivate(ctx, l.Principal.Scope, "provider", "second", []byte("secret")); e != nil {
+		t.Fatal(e)
+	}
+	_, second, e := s.GetPrivateVersion(ctx, l.Principal.Scope, "provider", "second")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.FinishNativeAffinity(ctx, l, "codex", "pool", "active", "second", second, a.Epoch, true); e != nil {
+		t.Fatal(e)
+	}
+	counted, e = s.GetNativeAffinity(ctx, l, "codex", "pool", "active")
+	if e != nil || counted.AccountID != "second" || counted.Successes != 1 {
+		t.Fatal(counted, e)
+	}
+	if e = s.FinishNativeAffinity(ctx, l, "codex", "pool", "active", "second", second, a.Epoch, false); e != nil {
+		t.Fatal(e)
+	}
+	counted, e = s.GetNativeAffinity(ctx, l, "codex", "pool", "active")
+	if e != nil || counted.Successes != 0 || counted.AccountID != "" || counted.Epoch == a.Epoch {
+		t.Fatal(counted, e)
+	}
+	if e = s.FinishNativeAffinity(ctx, l, "codex", "pool", "active", "native", v, a.Epoch, true); !errors.Is(e, ErrConflict) {
+		t.Fatal("late completion resurrected counter", e)
+	}
+}

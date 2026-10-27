@@ -81,6 +81,7 @@ func (s *Store) UpdateNativeQuota(ctx context.Context, l Lease, id, version stri
 }
 
 type NativeAffinity struct {
+	Successes                    int
 	AccountID, CredentialVersion string
 	Epoch                        int64
 }
@@ -104,7 +105,7 @@ func (s *Store) GetNativeAffinity(ctx context.Context, l Lease, group, groupVers
 		if e != nil {
 			return e
 		}
-		e = tx.QueryRowContext(ctx, "SELECT account_id,credential_version,epoch FROM "+s.temp+".native_affinities WHERE org_id=$1 AND user_id=$2 AND key_id=$3 AND group_id=$4 AND group_version=$5 AND session_hash=$6", sc.OrganizationID, sc.UserID, l.Principal.KeyID, group, groupVersion, sessionHash).Scan(&out.AccountID, &out.CredentialVersion, &out.Epoch)
+		e = tx.QueryRowContext(ctx, "SELECT account_id,credential_version,epoch,successes FROM "+s.temp+".native_affinities WHERE org_id=$1 AND user_id=$2 AND key_id=$3 AND group_id=$4 AND group_version=$5 AND session_hash=$6", sc.OrganizationID, sc.UserID, l.Principal.KeyID, group, groupVersion, sessionHash).Scan(&out.AccountID, &out.CredentialVersion, &out.Epoch, &out.Successes)
 		if e != nil {
 			return e
 		}
@@ -113,11 +114,12 @@ func (s *Store) GetNativeAffinity(ctx context.Context, l Lease, group, groupVers
 				if e != ErrForbidden && e != ErrBusy && e != ErrReauthentication {
 					return e
 				}
-				if e = tx.QueryRowContext(ctx, "UPDATE "+s.temp+".native_affinities SET account_id='',credential_version='',epoch=nextval('native_affinity_epoch') WHERE org_id=$1 AND user_id=$2 AND key_id=$3 AND group_id=$4 AND group_version=$5 AND session_hash=$6 RETURNING epoch", sc.OrganizationID, sc.UserID, l.Principal.KeyID, group, groupVersion, sessionHash).Scan(&out.Epoch); e != nil {
+				if e = tx.QueryRowContext(ctx, "UPDATE "+s.temp+".native_affinities SET account_id='',credential_version='',successes=0,epoch=nextval('native_affinity_epoch') WHERE org_id=$1 AND user_id=$2 AND key_id=$3 AND group_id=$4 AND group_version=$5 AND session_hash=$6 RETURNING epoch", sc.OrganizationID, sc.UserID, l.Principal.KeyID, group, groupVersion, sessionHash).Scan(&out.Epoch); e != nil {
 					return e
 				}
 				out.AccountID = ""
 				out.CredentialVersion = ""
+				out.Successes = 0
 			}
 		}
 		_, e = tx.ExecContext(ctx, "DELETE FROM "+s.temp+".native_affinities WHERE org_id=$1 AND user_id=$2 AND (key_id,group_id,group_version,session_hash) IN(SELECT key_id,group_id,group_version,session_hash FROM "+s.temp+".native_affinities WHERE org_id=$1 AND user_id=$2 ORDER BY updated_at DESC,epoch DESC OFFSET 1024)", sc.OrganizationID, sc.UserID)
@@ -134,9 +136,9 @@ func (s *Store) FinishNativeAffinity(ctx context.Context, l Lease, group, groupV
 			return e
 		}
 		sc := l.Principal.Scope
-		query := "UPDATE " + s.temp + ".native_affinities SET account_id=$8,credential_version=$9,updated_at=clock_timestamp(),expires_at=clock_timestamp()+interval '24 hours' WHERE org_id=$1 AND user_id=$2 AND key_id=$3 AND group_id=$4 AND group_version=$5 AND session_hash=$6 AND epoch=$7 AND generation=$10 AND expires_at>clock_timestamp()"
+		query := "UPDATE " + s.temp + ".native_affinities SET successes=CASE WHEN account_id=$8 AND credential_version=$9 THEN LEAST(successes::bigint+1,2147483647)::integer ELSE 1 END,account_id=$8,credential_version=$9,updated_at=clock_timestamp(),expires_at=clock_timestamp()+interval '24 hours' WHERE org_id=$1 AND user_id=$2 AND key_id=$3 AND group_id=$4 AND group_version=$5 AND session_hash=$6 AND epoch=$7 AND generation=$10 AND expires_at>clock_timestamp()"
 		if !success {
-			query = "UPDATE " + s.temp + ".native_affinities SET account_id='',credential_version='',epoch=nextval('native_affinity_epoch'),updated_at=clock_timestamp(),expires_at=clock_timestamp()+interval '24 hours' WHERE org_id=$1 AND user_id=$2 AND key_id=$3 AND group_id=$4 AND group_version=$5 AND session_hash=$6 AND epoch=$7 AND generation=$10 AND expires_at>clock_timestamp() AND (account_id='' OR (account_id=$8 AND credential_version=$9))"
+			query = "UPDATE " + s.temp + ".native_affinities SET account_id='',credential_version='',successes=0,epoch=nextval('native_affinity_epoch'),updated_at=clock_timestamp(),expires_at=clock_timestamp()+interval '24 hours' WHERE org_id=$1 AND user_id=$2 AND key_id=$3 AND group_id=$4 AND group_version=$5 AND session_hash=$6 AND epoch=$7 AND generation=$10 AND expires_at>clock_timestamp() AND (account_id='' OR (account_id=$8 AND credential_version=$9))"
 		}
 		r, e := tx.ExecContext(ctx, query, sc.OrganizationID, sc.UserID, l.Principal.KeyID, group, groupVersion, sessionHash, expectedEpoch, account, credentialVersion, sc.Generation)
 		if e != nil {
