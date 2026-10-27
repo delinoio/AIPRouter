@@ -32,6 +32,7 @@ type providerData struct {
 	Models             *providers.ModelCatalog
 	ModelsDiscoveredAt time.Time
 	CodexCatalog       []json.RawMessage
+	CustomHeaders      map[string]string
 }
 
 func (m *management) put(ctx context.Context, sc core.Scope, kind privateKind, id string, v any) error {
@@ -60,7 +61,7 @@ func (m *management) ListProviderCatalog(ctx context.Context, r *connect.Request
 		}
 		out.Providers = append(out.Providers, catalogMessage(p))
 	}
-	out.Providers = append(out.Providers, &v1.ProviderDefinition{Id: "custom", DisplayName: "Custom OpenAI-compatible HTTP provider", AuthKinds: []v1.ProviderAuthKind{v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY}, ApiShapes: []v1.ApiShape{v1.ApiShape_API_SHAPE_CHAT_COMPLETIONS}})
+	out.Providers = append(out.Providers, &v1.ProviderDefinition{Id: "custom", DisplayName: "Custom HTTP provider", AuthKinds: []v1.ProviderAuthKind{v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY}, ApiShapes: []v1.ApiShape{v1.ApiShape_API_SHAPE_CHAT_COMPLETIONS, v1.ApiShape_API_SHAPE_RESPONSES, v1.ApiShape_API_SHAPE_ANTHROPIC_MESSAGES}})
 	return connect.NewResponse(out), nil
 }
 
@@ -113,6 +114,9 @@ func (m *management) CreateProviderConnection(ctx context.Context, r *connect.Re
 	}
 
 	d := providerData{Metadata: &v1.ProviderConnection{Id: core.ID(), OrganizationId: sc.OrganizationID, ProviderId: q.ProviderId, Name: q.Name, BaseUrl: q.BaseUrl, AuthKind: q.AuthKind, State: v1.ConnectionState_CONNECTION_STATE_READY, CreatedAt: timestamp(time.Now()), StallTimeoutSeconds: q.StallTimeoutSeconds}, Secret: q.GetApiKey()}
+	if e = applyProviderConfiguration(&d, q.Configuration, false, q.CustomHeaders); e != nil {
+		return nil, e
+	}
 	if e = providers.ValidateConnection(providerConnection(d)); e != nil {
 		return nil, invalid("provider connection does not match its catalog requirements")
 	}
@@ -162,10 +166,13 @@ func (m *management) UpdateProviderConnection(ctx context.Context, r *connect.Re
 	} else if q.StallTimeoutSeconds != nil {
 		d.Metadata.StallTimeoutSeconds = q.StallTimeoutSeconds
 	}
+	if e = applyProviderConfiguration(&d, q.Configuration, q.ResetConfiguration, q.CustomHeaders); e != nil {
+		return nil, e
+	}
 	if e = providers.ValidateConnection(providerConnection(d)); e != nil {
 		return nil, invalid("provider connection does not match its catalog requirements")
 	}
-	if q.ApiKey != nil || q.BaseUrl != nil {
+	if q.ApiKey != nil || q.BaseUrl != nil || q.Configuration != nil || q.ResetConfiguration || q.CustomHeaders != nil {
 		d.Models = nil
 		d.CodexCatalog = nil
 		d.ModelsDiscoveredAt = time.Time{}
@@ -321,7 +328,7 @@ func (m *management) validateRoute(ctx context.Context, sc core.Scope, p *v1.Rou
 		return invalid("model and 1 to 100 targets required")
 	}
 	switch p.Strategy {
-	case v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT, v1.RoutingStrategy_ROUTING_STRATEGY_FALLBACK, v1.RoutingStrategy_ROUTING_STRATEGY_WEIGHTED, v1.RoutingStrategy_ROUTING_STRATEGY_ROUND_ROBIN:
+	case v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT, v1.RoutingStrategy_ROUTING_STRATEGY_FALLBACK, v1.RoutingStrategy_ROUTING_STRATEGY_WEIGHTED, v1.RoutingStrategy_ROUTING_STRATEGY_ROUND_ROBIN, v1.RoutingStrategy_ROUTING_STRATEGY_JEV:
 	default:
 		return invalid("invalid routing strategy")
 	}
@@ -332,6 +339,21 @@ func (m *management) validateRoute(ctx context.Context, sc core.Scope, p *v1.Rou
 	for _, target := range p.Targets {
 		if target == nil {
 			return invalid("target required")
+		}
+		if len([]rune(target.ModelProfile)) > 512 {
+			return invalid("model profile exceeds 512 characters")
+		}
+		seenEfforts := map[string]bool{}
+		for _, effort := range target.ReasoningEfforts {
+			switch effort {
+			case "low", "medium", "high", "xhigh", "max", "ultra":
+			default:
+				return invalid("invalid reasoning effort")
+			}
+			if seenEfforts[effort] {
+				return invalid("duplicate reasoning effort")
+			}
+			seenEfforts[effort] = true
 		}
 		if len(target.ModelId) > 512 {
 			return invalid("invalid target model")
@@ -358,7 +380,7 @@ func (m *management) validateRoute(ctx context.Context, sc core.Scope, p *v1.Rou
 			return invalid("connection or pool required")
 		}
 	}
-	return nil
+	return validateJEVRoute(ctx, m.store, sc, p)
 }
 func (m *management) ListRoutes(ctx context.Context, r *connect.Request[v1.ListRoutesRequest]) (*connect.Response[v1.ListRoutesResponse], error) {
 	sc, e := m.scope(ctx, r.Msg.OrganizationId)
@@ -384,7 +406,7 @@ func (m *management) CreateRoute(ctx context.Context, r *connect.Request[v1.Crea
 	if e != nil {
 		return nil, e
 	}
-	p := &v1.Route{Id: core.ID(), OrganizationId: sc.OrganizationID, ModelId: r.Msg.ModelId, Strategy: r.Msg.Strategy, Targets: r.Msg.Targets, Enabled: r.Msg.Enabled}
+	p := &v1.Route{Id: core.ID(), OrganizationId: sc.OrganizationID, ModelId: r.Msg.ModelId, Strategy: r.Msg.Strategy, Targets: r.Msg.Targets, Enabled: r.Msg.Enabled, JevDecision: r.Msg.JevDecision}
 	if e = m.validateRoute(ctx, sc, p); e != nil {
 		return nil, e
 	}
@@ -407,6 +429,7 @@ func (m *management) UpdateRoute(ctx context.Context, r *connect.Request[v1.Upda
 	p.Strategy = r.Msg.Strategy
 	p.Targets = r.Msg.Targets
 	p.Enabled = r.Msg.Enabled
+	p.JevDecision = r.Msg.JevDecision
 	if e = m.validateRoute(ctx, sc, p); e != nil {
 		return nil, e
 	}

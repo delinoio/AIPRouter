@@ -46,6 +46,6 @@ func (e *providerExecutor) Do(ctx context.Context, scope core.Scope, req *http.R
 	if err != nil {
 		return nil, err
 	}
-	policy := inference.DestinationPolicy{ApprovedOrigins: settings.Destinations}
+	policy := inference.DestinationPolicy{ApprovedOrigins: settings.Destinations, Rules: settings.DestinationRules}
 	return policy.Do(ctx, req, e.gate, e.onSend)
 }

@@ -6,8 +6,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -472,5 +475,180 @@ func TestProviderListSurvivesAbandonedRefreshAcrossStores(t *testing.T) {
 	listed, err = restarted.ListProviderConnections(ctx, connect.NewRequest(&v1.ListProviderConnectionsRequest{OrganizationId: scope.OrganizationID}))
 	if err != nil || len(listed.Msg.Connections) != 1 || listed.Msg.Connections[0].Id != healthy.Metadata.Id {
 		t.Fatalf("delete unavailable: %v %v", listed, err)
+	}
+}
+
+func TestProviderConfigurationPersistsTypedOverridesAndPrivateHeaders(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	wire := v1.ProviderWire_PROVIDER_WIRE_RESPONSES
+	off := false
+	path := "/api/v2/responses"
+	config := &v1.ProviderConfiguration{Wire: &wire, ModelWires: map[string]v1.ProviderWire{"chat-model": v1.ProviderWire_PROVIDER_WIRE_CHAT}, ResponsesPath: &path, Policy: &v1.ProviderPolicyOverrides{DropResponsesReasoningItems: &off}}
+	created, err := m.CreateProviderConnection(ctx, connect.NewRequest(&v1.CreateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ProviderId: "custom", Name: "custom", BaseUrl: "https://custom.example", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, ApiKey: ptr("private-key"), Configuration: config, CustomHeaders: &v1.ProviderCustomHeaders{Values: map[string]string{"x-personal-header": "private-header-value"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := created.Msg.Connection.Id
+	listed, err := m.ListProviderConnections(ctx, connect.NewRequest(&v1.ListProviderConnectionsRequest{OrganizationId: sc.OrganizationID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := listed.Msg.Connections[0]
+	if metadata.Configuration.GetWire() != wire || metadata.Configuration.Policy.DropResponsesReasoningItems == nil || *metadata.Configuration.Policy.DropResponsesReasoningItems {
+		t.Fatal("explicit false lost")
+	}
+	if len(metadata.CustomHeaderNames) != 1 || metadata.CustomHeaderNames[0] != "X-Personal-Header" || strings.Contains(listed.Msg.String(), "private-header-value") || strings.Contains(created.Msg.String(), "private-header-value") {
+		t.Fatal("header metadata unsafe")
+	}
+	var d providerData
+	d = providerData{}
+	if err = m.get(ctx, sc, providerKind, id, &d); err != nil {
+		t.Fatal(err)
+	}
+	c := providerConnection(d)
+	if c.Wire != providers.Responses || c.ModelWires["chat-model"] != providers.Chat || c.Headers["X-Personal-Header"] != "private-header-value" {
+		t.Fatal("configuration missing from runtime connection")
+	}
+	overrides, err := providerPolicyOverrides(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if json.Unmarshal(overrides, &fields) != nil || fields["dropResponsesReasoningItems"] != false || fields["responsesPath"] != path {
+		t.Fatal("policy override presence lost")
+	}
+	_, err = m.UpdateProviderConnection(ctx, connect.NewRequest(&v1.UpdateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ConnectionId: id, ResetConfiguration: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d = providerData{}
+	if err = m.get(ctx, sc, providerKind, id, &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Metadata.Configuration != nil || d.CustomHeaders["X-Personal-Header"] != "private-header-value" || providerConnection(d).Wire != providers.Chat {
+		t.Fatal("configuration reset changed headers or default wire")
+	}
+	_, err = m.UpdateProviderConnection(ctx, connect.NewRequest(&v1.UpdateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ConnectionId: id, CustomHeaders: &v1.ProviderCustomHeaders{}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d = providerData{}
+	if err = m.get(ctx, sc, providerKind, id, &d); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.CustomHeaders) != 0 || len(d.Metadata.CustomHeaderNames) != 0 {
+		t.Fatal("empty header replacement did not clear")
+	}
+}
+func TestProviderConfigurationRejectsUnsafeOverrides(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	cases := []struct {
+		name    string
+		config  *v1.ProviderConfiguration
+		headers map[string]string
+	}{
+		{"unknown wire", &v1.ProviderConfiguration{Wire: ptr(v1.ProviderWire(99))}, nil},
+		{"absolute path", &v1.ProviderConfiguration{ResponsesPath: ptr("https://evil.example/x")}, nil},
+		{"network path", &v1.ProviderConfiguration{ResponsesPath: ptr("//evil.example/x")}, nil},
+		{"encoded traversal", &v1.ProviderConfiguration{ResponsesPath: ptr("/%2e%2e/x")}, nil},
+		{"unknown model wire", &v1.ProviderConfiguration{ModelWires: map[string]v1.ProviderWire{"model": v1.ProviderWire(99)}}, nil},
+		{"azure floor on custom", &v1.ProviderConfiguration{MinMaxOutputTokens: ptr(int64(100))}, nil},
+		{"authorization", nil, map[string]string{"AUTHORIZATION": "secret"}},
+		{"dsh auth", nil, map[string]string{"x-dsh-auth-token": "secret"}},
+		{"internal", nil, map[string]string{"x-aiprouter-google-project": "wrong"}},
+		{"header line break", nil, map[string]string{"x-safe": "value\r\nX-Injected: yes"}},
+		{"duplicate case", nil, map[string]string{"X-Safe": "one", "x-safe": "two"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := m.CreateProviderConnection(ctx, connect.NewRequest(&v1.CreateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ProviderId: "custom", Name: "bad", BaseUrl: "https://custom.example", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, ApiKey: ptr("key"), Configuration: tc.config, CustomHeaders: &v1.ProviderCustomHeaders{Values: tc.headers}}))
+			if connect.CodeOf(err) != connect.CodeInvalidArgument {
+				t.Fatalf("unsafe config accepted: %v", err)
+			}
+		})
+	}
+	ids, err := m.store.ListPrivate(ctx, sc, string(providerKind))
+	if err != nil || len(ids) != 0 {
+		t.Fatalf("invalid configuration persisted: %v %v", ids, err)
+	}
+}
+
+func TestProviderConfigurationDrivesComposedResponsesSend(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	var sent atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent.Add(1)
+		if r.URL.Path != "/custom/responses" {
+			t.Errorf("configured endpoint lost: %s", r.URL.Path)
+		}
+		if r.Header.Get("X-Personal-Header") != "header-secret" || r.Header.Get("Authorization") != "Bearer upstream-secret" {
+			t.Error("selected private headers not projected")
+		}
+		var body map[string]any
+		if json.NewDecoder(r.Body).Decode(&body) != nil || body["input"] == nil || body["messages"] != nil {
+			t.Error("custom Responses wire not executed")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"resp_fixture","object":"response","status":"completed","model":"model","output":[{"id":"msg_fixture","type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)
+	}))
+	defer upstream.Close()
+	created, err := m.CreateProviderConnection(ctx, connect.NewRequest(&v1.CreateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ProviderId: "custom", Name: "custom responses", BaseUrl: upstream.URL, AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, ApiKey: ptr("upstream-secret"), Configuration: &v1.ProviderConfiguration{Wire: ptr(v1.ProviderWire_PROVIDER_WIRE_RESPONSES), ResponsesPath: ptr("/custom/responses")}, CustomHeaders: &v1.ProviderCustomHeaders{Values: map[string]string{"X-Personal-Header": "header-secret"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = m.CreateRoute(ctx, connect.NewRequest(&v1.CreateRouteRequest{OrganizationId: sc.OrganizationID, ModelId: "model", Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT, Enabled: true, Targets: []*v1.RouteTarget{{Target: &v1.RouteTarget_ConnectionId{ConnectionId: created.Msg.Connection.Id}, ModelId: "model"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, key, err := m.store.IssueKey(ctx, sc, "runtime", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &server{store: m.store, telemetry: newTelemetry(slog.New(slog.NewJSONHandler(io.Discard, nil))), inferenceDestinations: &inference.DestinationPolicy{ApprovedOrigins: []string{upstream.URL}}}
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"model","input":"hello"}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+key)
+	recorder := httptest.NewRecorder()
+	srv.serveInference(recorder, req)
+	if recorder.Code != 200 || sent.Load() != 1 {
+		t.Fatalf("composed send status=%d sends=%d body=%s", recorder.Code, sent.Load(), recorder.Body.String())
+	}
+}
+
+func TestProviderJEVConfigurationPersistsAndClears(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	target := oauthSavedProvider(t, m, ctx, sc)
+	service, err := m.CreateProviderConnection(ctx, connect.NewRequest(&v1.CreateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ProviderId: "jev", Name: "decision service", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, ApiKey: ptr("decision-secret")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []*v1.RouteTarget{{Target: &v1.RouteTarget_ConnectionId{ConnectionId: target.Metadata.Id}, ModelId: "model", ReasoningEfforts: []string{"low", "high"}, ModelProfile: "coding"}}
+	config := &v1.JevDecisionConfig{DecisionConnectionId: service.Msg.Connection.Id, DecisionTimeoutMs: 4000, SessionPinTtlSeconds: 60}
+	created, err := m.CreateRoute(ctx, connect.NewRequest(&v1.CreateRouteRequest{OrganizationId: sc.OrganizationID, ModelId: "choice", Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_JEV, Targets: targets, Enabled: true, JevDecision: config}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := m.getRoute(ctx, sc, created.Msg.Route.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.JevDecision == nil || saved.JevDecision.DecisionConnectionId != service.Msg.Connection.Id || len(saved.Targets[0].ReasoningEfforts) != 2 || saved.Targets[0].ModelProfile != "coding" {
+		t.Fatal("JEV fields not persisted")
+	}
+	_, err = m.UpdateRoute(ctx, connect.NewRequest(&v1.UpdateRouteRequest{OrganizationId: sc.OrganizationID, RouteId: saved.Id, ModelId: saved.ModelId, Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT, Targets: targets, Enabled: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err = m.getRoute(ctx, sc, saved.Id)
+	if err != nil || saved.JevDecision != nil {
+		t.Fatalf("full replacement did not clear decision config: %v", err)
+	}
+	_, err = m.CreateRoute(ctx, connect.NewRequest(&v1.CreateRouteRequest{OrganizationId: sc.OrganizationID, ModelId: "self-choice", Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_JEV, Targets: targets, Enabled: true, JevDecision: &v1.JevDecisionConfig{DecisionModel: "self-choice"}}))
+	if err == nil {
+		t.Fatal("self decision route accepted")
+	}
+	_, err = m.CreateRoute(ctx, connect.NewRequest(&v1.CreateRouteRequest{OrganizationId: sc.OrganizationID, ModelId: "missing-decision", Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_JEV, Targets: targets, Enabled: true}))
+	if err == nil {
+		t.Fatal("missing decision selection accepted")
 	}
 }
