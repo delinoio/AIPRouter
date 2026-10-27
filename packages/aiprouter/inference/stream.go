@@ -1150,6 +1150,8 @@ type emittedItem struct {
 	partStarted     bool
 	id, sent        string
 	status          string
+	kind            string
+	source          int
 	bytes           int
 }
 
@@ -1219,7 +1221,7 @@ func (s *translationStream) progressItems() ([]any, map[int]bool, error) {
 		for _, item := range items {
 			idx := len(out)
 			out = append(out, item)
-			ready[idx] = obj(item)["type"] != "reasoning" || s.wire == Chat && s.stop != ""
+			ready[idx] = obj(item)["type"] == "message" || s.wire == Chat && s.stop != ""
 			if s.wire != Chat {
 				source := i
 				if i < len(s.order) {
@@ -1354,15 +1356,39 @@ func (s *streamEmitter) progress(items []any, ready map[int]bool, request object
 				block := obj(v)
 				state := s.progressState[blockIndex]
 				if state == nil {
-					state = &emittedItem{}
+					state = &emittedItem{kind: "reasoning", source: i}
 					s.progressState[blockIndex] = state
 				}
 				if !state.started {
+					ok, e := s.closeBefore(blockIndex, ready)
+					if e != nil {
+						return e
+					}
+					if !ok {
+						return pendingBlockBudget(items[i:])
+					}
 					if err := s.start(); err != nil {
 						return err
 					}
-					if err := s.event("content_block_start", object{"type": "content_block_start", "index": blockIndex, "content_block": block}); err != nil {
+					start := clone(block)
+					if block["type"] == "thinking" {
+						start["thinking"] = ""
+						delete(start, "signature")
+					}
+					if err := s.event("content_block_start", object{"type": "content_block_start", "index": blockIndex, "content_block": start}); err != nil {
 						return err
+					}
+					if block["type"] == "thinking" {
+						if text := str(block["thinking"]); text != "" {
+							if err := s.event("content_block_delta", object{"type": "content_block_delta", "index": blockIndex, "delta": object{"type": "thinking_delta", "thinking": text}}); err != nil {
+								return err
+							}
+						}
+						if sig := str(block["signature"]); sig != "" {
+							if err := s.event("content_block_delta", object{"type": "content_block_delta", "index": blockIndex, "delta": object{"type": "signature_delta", "signature": sig}}); err != nil {
+								return err
+							}
+						}
 					}
 					if err := s.event("content_block_stop", object{"type": "content_block_stop", "index": blockIndex}); err != nil {
 						return err
@@ -1409,7 +1435,7 @@ func (s *streamEmitter) progress(items []any, ready map[int]bool, request object
 		}
 		state := s.progressState[idx]
 		if state == nil {
-			state = &emittedItem{id: fmt.Sprintf("item_%s_%d", s.id, i)}
+			state = &emittedItem{id: fmt.Sprintf("item_%s_%d", s.id, i), kind: kind, source: i}
 			s.progressState[idx] = state
 		}
 		if len(text) < state.bytes || !strings.HasPrefix(text, state.sent) {
@@ -1417,6 +1443,15 @@ func (s *streamEmitter) progress(items []any, ready map[int]bool, request object
 		}
 		delta := text[state.bytes:]
 		if !state.started {
+			if s.wire == Anthropic {
+				ok, e := s.closeBefore(idx, ready)
+				if e != nil {
+					return e
+				}
+				if !ok {
+					return pendingBlockBudget(items[i:])
+				}
+			}
 			if err := s.start(); err != nil {
 				return err
 			}
@@ -1728,4 +1763,22 @@ func pendingBlockBudget(items []any) error {
 		return &Error{502, "translation_pending_block_limit", 0}
 	}
 	return nil
+}
+
+func (s *streamEmitter) closeBefore(index int, ready map[int]bool) (bool, error) {
+	if index == 0 {
+		return true, nil
+	}
+	previous := s.progressState[index-1]
+	if previous == nil || !previous.started || previous.closed {
+		return true, nil
+	}
+	if previous.kind == "function_call" && !ready[previous.source] {
+		return false, nil
+	}
+	if e := s.event("content_block_stop", object{"type": "content_block_stop", "index": index - 1}); e != nil {
+		return false, e
+	}
+	previous.closed = true
+	return true, nil
 }
