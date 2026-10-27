@@ -156,6 +156,7 @@ func (s *Store) AcquireNativeHealthPermitBound(ctx context.Context, l Lease, k N
 	return s.AcquireNativeHealthPermitForRecoveryBound(ctx, l, k, probe, "", "", bindings)
 }
 func (s *Store) AcquireNativeHealthPermitForRecoveryBound(ctx context.Context, l Lease, k NativeHealthKey, probe bool, poolKey string, class NativeRecoveryClass, bindings []NativeHealthBinding) (out NativeHealthPermit, e error) {
+	bindings = append(append([]NativeHealthBinding(nil), dispatchBindings(ctx)...), bindings...)
 	if (poolKey == "") != (class == "") || class != "" && class != NativeRecoveryInitial && class != NativeRecoveryRetry && class != NativeRecoveryProbe || class == NativeRecoveryProbe && !probe {
 		return out, ErrConflict
 	}

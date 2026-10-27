@@ -83,3 +83,117 @@ func TestCompactionHandoffCapacityAndIdleTouch(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestCompactionDispatchBindingsComposeWithNativePermits(t *testing.T) {
+	s, l, v := nativeFixture(t)
+	ctx := context.Background()
+	sc := l.Principal.Scope
+	if e := s.PutPrivate(ctx, sc, "route", "r", []byte("enabled")); e != nil {
+		t.Fatal(e)
+	}
+	_, rv, e := s.GetPrivateVersion(ctx, sc, "route", "r")
+	if e != nil {
+		t.Fatal(e)
+	}
+	bindings := []NativeHealthBinding{{Kind: "route", ID: "r", Version: rv}}
+	bound := WithDispatchBindings(ctx, bindings)
+	// Mutating the caller's slice cannot replace the copied fence.
+	bindings[0].Version = "changed-by-caller"
+	k := NativeHealthKey{AccountID: "native", CredentialVersion: v, Lane: NativeHealthFamily, Model: "sonnet"}
+	p, e := s.AcquireNativeHealthPermit(bound, l, k, false)
+	if e != nil {
+		t.Fatal(e)
+	}
+	value := CompactionHandoff{AccountID: "native", CredentialVersion: v, Data: []byte(`{}`)}
+	if e = s.PutCompactionHandoff(bound, l, "lane", value); e != nil {
+		t.Fatal(e)
+	}
+	got, e := s.GetCompactionHandoff(ctx, l, "lane")
+	if e != nil || len(got.Bindings) != 1 || got.Bindings[0].Version != rv {
+		t.Fatal(got, e)
+	}
+	if e = s.WithNativeHealthDispatch(bound, l, []NativeHealthPermit{p}, func(context.Context) error { return nil }); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.PutPrivate(ctx, sc, "route", "r", []byte("disabled")); e != nil {
+		t.Fatal(e)
+	}
+	// Completion uses persisted context bindings even without the original context.
+	if e = s.FinishNativeHealthPermit(ctx, l, p, func(h NativeHealth) (NativeHealth, error) { t.Error("stale bound completion ran"); return h, nil }); !errors.Is(e, ErrForbidden) {
+		t.Fatal(e)
+	}
+	for name, send := range map[string]func() error{
+		"account": func() error {
+			return s.WithAccountDispatch(bound, l, "native", v, func(context.Context) error { t.Error("stale account send"); return nil })
+		},
+		"generic": func() error {
+			return s.WithDispatch(bound, l, func(context.Context) error { t.Error("stale generic send"); return nil })
+		},
+		"native": func() error { _, e := s.AcquireNativeHealthPermit(bound, l, k, false); return e },
+	} {
+		if e = send(); !errors.Is(e, ErrForbidden) {
+			t.Fatal(name, e)
+		}
+	}
+	if e = s.PutCompactionHandoff(bound, l, "late", value); !errors.Is(e, ErrForbidden) {
+		t.Fatal("late stale config published", e)
+	}
+	if _, e = s.GetCompactionHandoff(ctx, l, "lane"); !errors.Is(e, ErrForbidden) {
+		t.Fatal("stale config lookup", e)
+	}
+}
+
+func TestDispatchBindingsNestedWrappersCannotWeakenOuterFence(t *testing.T) {
+	s, l, v := nativeFixture(t)
+	ctx := context.Background()
+	sc := l.Principal.Scope
+	if e := s.PutPrivate(ctx, sc, "route", "r", []byte("old")); e != nil {
+		t.Fatal(e)
+	}
+	if e := s.PutPrivate(ctx, sc, "pool", "p", []byte("pool")); e != nil {
+		t.Fatal(e)
+	}
+	_, routeVersion, e := s.GetPrivateVersion(ctx, sc, "route", "r")
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, poolVersion, e := s.GetPrivateVersion(ctx, sc, "pool", "p")
+	if e != nil {
+		t.Fatal(e)
+	}
+	route := NativeHealthBinding{Kind: "route", ID: "r", Version: routeVersion}
+	pool := NativeHealthBinding{Kind: "pool", ID: "p", Version: poolVersion}
+	outer := WithDispatchBindings(ctx, []NativeHealthBinding{route})
+	// Exact duplicate wrappers are harmless, and both current fences authorize one send.
+	sends := 0
+	if e = s.WithAccountDispatch(WithDispatchBindings(outer, []NativeHealthBinding{route, pool}), l, "native", v, func(context.Context) error { sends++; return nil }); e != nil || sends != 1 {
+		t.Fatal(sends, e)
+	}
+	k := NativeHealthKey{AccountID: "native", CredentialVersion: v, Lane: NativeHealthFamily, Model: "sonnet"}
+	permit, e := s.AcquireNativeHealthPermitBound(outer, l, k, false, []NativeHealthBinding{route, pool})
+	if e != nil {
+		t.Fatal("duplicate native binding", e)
+	}
+	if e = s.WithNativeHealthDispatch(outer, l, []NativeHealthPermit{permit}, func(context.Context) error { return nil }); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.PutCompactionHandoff(outer, l, "duplicate", CompactionHandoff{AccountID: "native", CredentialVersion: v, Data: []byte(`{}`), Bindings: []PrivateBinding{route, pool}}); e != nil {
+		t.Fatal("duplicate publication binding", e)
+	}
+	if e = s.PutPrivate(ctx, sc, "route", "r", []byte("new")); e != nil {
+		t.Fatal(e)
+	}
+	for name, inner := range map[string]context.Context{"nil": WithDispatchBindings(outer, nil), "other": WithDispatchBindings(outer, []NativeHealthBinding{pool})} {
+		if e = s.WithAccountDispatch(inner, l, "native", v, func(context.Context) error { t.Error("nested wrapper removed outer fence", name); return nil }); !errors.Is(e, ErrForbidden) {
+			t.Fatal(name, e)
+		}
+	}
+	_, newVersion, e := s.GetPrivateVersion(ctx, sc, "route", "r")
+	if e != nil {
+		t.Fatal(e)
+	}
+	conflict := WithDispatchBindings(outer, []NativeHealthBinding{{Kind: "route", ID: "r", Version: newVersion}})
+	if e = s.WithAccountDispatch(conflict, l, "native", v, func(context.Context) error { t.Error("conflicting version sent"); return nil }); !errors.Is(e, ErrConflict) {
+		t.Fatal(e)
+	}
+}

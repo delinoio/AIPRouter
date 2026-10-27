@@ -192,6 +192,9 @@ func (s *Store) checkDispatchLease(ctx context.Context, tx *sql.Tx, l Lease) err
 	if e := s.checkLease(ctx, tx, l); e != nil {
 		return e
 	}
+	if e := s.checkNativeHealthBindings(ctx, tx, l, dispatchBindings(ctx)); e != nil {
+		return e
+	}
 	var instance string
 	if e := tx.QueryRowContext(ctx, "SELECT instance_id FROM admissions WHERE id=$1", l.ID).Scan(&instance); e != nil {
 		return noRows(e)
