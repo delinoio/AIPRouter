@@ -384,6 +384,15 @@ func (s *Session) commit(id, args string) ([]Event, error) {
 		return nil, protocolError("cursor_invalid_tool_arguments")
 	}
 	t := s.tools[c.Name]
+	args, obj = normalizeArguments(args, obj, t)
+	if t.Synthetic {
+		patch, err := structuredPatch(t.WireName, obj)
+		if err != nil {
+			return nil, err
+		}
+		encoded, _ := json.Marshal(map[string]any{"input": patch})
+		args = string(encoded)
+	}
 	if t.Freeform {
 		if _, ok := obj["input"].(string); !ok {
 			return nil, protocolError("cursor_invalid_freeform_arguments")

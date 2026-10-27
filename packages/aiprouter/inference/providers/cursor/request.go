@@ -29,7 +29,7 @@ const ClientVersion = "cli-2026.07.08-0c04a8a"
 const toolProvider = "opencodex-responses"
 const continuationText = "Continue: the requested tool results are provided in the conversation history above."
 
-type Adapter struct{}
+type Adapter struct{ vision VisionPreparer }
 
 func New() *Adapter { return &Adapter{} }
 
@@ -46,6 +46,7 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 type tool struct {
 	Name, WireName string
 	Freeform       bool
+	Synthetic      bool
 	Definition     []byte
 }
 type historyMessage struct {
@@ -84,6 +85,9 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 	model := in.Target.Model
 	if model == "" {
 		model = str(body["model"])
+	}
+	if noNativeVision(model) && len(activeImages(body, in.Wire)) > 0 {
+		return inference.AdapterRequest{}, nil, &inference.Error{Status: 501, Code: "cursor_vision_preparer_required"}
 	}
 	if model == "" || len(model) > 512 {
 		return bad("cursor_invalid_model")
@@ -258,7 +262,15 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 	if err != nil {
 		return inference.AdapterRequest{}, nil, err
 	}
-	user := join(ps(1, text), ps(2, messageID), pb(3, nil), pv(4, 1))
+	selected, notes, err := s.selectedImages(ctx, body, in.Wire)
+	if err != nil {
+		return inference.AdapterRequest{}, nil, err
+	}
+	text = strings.ReplaceAll(text, imageAttached, "")
+	if notes != "" {
+		text += "\n" + notes
+	}
+	user := join(ps(1, text), ps(2, messageID), pb(3, selected), pv(4, 1))
 	action := pb(1, join(pb(1, user), pb(2, s.requestContext)))
 	if active < 0 && !externalToolContinuation(model) {
 		action = pb(2, pb(2, s.requestContext))
@@ -347,6 +359,8 @@ func textContent(v any) (string, error) {
 	for _, p := range parts {
 		m := object(p)
 		switch str(m["type"]) {
+		case "image", "image_url", "input_image":
+			out.WriteString(imageAttached)
 		case "text", "input_text", "output_text":
 			out.WriteString(str(m["text"]))
 		default:
@@ -410,6 +424,7 @@ func readHistory(body map[string]any, wire inference.Wire) ([]historyMessage, er
 			role := str(m["role"])
 			if wire == inference.Anthropic {
 				if parts, ok := m["content"].([]any); ok {
+					messageStart := len(out)
 					for _, p := range parts {
 						part := object(p)
 						switch str(part["type"]) {
@@ -427,6 +442,8 @@ func readHistory(body map[string]any, wire inference.Wire) ([]historyMessage, er
 							}
 							isError, _ := part["is_error"].(bool)
 							out = append(out, historyMessage{Role: "tool", CallID: str(part["tool_use_id"]), Text: s, IsError: isError})
+						case "image":
+							out = append(out, historyMessage{Role: role, Text: imageAttached})
 						case "text":
 							if e := add(role, part["text"]); e != nil {
 								return nil, e
@@ -434,6 +451,19 @@ func readHistory(body map[string]any, wire inference.Wire) ([]historyMessage, er
 						default:
 							return nil, &inference.Error{Status: 501, Code: "cursor_unsupported_content"}
 						}
+					}
+					// Keep one multipart user message in one active action, while
+					// preserving separate tool-result observations.
+					if role == "user" && len(out) > messageStart {
+						merged := append([]historyMessage(nil), out[:messageStart]...)
+						for _, h := range out[messageStart:] {
+							if h.Role == "user" && len(merged) > messageStart && merged[len(merged)-1].Role == "user" {
+								merged[len(merged)-1].Text += h.Text
+							} else {
+								merged = append(merged, h)
+							}
+						}
+						out = merged
 					}
 					continue
 				}
@@ -520,6 +550,17 @@ func readTools(body map[string]any, wire inference.Wire) ([]tool, []byte, error)
 	}
 	if choiceName != "" && len(out) == 0 {
 		return nil, nil, &inference.Error{Status: 400, Code: "cursor_unknown_tool_choice"}
+	}
+	extra, err := syntheticEdits(out, choice)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, t := range extra {
+		out = append(out, t)
+		catalog = append(catalog, pb(1, t.Definition)...)
+	}
+	if len(out) > MaxTools || len(catalog) > MaxToolBytes {
+		return nil, nil, &inference.Error{Status: 400, Code: "cursor_tool_catalog_too_large"}
 	}
 	return out, catalog, nil
 }

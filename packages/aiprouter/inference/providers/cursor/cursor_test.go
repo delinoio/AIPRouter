@@ -679,7 +679,7 @@ func TestInputWireProjectionAndLimits(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	in := input(`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://must-not-fetch.test"}}]}]}`)
+	in := input(`{"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"unused","format":"wav"}}]}]}`)
 	_, _, err := Prepare(context.Background(), in, nil)
 	requireCode(t, err, "cursor_unsupported_content")
 	in = input(`{"messages":[{"role":"user","content":"hi"}],"previous_response_id":"missing"}`)
