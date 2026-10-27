@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Package artifacts manages temporary generated images. Authorization and durable
+// Package artifacts manages temporary generated media. Authorization and durable
 // lifecycle transitions belong to the injected repository, not an in-process cache.
 package artifacts
 
@@ -15,12 +15,14 @@ import (
 )
 
 const (
-	MaxImageBytes     = 50 << 20
-	MaxResponseBytes  = 100 << 20
-	MaxFiles          = 200
-	Lifetime          = 24 * time.Hour
-	MaxSignedLifetime = 5 * time.Minute
-	UploadTimeout     = 5 * time.Minute
+	MaxImageBytes         = 50 << 20
+	MaxResponseBytes      = 100 << 20
+	MaxVideoBytes         = 200 << 20
+	MaxVideoResponseBytes = 600 << 20
+	MaxFiles              = 200
+	Lifetime              = 24 * time.Hour
+	MaxSignedLifetime     = 5 * time.Minute
+	UploadTimeout         = 5 * time.Minute
 )
 
 var (
@@ -88,6 +90,26 @@ func New(repo Repository, objects ObjectStore) *Service {
 }
 func validOwner(o Owner) bool { return o.OrganizationID != "" && o.UserID != "" && o.Generation > 0 }
 func (s *Service) StoreResponse(ctx context.Context, owner Owner, images []Image) ([]Artifact, error) {
+	return s.storeResponse(ctx, owner, images, false)
+}
+
+// Video is a decoded MP4. Callers must also enforce the per-turn cumulative
+// video budget when a hosted turn publishes more than one response batch.
+// The alias keeps existing hosted media byte collectors compatible. The method,
+// not the container type, selects the MIME and byte-limit policy.
+type Video = Image
+
+func (s *Service) StoreVideoResponse(ctx context.Context, owner Owner, videos []Video) ([]Artifact, error) {
+	return s.storeResponse(ctx, owner, videos, true)
+}
+func (s *Service) storeResponse(ctx context.Context, owner Owner, images []Image, video bool) ([]Artifact, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	fileLimit, batchLimit := MaxImageBytes, MaxResponseBytes
+	if video {
+		fileLimit, batchLimit = MaxVideoBytes, MaxVideoResponseBytes
+	}
 	if !validOwner(owner) || len(images) == 0 {
 		return nil, ErrInvalid
 	}
@@ -99,16 +121,22 @@ func (s *Service) StoreResponse(ctx context.Context, owner Owner, images []Image
 		if len(im.Data) == 0 {
 			return nil, ErrInvalid
 		}
-		if len(im.Data) > MaxImageBytes {
+		if len(im.Data) > fileLimit {
 			return nil, ErrLimit
 		}
-		switch im.ContentType {
-		case "image/png", "image/jpeg", "image/webp", "image/gif", "image/avif":
-		default:
-			return nil, ErrInvalid
+		if video {
+			if im.ContentType != "video/mp4" {
+				return nil, ErrInvalid
+			}
+		} else {
+			switch im.ContentType {
+			case "image/png", "image/jpeg", "image/webp", "image/gif", "image/avif":
+			default:
+				return nil, ErrInvalid
+			}
 		}
 		total += int64(len(im.Data))
-		if total > MaxResponseBytes {
+		if total > int64(batchLimit) {
 			return nil, ErrLimit
 		}
 	}
@@ -129,9 +157,15 @@ func (s *Service) StoreResponse(ctx context.Context, owner Owner, images []Image
 	uploadCtx, cancel := context.WithDeadline(ctx, now.Add(UploadTimeout))
 	defer cancel()
 	for i, row := range rows {
+		if err := uploadCtx.Err(); err != nil {
+			return nil, s.abort(ctx, owner, ids, err)
+		}
 		if err := s.objects.Put(uploadCtx, row.ObjectKey, row.ContentType, images[i].Data); err != nil {
 			return nil, s.abort(ctx, owner, ids, err)
 		}
+	}
+	if err := uploadCtx.Err(); err != nil {
+		return nil, s.abort(ctx, owner, ids, err)
 	}
 	if err := s.repo.Publish(uploadCtx, owner, ids, s.now()); err != nil {
 		return nil, s.abort(ctx, owner, ids, err)

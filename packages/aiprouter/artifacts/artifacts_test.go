@@ -122,6 +122,7 @@ func (r *testRepo) Tombstone(_ context.Context, o Owner, ids []string, now time.
 	for _, id := range ids {
 		if row, ok := r.rows[id]; ok && row.Owner == o {
 			r.hide(row, now)
+			delete(r.rows, id)
 		}
 	}
 	return nil
