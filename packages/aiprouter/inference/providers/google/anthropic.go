@@ -69,7 +69,17 @@ func anthropicBlocks(message object) []any {
 	return blocks
 }
 func anthropicResponse(message object, s *responseState) object {
-	blocks := s.blocks
+	var blocks []any
+	for _, raw := range s.blocks {
+		b := obj(raw)
+		if b["type"] == "thinking_signature" {
+			if len(blocks) > 0 && obj(blocks[len(blocks)-1])["type"] == "thinking" {
+				obj(blocks[len(blocks)-1])["signature"] = b["signature"]
+			}
+			continue
+		}
+		blocks = append(blocks, raw)
+	}
 	if blocks == nil {
 		blocks = []any{}
 	}
@@ -95,6 +105,26 @@ func (r *streamReader) anthropicDelta(delta object) []byte {
 	out := r.anthropicStart()
 	for _, raw := range r.state.blocks {
 		block := obj(raw)
+		if block["type"] == "thinking_signature" {
+			if r.thinkingOpen {
+				out = append(out, namedEvent("content_block_delta", object{"index": r.thinkingIndex, "delta": object{"type": "signature_delta", "signature": block["signature"]}})...)
+			}
+			continue
+		}
+		if block["type"] == "thinking" {
+			if !r.thinkingOpen {
+				r.thinkingIndex = r.blockIndex
+				r.blockIndex++
+				r.thinkingOpen = true
+				out = append(out, namedEvent("content_block_start", object{"index": r.thinkingIndex, "content_block": object{"type": "thinking", "thinking": ""}})...)
+			}
+			out = append(out, namedEvent("content_block_delta", object{"index": r.thinkingIndex, "delta": object{"type": "thinking_delta", "thinking": block["thinking"]}})...)
+			if block["signature"] != nil {
+				out = append(out, namedEvent("content_block_delta", object{"index": r.thinkingIndex, "delta": object{"type": "signature_delta", "signature": block["signature"]}})...)
+			}
+			continue
+		}
+		out = append(out, r.closeThinking()...)
 		index := r.blockIndex
 		r.blockIndex++
 		switch block["type"] {
@@ -103,12 +133,6 @@ func (r *streamReader) anthropicDelta(delta object) []byte {
 			block["input"] = object{}
 			out = append(out, namedEvent("content_block_start", object{"index": index, "content_block": block})...)
 			out = append(out, namedEvent("content_block_delta", object{"index": index, "delta": object{"type": "input_json_delta", "partial_json": string(args)}})...)
-		case "thinking":
-			out = append(out, namedEvent("content_block_start", object{"index": index, "content_block": object{"type": "thinking", "thinking": ""}})...)
-			out = append(out, namedEvent("content_block_delta", object{"index": index, "delta": object{"type": "thinking_delta", "thinking": block["thinking"]}})...)
-			if block["signature"] != nil {
-				out = append(out, namedEvent("content_block_delta", object{"index": index, "delta": object{"type": "signature_delta", "signature": block["signature"]}})...)
-			}
 		default:
 			out = append(out, namedEvent("content_block_start", object{"index": index, "content_block": object{"type": "text", "text": ""}})...)
 			out = append(out, namedEvent("content_block_delta", object{"index": index, "delta": object{"type": "text_delta", "text": block["text"]}})...)
@@ -119,4 +143,12 @@ func (r *streamReader) anthropicDelta(delta object) []byte {
 		out = append(out, namedEvent("message_delta", object{"delta": object{}, "extra_content": extra})...)
 	}
 	return out
+}
+
+func (r *streamReader) closeThinking() []byte {
+	if !r.thinkingOpen {
+		return nil
+	}
+	r.thinkingOpen = false
+	return namedEvent("content_block_stop", object{"index": r.thinkingIndex})
 }

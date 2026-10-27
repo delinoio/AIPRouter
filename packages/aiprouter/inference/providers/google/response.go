@@ -278,6 +278,8 @@ func (a *Adapter) convert(root object, s *responseState) (object, error) {
 						block["signature"] = sig
 					}
 					s.blocks = append(s.blocks, block)
+				} else if realSignature(sig) {
+					s.blocks = append(s.blocks, object{"type": "thinking_signature", "signature": sig})
 				}
 			}
 		} else {
@@ -417,6 +419,8 @@ type streamReader struct {
 	anthropicStarted bool
 	blockIndex       int
 	sourceEOF        bool
+	thinkingOpen     bool
+	thinkingIndex    int
 }
 
 func (r *streamReader) closeBody() error {
@@ -491,6 +495,7 @@ func (r *streamReader) Read(p []byte) (int, error) {
 				r.pending = nil
 				// frame() returns a last data frame before EOF on the next read.
 				r.pending = append(r.pending, r.anthropicStart()...)
+				r.pending = append(r.pending, r.closeThinking()...)
 				r.pending = append(r.pending, namedEvent("message_delta", object{"delta": object{"stop_reason": anthropicStop(r.state), "stop_sequence": nil}, "usage": anthropicUsage(r.state.usage)})...)
 				r.pending = append(r.pending, namedEvent("message_stop", object{})...)
 			}

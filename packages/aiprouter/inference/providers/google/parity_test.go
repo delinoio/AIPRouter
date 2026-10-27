@@ -456,3 +456,38 @@ func TestSchemaObserverCanReadRequestReport(t *testing.T) {
 		t.Fatal("observer alias or missing call")
 	}
 }
+
+func TestNativeThinkingSignatureAcrossFrames(t *testing.T) {
+	a := NewAntigravity(Options{})
+	in := input(`{"messages":[]}`)
+	in.Wire = inference.Anthropic
+	in.Target.Auth = inference.OAuth
+	in.Credential.Headers = map[string][]string{ProjectHeader: {"project"}}
+	for _, parts := range [][]string{
+		{`[{"thought":true,"text":"first "}]`, `[{"thought":true,"text":"second"}]`, `[{"thought":true,"thoughtSignature":"sig-alpha-opaque-value"}]`},
+		{`[{"thought":true,"text":"first second"},{"thought":true,"thoughtSignature":"sig-alpha-opaque-value"}]`},
+	} {
+		ctx, _, _ := prepared(t, a, in)
+		stream := ""
+		for _, p := range parts {
+			stream += `data: {"response":{"candidates":[{"content":{"parts":` + p + `}}]}}` + "\n\n"
+		}
+		stream += `data: {"response":{"candidates":[{"finishReason":"STOP"}]}}`
+		r, e := a.Decode(ctx, upstream(stream, true))
+		if e != nil {
+			t.Fatal(e)
+		}
+		data, e := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		if e != nil {
+			t.Fatal(e)
+		}
+		s := string(data)
+		if strings.Count(s, "event: content_block_start\n") != 1 || strings.Count(s, "event: content_block_stop\n") != 1 || strings.Count(s, `"type":"signature_delta"`) != 1 {
+			t.Fatal(s)
+		}
+		if strings.Index(s, `"type":"signature_delta"`) > strings.Index(s, "event: content_block_stop\n") {
+			t.Fatal("signature emitted after block closed")
+		}
+	}
+}

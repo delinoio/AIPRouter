@@ -294,7 +294,14 @@ func parseMessages(root object, wire inference.Wire) ([]message, error) {
 			if wire == inference.Anthropic {
 				if blocks, ok := m["content"].([]any); ok {
 					var parts []any
-					if raw := obj(obj(m["extra_content"])["google"])["parts"]; raw != nil {
+					signedThinking := false
+					for _, b := range blocks {
+						if obj(b)["type"] == "thinking" && realSignature(text(obj(b)["signature"])) {
+							signedThinking = true
+							break
+						}
+					}
+					if raw := obj(obj(m["extra_content"])["google"])["parts"]; raw != nil && !signedThinking {
 						opaque, err := replayParts(raw)
 						if err != nil {
 							return nil, err
