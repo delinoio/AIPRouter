@@ -266,6 +266,19 @@ func TestGoogleToolsAndUsage(t *testing.T) {
 		t.Fatal(unknown)
 	}
 }
+
+func TestRichContentFailsWithoutSilentLoss(t *testing.T) {
+	_, err := googleRequest(object{"messages": []any{object{"role": "assistant", "content": "answer", "reasoning_content": "reason"}}}, inference.Chat)
+	if !errors.Is(err, inference.ErrUnsupported) {
+		t.Fatal("reasoning replay silently discarded")
+	}
+	for _, part := range []string{`{"executableCode":{"code":"print(1)"}}`, `{"thoughtSignature":"signature","text":"answer"}`, `{"functionCall":{"name":"lookup","args":null}}`} {
+		out := streamText(t, Google, `{"candidates":[{"content":{"parts":[`+part+`]},"finishReason":"STOP"}]}`+"\n")
+		if !strings.Contains(out, "unsupported Google event") {
+			t.Fatal(out)
+		}
+	}
+}
 func TestCancellationClosesBlockedUpstream(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	reader, writer := io.Pipe()

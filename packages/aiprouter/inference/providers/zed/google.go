@@ -138,8 +138,15 @@ func (g *googleStream) convert(m object) (object, error) {
 		text, thinking := "", ""
 		for _, v := range arrayOf(objectOf(c["content"])["parts"]) {
 			p := objectOf(v)
-			if p["thoughtSignature"] != nil || p["inlineData"] != nil {
+			if p == nil {
 				return nil, inference.ErrUnsupported
+			}
+			for key := range p {
+				switch key {
+				case "text", "thought", "functionCall":
+				default:
+					return nil, inference.ErrUnsupported
+				}
 			}
 			if p["thought"] == true {
 				thinking += stringOf(p["text"])
@@ -147,6 +154,9 @@ func (g *googleStream) convert(m object) (object, error) {
 				text += stringOf(p["text"])
 			}
 			if f := objectOf(p["functionCall"]); f != nil {
+				if stringOf(f["name"]) == "" || objectOf(f["args"]) == nil {
+					return nil, inference.ErrUnsupported
+				}
 				if g.calls >= 256 {
 					return nil, inference.ErrUnsupported
 				}

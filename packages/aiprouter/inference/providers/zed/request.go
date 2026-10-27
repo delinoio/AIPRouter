@@ -340,6 +340,19 @@ func canonicalMessages(b object, wire inference.Wire) ([]any, error) {
 			if m == nil {
 				return nil, requestError("invalid_zed_message")
 			}
+			for key := range m {
+				switch key {
+				case "role", "content", "tool_calls", "tool_call_id", "name":
+				default:
+					return nil, inference.ErrUnsupported
+				}
+			}
+			for _, call := range arrayOf(m["tool_calls"]) {
+				c := objectOf(call)
+				if c["type"] != "function" || objectOf(c["function"]) == nil {
+					return nil, inference.ErrUnsupported
+				}
+			}
 			c, err := textContent(m["content"])
 			if err != nil {
 				return nil, err
