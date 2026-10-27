@@ -31,7 +31,7 @@ Add only your own accounts to your personal pool in the selected organization. S
 
 In Pools, select **Create pool**, name it, choose the strategy, and add your own connections in the intended order. In Routing, select **Create route**, enter the model alias used by your clients, choose a strategy, and add connection or pool targets with model IDs. Direct routing requires one target. Review target order and any weights before saving. Resolve unavailable targets and dependent routes before disconnecting a provider.
 
-Pools support priority, round-robin, and least-recently-used selection. Routes support direct, fallback, round-robin, and weighted selection. These strategies now have server selection support; use positive weights for weighted targets and do not add duplicate pool members or route targets. Direct routes require exactly one target.
+Pools support priority, round-robin, and least-recently-used selection. Routes support direct, fallback, round-robin, weighted, and JEV decision selection. These strategies now have server selection support; use positive weights for weighted targets and do not add duplicate pool members or route targets. Direct routes require exactly one target.
 
 Keep a pool's provider and transport compatible. An incompatible pool is rejected; use separate route targets for cross-provider fallback. Paused, expired, uncertain, or cooled-down accounts can be ineligible even when listed in your settings. Bound continuation/recovery cannot silently rotate to another account. Strategy availability does not establish every provider-specific retry, quota, or probe behavior.
 
@@ -42,6 +42,22 @@ Model discovery can be unavailable for a custom or uncatalogued provider. The ro
 Retries depend on the provider, authentication method, error, and whether an upstream send may already have occurred. There is no universal three-attempt provider retry rule. Do not replay an ambiguous send blindly. Cancellation, membership removal, key revocation, or loss of database authorization must stop additional upstream sends.
 
 Public HTTPS providers are permitted by default. A local/private HTTP model server needs operator approval. Running Claude CLI, CodeBuddy, Qoder, or another local program as the provider backend is excluded, including execution agents and remote workspace/command dispatch. Configuring such a client to use a supported remote inference interface is a separate capability.
+
+## JEV decision routing
+
+JEV selects among your configured targets using a personal decision service or an ordinary personal route. It is a routing decision, not a general inference model or local command executor. Configure it in the selected organization:
+
+1. Open Routing, create or edit a route, and select **JEV** as the routing strategy.
+2. Under **JEV decision settings**, choose **Connection** or **Route alias** as the decision source.
+3. For a connection, select your JEV or compatible custom decision-service connection. The server checks eligibility. **Decision service model** selects a custom SystemOne backend model; the canonical JEV service uses `jev-latest`.
+4. For a route alias, select an ordinary personal route. The decision route cannot be this route or another JEV route; JEV chains and cycles are not supported. Resolve any saved connection or route shown as unavailable before relying on it.
+5. Set **Decision timeout (ms)**. Zero selects the 4000 ms default; otherwise use an integer from 1000 to 120000.
+6. Set **Session pin duration (seconds)**. Zero disables pinning; otherwise use an integer from 60 to 86400. A pin remains subject to current target eligibility and request compatibility.
+7. Review the ordered targets and save. Saving replaces the complete route. Changing away from JEV removes its decision configuration; changing the decision-source type clears the previous source selection.
+
+For each target, expand **Target reasoning and model profile**. Select the allowed reasoning efforts from `low`, `medium`, `high`, `xhigh`, `max`, and `ultra` as appropriate for that target. A checkbox does not establish that a provider/model supports that effort. **Model profile** is an optional description for decisions, limited to 512 characters. Do not include credentials or request content in it.
+
+Choose a decision backend you authorize to receive bounded task, assistant, and tool-result text. The decision exchange does not send credentials or the entire conversation history. Its request and response are bounded to 64 KiB. A failed decision can fall back only to the first eligible configured target, so review target order deliberately. Cancellation and destination restrictions still apply. Automated tests do not establish live decision-service or provider acceptance.
 
 ## Limits and continuation
 

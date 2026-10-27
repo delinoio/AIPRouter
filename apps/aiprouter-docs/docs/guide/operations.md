@@ -66,3 +66,7 @@ Costs are estimates, not invoices. Missing usage or price is unknown, not zero; 
 | Restore invalidation fails                         | Keep all servers stopped and traffic blocked until invalidation is verified.                                                                         |
 
 When requesting help, include the application version, platform, time, request ID, and sanitized symptoms. Exclude credentials, settings backups, signed URLs, device secrets, and raw inference content.
+
+## Destination-policy changes and conflicts
+
+Operators can add, edit, and remove exact-origin approvals and optional CIDR restrictions in Approved destinations. Follow [the destination policy procedure](configuration.md#provider-destination-policy) and confirm the complete draft before saving. Clearing CIDRs broadens that origin's access; removing approval can block future requests that depend on it. On a concurrent-update error, preserve your intended edits, reload the current policy, and review a reconciled draft. A rejected save does not change the active policy.

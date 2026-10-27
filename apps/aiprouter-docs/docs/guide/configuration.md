@@ -81,4 +81,15 @@ A signed URL is a bearer capability. Anyone holding it can download until it exp
 
 ## Provider destination policy
 
-Public HTTPS destinations are the default. Private/local HTTP model servers require explicit operator approval. No concrete destination-allowlist configuration name is established here. Do not disable destination checks to work around a connection failure.
+Public HTTPS destinations are allowed by default. Private/local HTTP model servers require explicit operator approval. Instance operators manage these rules in **Approved destinations**; organization ownership alone does not grant this permission.
+
+1. Enter the exact origin: scheme, hostname, and port, such as `http://localhost:8080`. Approve only the destination you intend to use.
+2. Optionally enter **Allowed networks** as CIDR ranges, one per line or separated by commas. Use ranges for the actual destination network; do not copy example ranges as approvals.
+3. Add the entry to the draft, or use **Edit** on an existing rule and apply its changes. Editing retains the rule's identity. Finish or cancel an open destination edit before saving the policy.
+4. Select **Review and save changes**. Review every origin and network in the confirmation, including removed rules, then confirm.
+
+An empty network list approves the exact origin without CIDR narrowing. Clearing a previous list broadens access for that origin. A nonempty list restricts the origin to those networks, even for public HTTPS. An address outside the configured networks is blocked; public HTTPS does not override that restriction. All resolved addresses must satisfy the rule, and redirects cannot bypass it. Removing approval blocks future connections that require it.
+
+Duplicate canonical origins and invalid CIDR prefixes are rejected. Correct the entries and review again. If another operator changed the saved policy, your draft and network entries remain available, but the stale save is rejected. Reload the current settings, reconcile your intended changes, and review before resubmitting; do not assume the failed save took effect.
+
+Do not disable destination checks to work around a connection failure. Coordinate changes with users of affected provider connections and hosted media downloads.
