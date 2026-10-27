@@ -10,6 +10,8 @@ import {
   ProviderService,
   PoolService,
   RouteSchema,
+  JevDecisionConfigSchema,
+  JevQuotaTiersSchema,
   RoutingStrategy,
   ConnectionState,
   OrganizationSchema,
@@ -102,6 +104,105 @@ async function edit() {
   );
 }
 describe("JEV routing payloads", () => {
+  it("validates effective quota order while signals are off and allows explicit override removal", async () => {
+    const user = userEvent.setup(),
+      mutate = vi.fn((_request: unknown) => ({}));
+    mount(configured, mutate);
+    await edit();
+    await user.click(screen.getByText("Advisory quota signals"));
+    await user.click(screen.getByLabelText("Override quota thresholds"));
+    await user.type(screen.getByLabelText("Moderate quota used (%)"), "70");
+    expect(
+      screen
+        .getByRole("button", { name: "Save routing" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    await user.clear(screen.getByLabelText("Moderate quota used (%)"));
+    await user.type(screen.getByLabelText("Limited quota used (%)"), "90");
+    expect(
+      screen
+        .getByRole("button", { name: "Save routing" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    await user.click(screen.getByLabelText("Override quota thresholds"));
+    await user.click(screen.getByRole("button", { name: "Save routing" }));
+    const request = mutate.mock.calls[0]?.[0] as {
+      jevDecision: {
+        decisionQuotaSignals: boolean;
+        decisionQuotaTiers?: unknown;
+      };
+    };
+    expect(request.jevDecision.decisionQuotaSignals).toBe(false);
+    expect(request.jevDecision.decisionQuotaTiers).toBeUndefined();
+  });
+  it.each([NaN, Infinity, -1, 101])(
+    "rejects invalid saved quota threshold %s until repaired",
+    async (value) => {
+      const mutate = vi.fn((_request: unknown) => ({}));
+      mount(
+        create(RouteSchema, {
+          ...configured,
+          jevDecision: create(JevDecisionConfigSchema, {
+            ...configured.jevDecision!,
+            decisionQuotaTiers: create(JevQuotaTiersSchema, {
+              moderate: value,
+            }),
+          }),
+        }),
+        mutate,
+      );
+      await edit();
+      expect(
+        screen
+          .getByRole("button", { name: "Save routing" })
+          .hasAttribute("disabled"),
+      ).toBe(true);
+    },
+  );
+
+  it.each([true, false])(
+    "preserves existing optional quota thresholds with signals %s on full route replacement",
+    async (signals) => {
+      const mutate = vi.fn((_request: unknown) => ({}));
+      const route = create(RouteSchema, {
+        ...configured,
+        jevDecision: create(JevDecisionConfigSchema, {
+          ...configured.jevDecision!,
+          decisionQuotaSignals: signals,
+          decisionQuotaTiers: create(JevQuotaTiersSchema, {
+            moderate: 0,
+            nearlyExhausted: 95,
+          }),
+        }),
+      });
+      mount(route, mutate);
+      await edit();
+      await userEvent.click(
+        screen.getByRole("button", { name: "Save routing" }),
+      );
+      expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+        jevDecision: { ...route.jevDecision! },
+        targets: [
+          {
+            reasoningEfforts: ["high", "max"],
+            modelProfile: "Careful reasoning",
+          },
+        ],
+      });
+      const request = mutate.mock.calls[0]?.[0] as {
+        jevDecision: {
+          decisionQuotaTiers: {
+            moderate?: number;
+            limited?: number;
+            nearlyExhausted?: number;
+          };
+        };
+      };
+      expect(request.jevDecision.decisionQuotaTiers.moderate).toBe(0);
+      expect(request.jevDecision.decisionQuotaTiers.limited).toBeUndefined();
+    },
+  );
+
   it("creates explicit personal decision configuration and target hints with bounds", async () => {
     const user = userEvent.setup(),
       mutate = vi.fn((_request: unknown) => ({}));
@@ -115,6 +216,14 @@ describe("JEV routing payloads", () => {
     await user.selectOptions(
       screen.getByLabelText("Decision connection"),
       "decision",
+    );
+    await user.click(screen.getByText("Advisory quota signals"));
+    await user.click(screen.getByLabelText("Enable advisory quota signals"));
+    await user.click(screen.getByLabelText("Override quota thresholds"));
+    await user.type(screen.getByLabelText("Moderate quota used (%)"), "0");
+    await user.type(
+      screen.getByLabelText("Nearly exhausted quota used (%)"),
+      "95.5",
     );
     await user.type(
       screen.getByLabelText("Decision service model"),
@@ -150,6 +259,8 @@ describe("JEV routing payloads", () => {
       strategy: RoutingStrategy.JEV,
       jevDecision: {
         decisionConnectionId: "decision",
+        decisionQuotaSignals: true,
+        decisionQuotaTiers: { moderate: 0, nearlyExhausted: 95.5 },
         decisionModel: "",
         decisionServiceModel: "custom-judge",
         decisionTimeoutMs: 1000,

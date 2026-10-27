@@ -25,6 +25,7 @@ export type ConfigurationDraft = {
   mode: ConfigurationMode;
   configuration: ProviderConfiguration;
   models: { id: string; wire: ProviderWire }[];
+  serviceTiers: { id: string; supported: boolean }[];
   floor: string;
   headerMode: HeaderMode;
   headers: { name: string; value: string }[];
@@ -43,6 +44,9 @@ export function configurationDraft(
       id,
       wire,
     })),
+    serviceTiers: Object.entries(
+      configuration.policy?.modelSupportsServiceTier ?? {},
+    ).map(([id, supported]) => ({ id, supported })),
     floor: configuration.minMaxOutputTokens?.toString() ?? "",
     headerMode: HeaderMode.Preserve,
     headers: [],
@@ -61,6 +65,17 @@ export function configurationValues(draft: ConfigurationDraft) {
           "Model overrides support only Chat completions or Responses.",
         );
       modelWires[id] = row.wire;
+    }
+  const modelSupportsServiceTier: Record<string, boolean> = Object.create(null);
+  const modelNames = new Set<string>();
+  if (mode === ConfigurationMode.Replace)
+    for (const row of draft.serviceTiers) {
+      if (!row.id.trim() || modelNames.has(row.id.toLowerCase()))
+        throw new Error(
+          "Service-tier model IDs must be nonempty and unique, ignoring letter case.",
+        );
+      modelNames.add(row.id.toLowerCase());
+      modelSupportsServiceTier[row.id] = row.supported;
     }
   const values: Record<string, string> = Object.create(null);
   const names = new Set<string>();
@@ -93,6 +108,16 @@ export function configurationValues(draft: ConfigurationDraft) {
         ? create(ProviderConfigurationSchema, {
             ...draft.configuration,
             modelWires,
+            policy:
+              draft.configuration.policy || draft.serviceTiers.length
+                ? create(ProviderPolicyOverridesSchema, {
+                    ...create(
+                      ProviderPolicyOverridesSchema,
+                      draft.configuration.policy,
+                    ),
+                    modelSupportsServiceTier,
+                  })
+                : undefined,
             minMaxOutputTokens: floor ? BigInt(floor) : undefined,
           })
         : undefined,
@@ -127,6 +152,7 @@ const policies = [
   ["parallelToolCalls", "Parallel tool calls"],
   ["promptCacheKey", "Prompt cache key"],
   ["chatServiceTier", "Chat service tier"],
+  ["fastEnabled", "Fast mode policy"],
   ["supportsServiceTier", "Service tier support"],
   ["supportsVerbosity", "Verbosity support"],
   ["supportsResponsesCustomTools", "Responses custom tools"],
@@ -350,7 +376,10 @@ export function ConfigurationFields({
                     onChange={(e) =>
                       update({
                         policy: create(ProviderPolicyOverridesSchema, {
-                          ...config.policy,
+                          ...create(
+                            ProviderPolicyOverridesSchema,
+                            config.policy,
+                          ),
                           [key]:
                             e.target.value === ""
                               ? undefined
@@ -365,6 +394,84 @@ export function ConfigurationFields({
                   </select>
                 </Field>
               ))}
+              <p>
+                Fast mode requires a supported model and compatible API format.
+                Enabling it does not guarantee faster service. Disabled denies
+                fast mode; Inherit uses the provider policy.
+              </p>
+              <h3>Model service-tier support</h3>
+              <p>
+                Use upstream model IDs, not route aliases. IDs match exactly
+                first, then without regard to letter case. Removing an override
+                inherits the provider policy. Enabled cannot override a
+                provider-wide denial or an unsupported API format.
+              </p>
+              {draft.serviceTiers.map((row, index) => (
+                <fieldset key={index}>
+                  <legend>Service-tier override {index + 1}</legend>
+                  <Field label={`Service-tier model ID ${index + 1}`}>
+                    <input
+                      required
+                      value={row.id}
+                      onChange={(e) =>
+                        onChange({
+                          ...draft,
+                          mode: ConfigurationMode.Replace,
+                          serviceTiers: draft.serviceTiers.map((r, i) =>
+                            i === index ? { ...r, id: e.target.value } : r,
+                          ),
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label={`Service-tier support ${index + 1}`}>
+                    <select
+                      value={String(row.supported)}
+                      onChange={(e) =>
+                        onChange({
+                          ...draft,
+                          mode: ConfigurationMode.Replace,
+                          serviceTiers: draft.serviceTiers.map((r, i) =>
+                            i === index
+                              ? { ...r, supported: e.target.value === "true" }
+                              : r,
+                          ),
+                        })
+                      }
+                    >
+                      <option value="true">Enabled</option>
+                      <option value="false">Disabled</option>
+                    </select>
+                  </Field>
+                  <Button
+                    onClick={() =>
+                      onChange({
+                        ...draft,
+                        mode: ConfigurationMode.Replace,
+                        serviceTiers: draft.serviceTiers.filter(
+                          (_, i) => i !== index,
+                        ),
+                      })
+                    }
+                  >
+                    Remove service-tier override {index + 1}
+                  </Button>
+                </fieldset>
+              ))}
+              <Button
+                onClick={() =>
+                  onChange({
+                    ...draft,
+                    mode: ConfigurationMode.Replace,
+                    serviceTiers: [
+                      ...draft.serviceTiers,
+                      { id: "", supported: false },
+                    ],
+                  })
+                }
+              >
+                Add service-tier override
+              </Button>
               <fieldset>
                 <legend>Responses item ID repair</legend>
                 <Field
@@ -376,7 +483,10 @@ export function ConfigurationFields({
                     onChange={(e) =>
                       update({
                         policy: create(ProviderPolicyOverridesSchema, {
-                          ...config.policy,
+                          ...create(
+                            ProviderPolicyOverridesSchema,
+                            config.policy,
+                          ),
                           responsesItemIdRepair:
                             e.target.value === "inherit"
                               ? undefined
@@ -406,7 +516,10 @@ export function ConfigurationFields({
                           onChange={(e) =>
                             update({
                               policy: create(ProviderPolicyOverridesSchema, {
-                                ...config.policy,
+                                ...create(
+                                  ProviderPolicyOverridesSchema,
+                                  config.policy,
+                                ),
                                 responsesItemIdRepair: create(
                                   ResponsesItemIdRepairSchema,
                                   {
@@ -440,7 +553,10 @@ export function ConfigurationFields({
                           onChange={(e) =>
                             update({
                               policy: create(ProviderPolicyOverridesSchema, {
-                                ...config.policy,
+                                ...create(
+                                  ProviderPolicyOverridesSchema,
+                                  config.policy,
+                                ),
                                 responsesItemIdRepair: create(
                                   ResponsesItemIdRepairSchema,
                                   {

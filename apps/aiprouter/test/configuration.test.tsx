@@ -88,6 +88,94 @@ function providerRoutes(
   r.service(RoutingService, { listRoutes: () => ({}) });
 }
 describe("provider configuration mutations", () => {
+  it("preserves fast false and exact model false overrides during unrelated full configuration replacement", async () => {
+    const user = userEvent.setup(),
+      update = vi.fn((_request: unknown) => ({}));
+    const source = create(ProviderConnectionSchema, {
+      ...connection,
+      configuration: create(ProviderConfigurationSchema, {
+        ...connection.configuration!,
+        policy: create(ProviderPolicyOverridesSchema, {
+          fastEnabled: false,
+          modelSupportsServiceTier: { "Case/Model": false },
+        }),
+      }),
+    });
+    mount(
+      <ProvidersPage organization={organization} session={session} />,
+      (r) => providerRoutes(r, update, source),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Edit connection" }),
+    );
+    await user.selectOptions(
+      screen.getByLabelText("API format"),
+      String(ProviderWire.CHAT),
+    );
+    await user.click(screen.getByRole("button", { name: "Save connection" }));
+    expect(update.mock.calls[0]?.[0]).toMatchObject({
+      configuration: {
+        policy: {
+          fastEnabled: false,
+          modelSupportsServiceTier: { "Case/Model": false },
+        },
+      },
+    });
+  });
+  it("edits fast tri-state and model support without lowercasing, rejects duplicate folded IDs", async () => {
+    const user = userEvent.setup(),
+      update = vi.fn((_request: unknown) => ({}));
+    mount(
+      <ProvidersPage organization={organization} session={session} />,
+      (r) => providerRoutes(r, update),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Edit connection" }),
+    );
+    await user.click(screen.getByText("Advanced connection settings"));
+    await user.click(screen.getByText("Request compatibility policies"));
+    await user.selectOptions(
+      screen.getByLabelText("Fast mode policy"),
+      "false",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Add service-tier override" }),
+    );
+    await user.type(
+      screen.getByLabelText("Service-tier model ID 1"),
+      "Case/Model",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Add service-tier override" }),
+    );
+    await user.type(
+      screen.getByLabelText("Service-tier model ID 2"),
+      "case/model",
+    );
+    await user.click(screen.getByRole("button", { name: "Save connection" }));
+    expect(update).not.toHaveBeenCalled();
+    await screen.findByText(
+      "Service-tier model IDs must be nonempty and unique, ignoring letter case.",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Remove service-tier override 2" }),
+    );
+    await user.selectOptions(screen.getByLabelText("Fast mode policy"), "");
+    await user.click(screen.getByRole("button", { name: "Save connection" }));
+    const request = update.mock.calls[0]?.[0] as {
+      configuration: {
+        policy: {
+          fastEnabled?: boolean;
+          modelSupportsServiceTier: Record<string, boolean>;
+        };
+      };
+    };
+    expect(request.configuration.policy.fastEnabled).toBeUndefined();
+    expect(request.configuration.policy.modelSupportsServiceTier).toEqual({
+      "Case/Model": false,
+    });
+  });
+
   it.each(["inherit", "empty", "custom"] as const)(
     "sends nested item ID repair policy with %s semantics",
     async (mode) => {

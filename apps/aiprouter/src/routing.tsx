@@ -9,6 +9,7 @@ import {
   PoolStrategy,
   RoutingStrategy,
   JevDecisionConfigSchema,
+  JevQuotaTiersSchema,
   type JevDecisionConfig,
   ConnectionState,
   type Pool,
@@ -554,6 +555,17 @@ function RouteEditor({
   const [decisionSource, setDecisionSource] = useState(
     route?.jevDecision?.decisionModel ? "route" : "connection",
   );
+  const tiers = jev.decisionQuotaTiers;
+  const effectiveLimited = tiers?.limited ?? 70;
+  const effectiveNearlyExhausted = tiers?.nearlyExhausted ?? 90;
+  const validQuota =
+    [tiers?.moderate, tiers?.limited, tiers?.nearlyExhausted].every(
+      (value) =>
+        value === undefined ||
+        (Number.isFinite(value) && value >= 0 && value <= 100),
+    ) &&
+    (tiers?.moderate === undefined || tiers.moderate < effectiveLimited) &&
+    effectiveLimited < effectiveNearlyExhausted;
   const validJev =
     (jev.decisionTimeoutMs === 0 ||
       (jev.decisionTimeoutMs >= 1000 && jev.decisionTimeoutMs <= 120000)) &&
@@ -783,6 +795,91 @@ function RouteEditor({
                 }
               />
             </Field>
+            <details>
+              <summary>Advisory quota signals</summary>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={jev.decisionQuotaSignals}
+                  onChange={(e) =>
+                    setJev({ ...jev, decisionQuotaSignals: e.target.checked })
+                  }
+                />{" "}
+                Enable advisory quota signals
+              </label>
+              <p>
+                Share available quota signals with the decision service. Unknown
+                quota remains unknown; it is not treated as exhausted.
+              </p>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={!!tiers}
+                  onChange={(e) =>
+                    setJev({
+                      ...jev,
+                      decisionQuotaTiers: e.target.checked
+                        ? create(JevQuotaTiersSchema)
+                        : undefined,
+                    })
+                  }
+                />{" "}
+                Override quota thresholds
+              </label>
+              {tiers && (
+                <>
+                  <p>
+                    Thresholds are quota used, in percent. Each tier starts at
+                    its threshold. Overrides alone do not enable signals and
+                    must remain valid when signals are off.
+                  </p>
+                  {(
+                    [
+                      [
+                        "moderate",
+                        "Moderate quota used (%)",
+                        "Empty: no moderate tier.",
+                      ],
+                      ["limited", "Limited quota used (%)", "Empty: 70%."],
+                      [
+                        "nearlyExhausted",
+                        "Nearly exhausted quota used (%)",
+                        "Empty: 90%.",
+                      ],
+                    ] as const
+                  ).map(([key, label, hint]) => (
+                    <Field key={key} label={label} hint={hint}>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="any"
+                        value={tiers[key] ?? ""}
+                        onChange={(e) =>
+                          setJev({
+                            ...jev,
+                            decisionQuotaTiers: create(JevQuotaTiersSchema, {
+                              ...tiers,
+                              [key]:
+                                e.target.value === ""
+                                  ? undefined
+                                  : Number(e.target.value),
+                            }),
+                          })
+                        }
+                      />
+                    </Field>
+                  ))}
+                </>
+              )}
+              {!validQuota && (
+                <Notice tone="warning">
+                  Use finite percentages from 0 to 100, with moderate (if set)
+                  below limited, and limited below nearly exhausted. Empty
+                  limited and nearly exhausted values use 70 and 90.
+                </Notice>
+              )}
+            </details>
             {!validJev && (
               <Notice tone="warning">
                 Select a decision source and use the allowed timeout and pin
@@ -997,7 +1094,7 @@ function RouteEditor({
               existingNames.includes(name.trim()) ||
               !targets.length ||
               (strategy === RoutingStrategy.JEV &&
-                (!validJev || targets.length > 64)) ||
+                (!validJev || !validQuota || targets.length > 64)) ||
               targets.some((t) =>
                 t.target.case === "connectionId"
                   ? !accounts.some((a) => a.id === t.target.value)
