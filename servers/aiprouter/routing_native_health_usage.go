@@ -107,9 +107,12 @@ func (a *inferenceAdapter) recoverNativeQuotaIfDue(ctx context.Context, p infere
 			if e != nil {
 				return false, inferenceError(e)
 			}
+			// The helper owns this permit until all usage I/O has returned. A
+			// canceled completion must not orphan the non-expiring quota probe.
+			// Failed immediate cleanup remains durable under the admission.
+			defer a.releaseTerminalNativeHealthPermit(ctx, l, permit)
 			d, v, e := a.providerVersion(ctx, scopeOf(p), c.ID)
 			if e != nil || v != c.Version {
-				_ = a.s.ReleaseNativeHealthPermit(ctx, l, permit)
 				if e != nil {
 					return false, inferenceError(e)
 				}
@@ -117,7 +120,6 @@ func (a *inferenceAdapter) recoverNativeQuotaIfDue(ctx context.Context, p infere
 			}
 			credential, e := credentialFor(ctx, d, t)
 			if e != nil {
-				_ = a.s.ReleaseNativeHealthPermit(ctx, l, permit)
 				return false, e
 			}
 			credential.CredentialVersion = v
@@ -127,7 +129,6 @@ func (a *inferenceAdapter) recoverNativeQuotaIfDue(ctx context.Context, p infere
 			}
 			q, fetchErr := nativeUsageRequest(ctx, inference.RoutingDestinationPolicy(ctx), gate, provider, credential)
 			if !sent {
-				_ = a.s.ReleaseNativeHealthPermit(ctx, l, permit)
 				if ctx.Err() != nil {
 					return false, ctx.Err()
 				}

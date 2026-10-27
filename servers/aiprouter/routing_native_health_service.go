@@ -436,7 +436,10 @@ func (a *inferenceAdapter) ObserveTransportFailure(ctx context.Context, p infere
 	if f.Sent && (f.Kind == inference.TransportFailureTimeout || f.Kind == inference.TransportFailureConnection) {
 		outcome = nativeHealthTransient
 	}
-	return a.settleNativeHealth(ctx, p, a.healthReceipt(t, c), outcome, nativeHealthCooldown{})
+	return errors.Join(
+		a.settleNativeHealth(ctx, p, a.healthReceipt(t, c), outcome, nativeHealthCooldown{}),
+		a.finishNativeFamilyTransport(ctx, p, t, c),
+	)
 }
 
 func (a *inferenceAdapter) nativeHealthPolicy(t inference.Target) nativeHealthPolicy {
