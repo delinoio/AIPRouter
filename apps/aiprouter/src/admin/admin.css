@@ -247,3 +247,15 @@
     padding: 16px;
   }
 }
+
+.admin-workspace textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid #8b95a1;
+  border-radius: 8px;
+  color: #191f28;
+  background: white;
+  font: inherit;
+}

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@connectrpc/connect-query";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 import {
   AllowedDestinationSchema,
   HealthState,
@@ -154,7 +155,7 @@ export function InstanceConfiguration({
         <ErrorNotice error={query.error} retry={() => void query.refetch()} />
       ) : query.data?.settings ? (
         <ConfigurationForm
-          key={`${section}:${query.data.settings.revision}`}
+          key={section}
           settings={query.data.settings}
           section={section}
         />
@@ -165,32 +166,44 @@ export function InstanceConfiguration({
   );
 }
 function ConfigurationForm({
-  settings,
+  settings: initialSettings,
   section,
 }: {
   settings: InstanceSettings;
   section: "limits" | "retention" | "destinations";
 }) {
+  // Keep the reviewed snapshot across background refetches. A new revision
+  // must not silently replace safe edits or authorize overwriting newer policy.
+  const [settings, setSettings] = useState(initialSettings);
   const [draft, setDraft] = useState(() =>
-    create(InstanceSettingsSchema, settings),
+    create(InstanceSettingsSchema, initialSettings),
   );
   const [review, setReview] = useState(false);
   const [origin, setOrigin] = useState("");
+  const [networks, setNetworks] = useState("");
+  const [editingDestination, setEditingDestination] = useState<number>();
+  const destinationInputDirty =
+    !!origin || !!networks || editingDestination !== undefined;
   const dirty = useDirtyForm();
   const [changed, setChanged] = useState(false);
   useEffect(() => {
-    dirty(changed);
+    dirty(changed || destinationInputDirty);
     return () => dirty(false);
-  }, [dirty, changed]);
+  }, [dirty, changed, destinationInputDirty]);
   const action = useAction(true);
   const update = useMutation(OperatorService.method.updateInstanceSettings);
   function save() {
     void action.run(
-      () =>
-        update.mutateAsync({
+      async () => {
+        const response = await update.mutateAsync({
           settings: draft,
           expectedRevision: settings.revision,
-        }),
+        });
+        if (response.settings) {
+          setSettings(response.settings);
+          setDraft(create(InstanceSettingsSchema, response.settings));
+        }
+      },
       {
         done: () => {
           setReview(false);
@@ -328,7 +341,10 @@ function ConfigurationForm({
             <p>
               Public HTTPS destinations are allowed by default. Approve precise
               origins to permit private-network or local HTTP destinations.
-              Redirect and DNS checks still apply.
+              Leave networks empty for exact-origin approval. A nonempty network
+              list restricts every resolved address for that origin to those
+              networks, even for public HTTPS. Redirect and DNS checks still
+              apply.
             </p>
             <div className="admin-records">
               {draft.allowedDestinations.map((destination, index) => (
@@ -338,26 +354,40 @@ function ConfigurationForm({
                 >
                   <div>
                     <h3>{destination.origin}</h3>
-                    {destination.allowedCidrs.length > 0 && (
-                      <p>
-                        Approved networks: {destination.allowedCidrs.join(", ")}
-                      </p>
-                    )}
+                    <p>
+                      {destination.allowedCidrs.length > 0
+                        ? `Restricted networks: ${destination.allowedCidrs.join(", ")}`
+                        : "Exact-origin approval; no CIDR narrowing."}
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDraft({
-                        ...draft,
-                        allowedDestinations: draft.allowedDestinations.filter(
-                          (_, i) => i !== index,
-                        ),
-                      });
-                      setChanged(true);
-                    }}
-                  >
-                    Remove approval
-                  </button>
+                  <div className="admin-actions">
+                    <button
+                      type="button"
+                      disabled={destinationInputDirty}
+                      onClick={() => {
+                        setEditingDestination(index);
+                        setOrigin(destination.origin);
+                        setNetworks(destination.allowedCidrs.join("\n"));
+                      }}
+                    >
+                      Edit approval
+                    </button>
+                    <button
+                      type="button"
+                      disabled={destinationInputDirty}
+                      onClick={() => {
+                        setDraft({
+                          ...draft,
+                          allowedDestinations: draft.allowedDestinations.filter(
+                            (_, i) => i !== index,
+                          ),
+                        });
+                        setChanged(true);
+                      }}
+                    >
+                      Remove approval
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
@@ -373,27 +403,77 @@ function ConfigurationForm({
                 onChange={(e) => setOrigin(e.target.value)}
               />
             </label>
-            <button
-              type="button"
-              disabled={
-                !validOrigin(origin) ||
-                draft.allowedDestinations.some((d) => d.origin === origin)
-              }
-              onClick={() => {
-                if (!validOrigin(origin)) return;
-                setDraft({
-                  ...draft,
-                  allowedDestinations: [
-                    ...draft.allowedDestinations,
-                    create(AllowedDestinationSchema, { origin }),
-                  ],
-                });
-                setOrigin("");
-                setChanged(true);
-              }}
-            >
-              Add to review
-            </button>
+            <label>
+              Allowed networks (optional)
+              <textarea
+                rows={3}
+                value={networks}
+                placeholder="10.0.0.0/8&#10;2001:db8::/32"
+                onChange={(e) => setNetworks(e.target.value)}
+                aria-describedby="destination-networks-help"
+              />
+            </label>
+            <p id="destination-networks-help">
+              Enter CIDR ranges, one per line or separated by commas. Clearing
+              this field removes network narrowing for this origin, including
+              public HTTPS.
+            </p>
+            <div className="admin-actions">
+              <button
+                type="button"
+                disabled={
+                  !validOrigin(origin) ||
+                  draft.allowedDestinations.some(
+                    (d, index) =>
+                      index !== editingDestination && d.origin === origin,
+                  )
+                }
+                onClick={() => {
+                  if (!validOrigin(origin)) return;
+                  // Preserve the stable rule ID and any future fields when editing.
+                  // Prefix canonicalization, duplicates and mapped addresses are validated by the server.
+                  const destination = {
+                    ...create(
+                      AllowedDestinationSchema,
+                      editingDestination === undefined
+                        ? undefined
+                        : draft.allowedDestinations[editingDestination],
+                    ),
+                    origin,
+                    allowedCidrs: networks.split(/[\s,]+/u).filter(Boolean),
+                  };
+                  setDraft({
+                    ...draft,
+                    allowedDestinations:
+                      editingDestination === undefined
+                        ? [...draft.allowedDestinations, destination]
+                        : draft.allowedDestinations.map((d, index) =>
+                            index === editingDestination ? destination : d,
+                          ),
+                  });
+                  setOrigin("");
+                  setNetworks("");
+                  setEditingDestination(undefined);
+                  setChanged(true);
+                }}
+              >
+                {editingDestination === undefined
+                  ? "Add to review"
+                  : "Update review"}
+              </button>
+              {destinationInputDirty && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrigin("");
+                    setNetworks("");
+                    setEditingDestination(undefined);
+                  }}
+                >
+                  Cancel destination edit
+                </button>
+              )}
+            </div>
           </>
         )}
         <div className="admin-actions">
@@ -402,6 +482,7 @@ function ConfigurationForm({
             disabled={
               action.pending ||
               !changed ||
+              destinationInputDirty ||
               !draft.requestLimits ||
               !draft.retention
             }
@@ -426,7 +507,12 @@ function ConfigurationForm({
               <p>Only these additional destinations will remain approved:</p>
               <ul>
                 {draft.allowedDestinations.map((d, i) => (
-                  <li key={i}>{d.origin}</li>
+                  <li key={d.id || i}>
+                    <strong>{d.origin}</strong> —{" "}
+                    {d.allowedCidrs.length
+                      ? `Restricted to ${d.allowedCidrs.join(", ")}. Addresses outside these networks are blocked, including public HTTPS.`
+                      : "Exact-origin approval with no CIDR narrowing. Clearing previous networks broadens access for this origin."}
+                  </li>
                 ))}
               </ul>
               <p>
@@ -445,6 +531,22 @@ function ConfigurationForm({
             </p>
           )}
           <ErrorNotice error={action.error} />
+          {!!action.error &&
+            section === "destinations" &&
+            ConnectError.from(action.error).code === Code.InvalidArgument && (
+              <p>
+                Check the exact origins and CIDR prefixes. Duplicate canonical
+                origins and invalid network prefixes are not accepted.
+              </p>
+            )}
+          {!!action.error &&
+            ConnectError.from(action.error).code === Code.Aborted && (
+              <p>
+                Your draft and network entries are preserved. The saved policy
+                changed. Reload the current settings and review your changes
+                before submitting again.
+              </p>
+            )}
         </Confirm>
       )}
     </Card>
