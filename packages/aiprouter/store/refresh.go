@@ -63,6 +63,9 @@ func (s *Store) checkRefresh(ctx context.Context, tx *sql.Tx, l Lease, kind, id,
 }
 func (s *Store) WithPrivateRefreshDispatch(ctx context.Context, l Lease, kind, id, claim string, start func(context.Context) error) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
+		if e := s.checkDispatchLease(ctx, tx, l); e != nil {
+			return e
+		}
 		if e := s.checkRefresh(ctx, tx, l, kind, id, claim); e != nil {
 			return e
 		}
@@ -258,7 +261,7 @@ func (s *Store) MarkScopePrivateRefreshUncertain(ctx context.Context, sc core.Sc
 
 func (s *Store) WithAccountDispatch(ctx context.Context, l Lease, id, version string, start func(context.Context) error) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		if e := s.checkLease(ctx, tx, l); e != nil {
+		if e := s.checkDispatchLease(ctx, tx, l); e != nil {
 			return e
 		}
 		sc := l.Principal.Scope

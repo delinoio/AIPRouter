@@ -59,8 +59,8 @@ func TestAdmissionExplicitRegistrationAndTermination(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = s.CheckDispatch(ctx, l); e != nil {
-		t.Fatal("drain blocked existing request", e)
+	if e = s.CheckDispatch(ctx, l); !errors.Is(e, ErrInstanceDraining) {
+		t.Fatal("drain failed to fence dispatch", e)
 	}
 	if _, e = s.ReconcileTerminatedInstance(ctx, s.InstanceID(), proof, false); !errors.Is(e, ErrForbidden) {
 		t.Fatal(e)
@@ -168,5 +168,72 @@ func TestReleaseDeletesWaitersPreservesProbe(t *testing.T) {
 	})
 	if e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestDrainFencesFirstSendAndRetriesPreservesCompletion(t *testing.T) {
+	for _, priorSend := range []bool{false, true} {
+		name := "first-send"
+		if priorSend {
+			name = "retry"
+		}
+		t.Run(name, func(t *testing.T) {
+			s := testStore(t)
+			ctx := context.Background()
+			_, sc := tenant(t, s)
+			l := leaseFor(t, s, sc)
+			if e := s.PutPrivate(ctx, sc, "provider", "p", []byte("secret")); e != nil {
+				t.Fatal(e)
+			}
+			_, version, e := s.GetPrivateVersion(ctx, sc, "provider", "p")
+			if e != nil {
+				t.Fatal(e)
+			}
+			sends := 0
+			send := func(context.Context) error { sends++; return nil }
+			if priorSend {
+				if e = s.WithAccountDispatch(ctx, l, "p", version, send); e != nil {
+					t.Fatal(e)
+				}
+			}
+			_, refreshVersion, claim, e := s.ClaimPrivateRefresh(ctx, l, "provider", "p")
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e = s.WithPrivateRefreshDispatch(ctx, l, "provider", "p", claim, func(context.Context) error { return nil }); e != nil {
+				t.Fatal(e)
+			}
+			if _, e = s.DrainAdmissionInstance(ctx, s.InstanceID()); e != nil {
+				t.Fatal(e)
+			}
+			if e = s.WithDispatch(ctx, l, send); !errors.Is(e, ErrInstanceDraining) {
+				t.Fatal("plain dispatch", e)
+			}
+			if e = s.WithAccountDispatch(ctx, l, "p", version, send); !errors.Is(e, ErrInstanceDraining) {
+				t.Fatal("account dispatch", e)
+			}
+			if e = s.WithPrivateRefreshDispatch(ctx, l, "provider", "p", claim, send); !errors.Is(e, ErrInstanceDraining) {
+				t.Fatal("refresh dispatch", e)
+			}
+			expected := 0
+			if priorSend {
+				expected = 1
+			}
+			if sends != expected {
+				t.Fatal("physical send after drain", sends)
+			}
+			if e = s.CompletePrivateRefresh(ctx, l, "provider", "p", refreshVersion, claim, []byte("rotated")); e != nil {
+				t.Fatal("already sent refresh could not complete", e)
+			}
+			if e = s.RecordUsage(ctx, l, Usage{Outcome: OutcomeSucceeded, Model: "m", Provider: "p"}); e != nil {
+				t.Fatal("usage completion", e)
+			}
+			if e = s.Release(ctx, l); e != nil {
+				t.Fatal("release after drain", e)
+			}
+			if e = s.ReleaseUntilRecorded(ctx, l); e != nil {
+				t.Fatal("idempotent release", e)
+			}
+		})
 	}
 }

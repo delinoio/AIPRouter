@@ -58,20 +58,20 @@ func (s *Store) ReleaseUntilRecorded(ctx context.Context, l Lease) error {
 		}
 	}
 }
-func (s *Store) guardInstance(ctx context.Context, tx *sql.Tx, id string, newAdmission bool) error {
+func (s *Store) guardInstance(ctx context.Context, tx *sql.Tx, id string, requireActive bool) error {
 	var state string
 	e := tx.QueryRowContext(ctx, "SELECT state FROM admission_instances WHERE id=$1 FOR SHARE", id).Scan(&state)
 	if e != nil {
 		return noRows(e)
 	}
-	if state == "terminated" || newAdmission && state != "active" {
+	if state == "terminated" || requireActive && state != "active" {
 		return ErrInstanceDraining
 	}
 	return nil
 }
 
 // DrainAdmissionInstance fences new admissions and returns a one-use recovery
-// proof. Existing sends remain valid while the caller drains upstream work.
+// proof. New physical sends are fenced; already-started work may complete.
 func (s *Store) DrainAdmissionInstance(ctx context.Context, id string) (proof string, e error) {
 	proof = core.Token()
 	e = s.tx(ctx, func(tx *sql.Tx) error {

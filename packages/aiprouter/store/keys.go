@@ -185,8 +185,21 @@ func (s *Store) checkLease(ctx context.Context, tx *sql.Tx, l Lease) error {
 	}
 	return s.guardInstance(ctx, tx, instance, false)
 }
+
+// checkDispatchLease additionally fences new physical sends after drain. Ordinary
+// lease validation remains available to finalize work that was already sent.
+func (s *Store) checkDispatchLease(ctx context.Context, tx *sql.Tx, l Lease) error {
+	if e := s.checkLease(ctx, tx, l); e != nil {
+		return e
+	}
+	var instance string
+	if e := tx.QueryRowContext(ctx, "SELECT instance_id FROM admissions WHERE id=$1", l.ID).Scan(&instance); e != nil {
+		return noRows(e)
+	}
+	return s.guardInstance(ctx, tx, instance, true)
+}
 func (s *Store) CheckDispatch(ctx context.Context, l Lease) error {
-	return s.tx(ctx, func(tx *sql.Tx) error { return s.checkLease(ctx, tx, l) })
+	return s.tx(ctx, func(tx *sql.Tx) error { return s.checkDispatchLease(ctx, tx, l) })
 }
 
 // WithDispatch serializes send initiation with revocation and membership deletion.
@@ -194,7 +207,7 @@ func (s *Store) CheckDispatch(ctx context.Context, l Lease) error {
 // Never release a slot on a timeout alone: a remote request can still be executing.
 func (s *Store) WithDispatch(ctx context.Context, l Lease, start func(context.Context) error) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		if e := s.checkLease(ctx, tx, l); e != nil {
+		if e := s.checkDispatchLease(ctx, tx, l); e != nil {
 			return e
 		}
 		if e := ctx.Err(); e != nil {
