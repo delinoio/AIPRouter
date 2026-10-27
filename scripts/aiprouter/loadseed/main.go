@@ -96,7 +96,7 @@ func run() error {
 			data, e := json.Marshal(struct {
 				Metadata *v1.ProviderConnection
 				Secret   string
-			}{&v1.ProviderConnection{Id: providerID, OrganizationId: org.ID, ProviderId: "custom", BaseUrl: "http://127.0.0.1:18090", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, State: v1.ConnectionState_CONNECTION_STATE_READY}, "synthetic-provider-key"})
+			}{&v1.ProviderConnection{Id: providerID, OrganizationId: org.ID, ProviderId: "custom", BaseUrl: "http://127.0.0.1:18090/v1", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, State: v1.ConnectionState_CONNECTION_STATE_READY}, "synthetic-provider-key"})
 			if e != nil {
 				return e
 			}
