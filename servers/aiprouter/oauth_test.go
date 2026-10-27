@@ -804,3 +804,76 @@ func TestProviderPoolNativeOptionsPersistenceAndValidation(t *testing.T) {
 		t.Fatalf("mixed native instances accepted: %v", err)
 	}
 }
+
+func TestProviderRefreshVertexPreservesOnlySelectedLocation(t *testing.T) {
+	for _, location := range []string{"us-central1", "global", ""} {
+		t.Run(location, func(t *testing.T) {
+			m, ctx, sc := oauthFixture(t)
+			d := oauthSavedProvider(t, m, ctx, sc)
+			d.Metadata.ProviderId = "google-vertex"
+			d.Metadata.BaseUrl = "https://aiplatform.googleapis.com"
+			d.Credential = &providers.Credential{Scope: sc, Provider: "google-vertex", AccessToken: "old-token", ProjectID: "selected-project", Google: &providers.GoogleCredential{Type: providers.GoogleAuthorizedUser, ClientID: "client", ClientSecret: "client-secret", RefreshToken: "old-refresh", ProjectID: "selected-project"}, Metadata: map[string]string{"profileAccountId": "stale-account", "profileBearerSHA256": "stale-hash"}}
+			if location != "" {
+				d.Credential.Metadata["location"] = location
+			}
+			d.Models = &providers.ModelCatalog{State: providers.ValidationAccepted, Models: []providers.Model{{ID: "stale-model"}}}
+			d.ModelsDiscoveredAt = time.Now().Add(-time.Hour)
+			d.CodexCatalog = []json.RawMessage{json.RawMessage(`{"slug":"stale-model"}`)}
+			if err := m.put(ctx, sc, providerKind, d.Metadata.Id, d); err != nil {
+				t.Fatal(err)
+			}
+			_, oldVersion, err := m.store.GetPrivateVersion(ctx, sc, string(providerKind), d.Metadata.Id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lease := oauthLease(t, m, ctx, sc)
+			sends := 0
+			executor := oauthTestExecutor(func(c context.Context, scope core.Scope, r *http.Request) (*http.Response, error) {
+				sends++
+				if scope != sc || r.URL.String() != "https://oauth2.googleapis.com/token" {
+					t.Fatal("unexpected refresh destination or scope")
+				}
+				return oauthResponse(`{"access_token":"fresh-token","refresh_token":"fresh-refresh","expires_in":3600}`), nil
+			})
+			_, err = refreshProviderCredentialWithExecutor(ctx, m.store, lease, d.Metadata.Id, executor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, version, err := m.store.GetPrivateVersion(ctx, sc, string(providerKind), d.Metadata.Id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var saved providerData
+			if err = json.Unmarshal(raw, &saved); err != nil {
+				t.Fatal(err)
+			}
+			if version == oldVersion || sends != 1 || saved.Credential.AccessToken != "fresh-token" || saved.Credential.Google.RefreshToken != "fresh-refresh" || saved.Credential.Google.ProjectID != "selected-project" {
+				t.Fatal("fresh credential/config version not persisted")
+			}
+			if saved.Credential.Metadata["location"] != location || saved.Credential.Metadata["profileAccountId"] != "" || saved.Credential.Metadata["profileBearerSHA256"] != "" || len(saved.CodexCatalog) != 0 {
+				t.Fatal("selected location lost or stale evidence retained")
+			}
+			if saved.Models != nil {
+				for _, model := range saved.Models.Models {
+					if model.ID == "stale-model" {
+						t.Fatal("stale model evidence retained")
+					}
+				}
+			}
+			project, region, base, err := selectedVertexMetadata(saved)
+			if location == "" {
+				if err == nil {
+					t.Fatal("missing OAuth location received implicit default")
+				}
+				return
+			}
+			expected := "https://" + location + "-aiplatform.googleapis.com"
+			if location == "global" {
+				expected = "https://aiplatform.googleapis.com"
+			}
+			if err != nil || project != "selected-project" || region != location || base != expected {
+				t.Fatalf("selected destination changed: %v", err)
+			}
+		})
+	}
+}

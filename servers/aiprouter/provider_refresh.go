@@ -52,6 +52,17 @@ func refreshProviderCredentialWithExecutor(ctx context.Context, s *store.Store, 
 	if err != nil {
 		return providerData{}, err
 	}
+	// Vertex location is owner-selected configuration, not token-bound evidence.
+	// Copy only that field from the claimed version; profiles and discovery must
+	// be rebuilt for the new token, and no implicit OAuth region is introduced.
+	if d.Metadata.ProviderId == "google-vertex" {
+		if location, selected := d.Credential.Metadata["location"]; selected {
+			if fresh.Metadata == nil {
+				fresh.Metadata = make(map[string]string)
+			}
+			fresh.Metadata["location"] = location
+		}
+	}
 	d.Credential = &fresh
 	// Discovery evidence is bound to the old token/account generation. Obtain fresh
 	// evidence before it can authorize an account-specific model again.
