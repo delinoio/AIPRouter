@@ -17,8 +17,10 @@ type Key struct {
 	Revoked          bool
 }
 type Principal struct {
-	Scope core.Scope
-	KeyID string
+	// AccountID and CredentialVersion explicitly bind provider state to selected credentials.
+	AccountID, CredentialVersion string
+	Scope                        core.Scope
+	KeyID                        string
 }
 type Lease struct {
 	Principal Principal
