@@ -109,7 +109,7 @@ func (s *Store) checkProviderStateOwner(ctx context.Context, tx *sql.Tx, p Princ
 	if e := s.checkPrincipal(ctx, tx, p); e != nil {
 		return e
 	}
-	if ns == "tool-reasoning-replay" && p.AccountID == "" {
+	if (ns == "tool-reasoning-replay" || ns == "compaction-reasoning") && p.AccountID == "" {
 		return ErrForbidden
 	}
 	if (p.AccountID == "") != (p.CredentialVersion == "") {

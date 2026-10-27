@@ -13,7 +13,7 @@ func (s *Store) rotateProviderState(ctx context.Context, tx *sql.Tx) error {
 		key, namespace, id string
 		value              []byte
 	}
-	for _, table := range []string{s.temp + ".provider_flows", s.temp + ".provider_states", s.temp + ".native_quotas"} {
+	for _, table := range []string{s.temp + ".provider_flows", s.temp + ".provider_states", s.temp + ".native_quotas", s.temp + ".vertex_projects"} {
 		if _, e := tx.ExecContext(ctx, "LOCK TABLE "+table+" IN ACCESS EXCLUSIVE MODE"); e != nil {
 			return e
 		}
@@ -23,6 +23,9 @@ func (s *Store) rotateProviderState(ctx context.Context, tx *sql.Tx) error {
 		}
 		if table == s.temp+".native_quotas" {
 			query = "SELECT org_id,user_id,generation,'',version,id,value FROM " + table
+		}
+		if table == s.temp+".vertex_projects" {
+			query = "SELECT org_id,user_id,generation,'',version,id,value FROM " + table + " WHERE value IS NOT NULL"
 		}
 		rows, e := tx.QueryContext(ctx, query)
 		if e != nil {
@@ -50,6 +53,9 @@ func (s *Store) rotateProviderState(ctx context.Context, tx *sql.Tx) error {
 			if table == s.temp+".native_quotas" {
 				aad = nativeQuotaAAD(r.sc, r.id, r.namespace)
 			}
+			if table == s.temp+".vertex_projects" {
+				aad = vertexProjectAAD(r.sc, r.id, r.namespace)
+			}
 			p, e := s.keys.Decrypt(r.value, aad)
 			if e != nil {
 				return e
@@ -60,6 +66,10 @@ func (s *Store) rotateProviderState(ctx context.Context, tx *sql.Tx) error {
 			}
 			q := "UPDATE " + table + " SET value=$4 WHERE org_id=$1 AND user_id=$2 AND id=$3"
 			args := []any{r.sc.OrganizationID, r.sc.UserID, r.id, v}
+			if table == s.temp+".vertex_projects" {
+				q += " AND version=$5"
+				args = append(args, r.namespace)
+			}
 			if r.key != "" {
 				q = "UPDATE " + table + " SET value=$4,size=octet_length($4::bytea) WHERE org_id=$1 AND user_id=$2 AND id=$3 AND key_id=$5 AND namespace=$6"
 				args = append(args, r.key, r.namespace)

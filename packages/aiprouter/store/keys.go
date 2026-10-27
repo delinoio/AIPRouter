@@ -225,6 +225,9 @@ func (s *Store) Release(ctx context.Context, l Lease) error {
 		if e != nil {
 			return e
 		}
+		if e = s.releaseAdmissionHealth(ctx, tx, l); e != nil {
+			return e
+		}
 		_, e = tx.ExecContext(ctx, "DELETE FROM mistral_waiters WHERE admission_id=$1 AND org_id=$2 AND user_id=$3 AND key_id=$4 AND generation=$5", l.ID, l.Principal.Scope.OrganizationID, l.Principal.Scope.UserID, l.Principal.KeyID, l.Principal.Scope.Generation)
 		return e
 	})

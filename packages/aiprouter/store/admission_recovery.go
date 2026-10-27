@@ -96,6 +96,31 @@ func (s *Store) ReconcileTerminatedInstance(ctx context.Context, id, proof strin
 		return 0, ErrForbidden
 	}
 	e = s.tx(ctx, func(tx *sql.Tx) error {
+		// Lock organizations before the instance row, matching physical dispatch
+		// lock order. Draining prevents new admissions from expanding this set.
+		rows, e := tx.QueryContext(ctx, "SELECT DISTINCT org_id FROM admissions WHERE instance_id=$1 ORDER BY org_id", id)
+		if e != nil {
+			return e
+		}
+		var orgs []string
+		for rows.Next() {
+			var org string
+			if e = rows.Scan(&org); e != nil {
+				rows.Close()
+				return e
+			}
+			orgs = append(orgs, org)
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return e
+		}
+		for _, org := range orgs {
+			if e = s.lock(ctx, tx, org); e != nil {
+				return e
+			}
+		}
 		r, e := tx.ExecContext(ctx, "UPDATE admission_instances SET state='terminated',drain_hash=NULL WHERE id=$1 AND state='draining' AND drain_hash=$2", id, core.Hash(proof))
 		if e != nil {
 			return e
@@ -111,6 +136,29 @@ func (s *Store) ReconcileTerminatedInstance(ctx context.Context, id, proof strin
 		released, e = r.RowsAffected()
 		if e != nil {
 			return e
+		}
+		rows, e = tx.QueryContext(ctx, "SELECT id,org_id,user_id,key_id,generation FROM admissions WHERE instance_id=$1", id)
+		if e != nil {
+			return e
+		}
+		var leases []Lease
+		for rows.Next() {
+			var l Lease
+			if e = rows.Scan(&l.ID, &l.Principal.Scope.OrganizationID, &l.Principal.Scope.UserID, &l.Principal.KeyID, &l.Principal.Scope.Generation); e != nil {
+				rows.Close()
+				return e
+			}
+			leases = append(leases, l)
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return e
+		}
+		for _, l := range leases {
+			if e = s.releaseAdmissionHealth(ctx, tx, l); e != nil {
+				return e
+			}
 		}
 		_, e = tx.ExecContext(ctx, "DELETE FROM mistral_waiters WHERE admission_id IN (SELECT id FROM admissions WHERE instance_id=$1)", id)
 		return e

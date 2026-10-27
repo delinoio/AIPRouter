@@ -179,6 +179,7 @@ func (s *Store) cleanup(ctx context.Context) error {
 			"DELETE FROM " + s.temp + ".provider_states WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM " + s.temp + ".native_quotas WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM " + s.temp + ".native_affinities WHERE expires_at<=clock_timestamp()",
+			"DELETE FROM " + s.temp + ".vertex_projects WHERE (value IS NULL AND claim_until<=clock_timestamp()) OR (expires_at<=clock_timestamp() AND claim_hash IS NULL)",
 			"DELETE FROM native_recovery_buckets WHERE bucket_start<=clock_timestamp()-interval '10 seconds'",
 			"DELETE FROM quota_collection_claims WHERE claim_until<=clock_timestamp() AND next_at<=clock_timestamp()-interval '1 day'",
 			"DELETE FROM native_health_permits WHERE created_at<=clock_timestamp()-interval '1 day' AND (status IN ('finished','released') OR NOT probe)",
@@ -218,7 +219,7 @@ func (s *Store) cleanup(ctx context.Context) error {
 // InvalidateAfterRestore must run offline, before any listeners or workers start.
 func (s *Store) InvalidateAfterRestore(ctx context.Context) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		for _, q := range []string{"UPDATE api_keys SET revoked=true", "DELETE FROM sessions", "UPDATE invitations SET status='canceled',claim=NULL", "DELETE FROM transfers", "DELETE FROM admissions", "DELETE FROM " + s.temp + ".devices", "DELETE FROM " + s.temp + ".mail_tokens", "DELETE FROM " + s.temp + ".login_states", "DELETE FROM " + s.temp + ".states", "DELETE FROM " + s.temp + ".provider_flows", "DELETE FROM " + s.temp + ".provider_states", "DELETE FROM " + s.temp + ".native_quotas", "DELETE FROM " + s.temp + ".native_affinities", "UPDATE private_refresh SET state='uncertain'"} {
+		for _, q := range []string{"UPDATE api_keys SET revoked=true", "DELETE FROM sessions", "UPDATE invitations SET status='canceled',claim=NULL", "DELETE FROM transfers", "DELETE FROM admissions", "DELETE FROM " + s.temp + ".devices", "DELETE FROM " + s.temp + ".mail_tokens", "DELETE FROM " + s.temp + ".login_states", "DELETE FROM " + s.temp + ".states", "DELETE FROM " + s.temp + ".provider_flows", "DELETE FROM " + s.temp + ".provider_states", "DELETE FROM " + s.temp + ".native_quotas", "DELETE FROM " + s.temp + ".native_affinities", "DELETE FROM " + s.temp + ".vertex_projects", "UPDATE private_refresh SET state='uncertain'"} {
 			if _, e := tx.ExecContext(ctx, q); e != nil {
 				return e
 			}

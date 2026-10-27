@@ -149,7 +149,13 @@ func healthOrdinaryAllowed(h NativeHealth, k NativeHealthKey) bool {
 func (s *Store) AcquireNativeHealthPermit(ctx context.Context, l Lease, k NativeHealthKey, probe bool) (NativeHealthPermit, error) {
 	return s.AcquireNativeHealthPermitForRecovery(ctx, l, k, probe, "", "")
 }
-func (s *Store) AcquireNativeHealthPermitForRecovery(ctx context.Context, l Lease, k NativeHealthKey, probe bool, poolKey string, class NativeRecoveryClass) (out NativeHealthPermit, e error) {
+func (s *Store) AcquireNativeHealthPermitForRecovery(ctx context.Context, l Lease, k NativeHealthKey, probe bool, poolKey string, class NativeRecoveryClass) (NativeHealthPermit, error) {
+	return s.AcquireNativeHealthPermitForRecoveryBound(ctx, l, k, probe, poolKey, class, nil)
+}
+func (s *Store) AcquireNativeHealthPermitBound(ctx context.Context, l Lease, k NativeHealthKey, probe bool, bindings []NativeHealthBinding) (NativeHealthPermit, error) {
+	return s.AcquireNativeHealthPermitForRecoveryBound(ctx, l, k, probe, "", "", bindings)
+}
+func (s *Store) AcquireNativeHealthPermitForRecoveryBound(ctx context.Context, l Lease, k NativeHealthKey, probe bool, poolKey string, class NativeRecoveryClass, bindings []NativeHealthBinding) (out NativeHealthPermit, e error) {
 	if (poolKey == "") != (class == "") || class != "" && class != NativeRecoveryInitial && class != NativeRecoveryRetry && class != NativeRecoveryProbe || class == NativeRecoveryProbe && !probe {
 		return out, ErrConflict
 	}
@@ -158,6 +164,9 @@ func (s *Store) AcquireNativeHealthPermitForRecovery(ctx context.Context, l Leas
 			return e
 		}
 		if e := s.checkDispatchLease(ctx, tx, l); e != nil {
+			return e
+		}
+		if e := s.checkNativeHealthBindings(ctx, tx, l, bindings); e != nil {
 			return e
 		}
 		h, e := s.readHealth(ctx, tx, l, k)
@@ -200,7 +209,7 @@ func (s *Store) AcquireNativeHealthPermitForRecovery(ctx context.Context, l Leas
 			return e
 		}
 		sc := l.Principal.Scope
-		_, e = tx.ExecContext(ctx, "INSERT INTO native_health_permits(id,org_id,user_id,key_id,admission_id,generation,account_id,credential_version,lane,model,revision,probe_epoch,probe,status,recovery_pool,recovery_class) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'new',$14,$15)", out.ID, sc.OrganizationID, sc.UserID, l.Principal.KeyID, l.ID, sc.Generation, k.AccountID, k.CredentialVersion, k.Lane, k.Model, h.Revision, h.ProbeEpoch, probe, poolKey, class)
+		_, e = tx.ExecContext(ctx, "INSERT INTO native_health_permits(id,org_id,user_id,key_id,admission_id,generation,account_id,credential_version,lane,model,revision,probe_epoch,probe,status,recovery_pool,recovery_class,bindings) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'new',$14,$15,$16)", out.ID, sc.OrganizationID, sc.UserID, l.Principal.KeyID, l.ID, sc.Generation, k.AccountID, k.CredentialVersion, k.Lane, k.Model, h.Revision, h.ProbeEpoch, probe, poolKey, class, encodeHealthBindings(bindings))
 		return e
 	})
 	if e != nil {
@@ -210,6 +219,7 @@ func (s *Store) AcquireNativeHealthPermitForRecovery(ctx context.Context, l Leas
 }
 
 type healthReceipt struct {
+	bindings        []NativeHealthBinding
 	pool            string
 	class           NativeRecoveryClass
 	key             NativeHealthKey
@@ -221,9 +231,13 @@ type healthReceipt struct {
 
 func (s *Store) healthReceipt(ctx context.Context, tx *sql.Tx, l Lease, p NativeHealthPermit) (r healthReceipt, e error) {
 	sc := l.Principal.Scope
-	e = tx.QueryRowContext(ctx, "SELECT account_id,credential_version,lane,model,revision,probe_epoch,probe,status,created_at,recovery_pool,recovery_class FROM native_health_permits WHERE id=$1 AND org_id=$2 AND user_id=$3 AND key_id=$4 AND admission_id=$5 AND generation=$6", p.ID, sc.OrganizationID, sc.UserID, l.Principal.KeyID, l.ID, sc.Generation).Scan(&r.key.AccountID, &r.key.CredentialVersion, &r.key.Lane, &r.key.Model, &r.revision, &r.epoch, &r.probe, &r.status, &r.created, &r.pool, &r.class)
+	var bindings []byte
+	e = tx.QueryRowContext(ctx, "SELECT account_id,credential_version,lane,model,revision,probe_epoch,probe,status,created_at,recovery_pool,recovery_class,bindings FROM native_health_permits WHERE id=$1 AND org_id=$2 AND user_id=$3 AND key_id=$4 AND admission_id=$5 AND generation=$6", p.ID, sc.OrganizationID, sc.UserID, l.Principal.KeyID, l.ID, sc.Generation).Scan(&r.key.AccountID, &r.key.CredentialVersion, &r.key.Lane, &r.key.Model, &r.revision, &r.epoch, &r.probe, &r.status, &r.created, &r.pool, &r.class, &bindings)
 	if e == sql.ErrNoRows {
 		e = ErrConflict
+	}
+	if e == nil {
+		e = json.Unmarshal(bindings, &r.bindings)
 	}
 	return
 }
@@ -260,6 +274,9 @@ func (s *Store) WithNativeHealthDispatch(ctx context.Context, l Lease, permits [
 			seen[p.ID] = true
 			r, e := s.healthReceipt(ctx, tx, l, p)
 			if e != nil {
+				return e
+			}
+			if e := s.checkNativeHealthBindings(ctx, tx, l, r.bindings); e != nil {
 				return e
 			}
 			if r.status != want {
@@ -363,6 +380,9 @@ func (s *Store) FinishNativeHealthPermit(ctx context.Context, l Lease, p NativeH
 			return e
 		}
 		if e = s.healthAuthority(ctx, tx, l, r.key); e != nil {
+			return e
+		}
+		if e := s.checkNativeHealthBindings(ctx, tx, l, r.bindings); e != nil {
 			return e
 		}
 		if r.status != "dispatched" {
