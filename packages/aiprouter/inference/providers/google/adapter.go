@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Package google implements Gemini and Cloud Code Assist HTTP wire adapters.
+// Package google implements Gemini, Vertex and Cloud Code Assist HTTP wire adapters.
 // Pinned behavior adaptations retain the notice in UPSTREAM-LICENSE.
 package google
 
@@ -55,6 +55,7 @@ type Options struct {
 // credential, conversation or signature cache, and never sends an HTTP request.
 type Adapter struct {
 	cca     bool
+	vertex  bool
 	options Options
 }
 
@@ -178,7 +179,7 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	if secret == "" || strings.ContainsAny(secret, "\r\n") {
 		return out, inference.ErrNoCredential
 	}
-	if (a.cca && in.Target.Auth != inference.OAuth) || (!a.cca && in.Target.Auth != inference.APIKey) {
+	if (a.cca && in.Target.Auth != inference.OAuth) || (!a.cca && !a.vertex && in.Target.Auth != inference.APIKey) {
 		return out, inference.ErrUnsupported
 	}
 	// Resolve the toggle per request; constructors remain safe to share. Nil
@@ -201,6 +202,9 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	report := SchemaLossReport{Version: 1, EndpointClass: "ai-studio", Categories: map[string]int{}}
 	if a.cca {
 		report.EndpointClass = "cloud-code-assist"
+	}
+	if a.vertex {
+		report.EndpointClass = "vertex"
 	}
 	for _, tool := range array(body["tools"]) {
 		for _, raw := range array(obj(tool)["functionDeclarations"]) {
@@ -230,9 +234,19 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	if needsContext && state == nil {
 		return out, failure(500, "google_request_context_required")
 	}
+	var vertexProject, vertexRegion, vertexBase string
+	if a.vertex {
+		vertexProject, vertexRegion, vertexBase, err = vertexSelection(in)
+		if err != nil {
+			return out, err
+		}
+	}
 	base := in.Target.BaseURL
 	if base == "" {
 		base = "https://generativelanguage.googleapis.com"
+		if a.vertex {
+			base = vertexBase
+		}
 		if a.cca {
 			base = "https://daily-cloudcode-pa.googleapis.com"
 		}
@@ -252,7 +266,7 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	for _, source := range []http.Header{in.Target.Headers, in.Credential.Headers} {
 		for name, values := range source {
 			switch strings.ToLower(name) {
-			case "authorization", "proxy-authorization", "x-goog-api-key", "x-api-key", "cookie", "host", "content-length", "connection", "transfer-encoding", "x-aiprouter-google-project":
+			case "authorization", "proxy-authorization", "x-goog-api-key", "x-api-key", "cookie", "host", "content-length", "connection", "transfer-encoding", "x-aiprouter-google-project", "x-aiprouter-google-location":
 				// The executor overlays adapter headers after generic headers.
 				// An empty entry removes the earlier value without sending a header.
 				headers[http.CanonicalHeaderKey(name)] = nil
@@ -299,11 +313,22 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 			ua = "antigravity/cli/1.3.4 (os_type=darwin; arch=arm64; aidev_client; auth_method=oauth)"
 		}
 		headers.Set("User-Agent", ua)
+	} else if a.vertex {
+		if err = vertexPath(u, vertexProject, vertexRegion, model, method); err != nil {
+			return out, err
+		}
+		if in.Target.Auth == inference.OAuth {
+			headers.Set("Authorization", "Bearer "+secret)
+		} else {
+			headers.Set("X-Goog-Api-Key", secret)
+		}
 	} else {
 		u.Path = strings.TrimRight(u.Path, "/") + "/v1beta/models/" + model + ":" + method
 		headers.Set("X-Goog-Api-Key", secret)
 	}
-	u.RawPath = ""
+	if !a.vertex {
+		u.RawPath = ""
+	}
 	data, err := json.Marshal(body)
 	if err != nil {
 		return out, invalid()

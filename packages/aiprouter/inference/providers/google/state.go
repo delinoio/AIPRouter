@@ -45,7 +45,11 @@ func replayKey(name string, args any) string {
 	return hex.EncodeToString(h[:])
 }
 func replayBinding(in inference.AdapterInput) string {
-	b, _ := json.Marshal([]string{in.Principal.OrganizationID, in.Principal.UserID, in.Target.Provider, in.Target.BaseURL, in.Target.Model, in.Credential.AccountID, in.Credential.Secret, in.Credential.Headers.Get(ProjectHeader)})
+	fields := []string{in.Principal.OrganizationID, in.Principal.UserID, in.Target.Provider, in.Target.BaseURL, in.Target.Model, in.Credential.AccountID, in.Credential.Secret, in.Credential.Headers.Get(ProjectHeader)}
+	if in.Target.Wire == WireVertex {
+		fields = append(fields, selectedMetadata(in, ProjectHeader, "project"), selectedMetadata(in, LocationHeader, "location"), string(WireVertex))
+	}
+	b, _ := json.Marshal(fields)
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
@@ -68,8 +72,11 @@ func (a *Adapter) RestoreState(ctx context.Context, in inference.AdapterInput, s
 	}
 	s.binding = replayBinding(in)
 	s.sessionID = ""
-	if a.cca && !strings.HasPrefix(strings.ToLower(in.Target.Model), "claude") {
+	if (a.cca || a.vertex) && !strings.HasPrefix(strings.ToLower(in.Target.Model), "claude") {
 		if anchor := headerAnchor(in); anchor != "" {
+			if a.vertex {
+				anchor += "\x00" + s.binding
+			}
 			h := sha256.Sum256([]byte(anchor))
 			s.sessionID = "google-session:" + hex.EncodeToString(h[:])
 		}

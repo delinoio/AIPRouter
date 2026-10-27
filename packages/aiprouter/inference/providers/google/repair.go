@@ -19,7 +19,7 @@ var thinkingRejection = regexp.MustCompile(`(?i)thinking[_ ]?(?:config|level)`)
 var customSchemaIndex = regexp.MustCompile(`(?i)tools(?:\.|\[)(\d+)(?:\])?\.custom\.input_schema`)
 var declarationIndex = regexp.MustCompile(`(?i)function[_]?declarations(?:\.|\[)(\d+)`)
 
-// RepairRequest proposes one changed-body compatibility replay for CCA only.
+// RepairRequest proposes one changed-body compatibility replay for CCA and Vertex.
 // It never sends: the core must authorize and count the proposed request before
 // dispatch, retain this attempt context, and forbid repair after client output.
 func (a *Adapter) RepairRequest(ctx context.Context, in inference.AdapterInput, request inference.AdapterRequest, f inference.HTTPFailure) (inference.AdapterRequest, bool, error) {
@@ -27,7 +27,7 @@ func (a *Adapter) RepairRequest(ctx context.Context, in inference.AdapterInput, 
 		return request, false, err
 	}
 	// AI Studio intentionally has single-shot 400 behavior in the pinned source.
-	if !a.cca || f.Status != 400 || f.Repairs != 0 || len(f.Body) > 1<<20 || len(request.Body) > a.options.MaxBodyBytes {
+	if (!a.cca && !a.vertex) || f.Status != 400 || f.Repairs != 0 || len(f.Body) > 1<<20 || len(request.Body) > a.options.MaxBodyBytes {
 		return request, false, nil
 	}
 	s, _ := ctx.Value(requestKey{}).(*requestState)
@@ -89,6 +89,9 @@ func (a *Adapter) RepairRequest(ctx context.Context, in inference.AdapterInput, 
 				}
 			}
 			report := SchemaLossReport{Version: 1, EndpointClass: "cloud-code-assist", Categories: map[string]int{}}
+			if a.vertex {
+				report.EndpointClass = "vertex"
+			}
 			report.add("repair-opened-schema", len(declarations))
 			s.report.merge(report)
 			observation = &report
