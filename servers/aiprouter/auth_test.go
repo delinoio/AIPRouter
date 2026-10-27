@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -32,7 +31,7 @@ func (f *authFixture) ConsumeLogin(_ context.Context, k string, binding string) 
 	v, ok := f.state[k]
 	delete(f.state, k)
 	if !ok || v.Binding != binding {
-		return v, errors.New("missing")
+		return v, errAuthentication
 	}
 	return v, nil
 }

@@ -305,6 +305,9 @@ func (s *Store) DeleteAccount(ctx context.Context, user string) error {
 		if _, e = tx.ExecContext(ctx, "DELETE FROM admissions WHERE user_id=$1", user); e != nil {
 			return e
 		}
+		if _, e = tx.ExecContext(ctx, "DELETE FROM "+s.temp+".devices WHERE user_id=$1", user); e != nil {
+			return e
+		}
 		_, e = tx.ExecContext(ctx, "DELETE FROM users WHERE id=$1", user)
 		return e
 	})

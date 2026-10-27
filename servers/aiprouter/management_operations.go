@@ -11,6 +11,7 @@ import (
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
 	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
+	"strings"
 )
 
 func (m *management) operator(ctx context.Context) (core.Identity, error) {
@@ -98,10 +99,11 @@ func (m *management) GetInstanceUsage(ctx context.Context, r *connect.Request[v1
 	if e != nil {
 		return nil, e
 	}
-	if r.Msg.TimeRange != nil {
-		return nil, unimplemented()
+	f, e := usageFilter(r.Msg.TimeRange, "", "", nil)
+	if e != nil {
+		return nil, e
 	}
-	a, e := m.store.InstanceAggregate(ctx, i)
+	a, e := m.store.QueryInstanceAggregate(ctx, i, f)
 	return connect.NewResponse(&v1.GetInstanceUsageResponse{Summary: summary(a)}), rpcError(e)
 }
 func (m *management) ListUsage(ctx context.Context, r *connect.Request[v1.ListUsageRequest]) (*connect.Response[v1.ListUsageResponse], error) {
@@ -109,20 +111,21 @@ func (m *management) ListUsage(ctx context.Context, r *connect.Request[v1.ListUs
 	if e != nil {
 		return nil, e
 	}
-	if r.Msg.TimeRange != nil || r.Msg.ModelId != nil || r.Msg.GetPage().GetPageToken() != "" {
-		return nil, unimplemented()
-	}
 	user := sc.UserID
 	if r.Msg.UserId != nil {
 		user = r.Msg.GetUserId()
 	}
-	rows, e := m.store.ListUsage(ctx, sc, user, int(r.Msg.GetPage().GetPageSize()))
+	f, e := usageFilter(r.Msg.TimeRange, user, r.Msg.GetModelId(), r.Msg.Page)
+	if e != nil {
+		return nil, e
+	}
+	rows, next, e := m.store.QueryUsage(ctx, sc, f)
 	if e != nil {
 		return nil, rpcError(e)
 	}
-	out := &v1.ListUsageResponse{}
+	out := &v1.ListUsageResponse{Page: &v1.PageResponse{NextPageToken: next}}
 	for _, u := range rows {
-		record := &v1.UsageRecord{Id: u.ID, OrganizationId: u.OrganizationID, ModelId: u.Model, ProviderId: u.Provider, OccurredAt: timestamp(u.CreatedAt), Usage: &v1.TokenUsage{InputTokens: unsigned(u.InputTokens), OutputTokens: unsigned(u.OutputTokens)}, RequestId: u.ID}
+		record := &v1.UsageRecord{Outcome: usageOutcome(u.ErrorCode), AppliedPrice: appliedPrice(u), Id: u.ID, OrganizationId: u.OrganizationID, ModelId: u.Model, ProviderId: u.Provider, OccurredAt: timestamp(u.CreatedAt), Usage: &v1.TokenUsage{InputTokens: unsigned(u.InputTokens), OutputTokens: unsigned(u.OutputTokens)}, RequestId: u.ID}
 		if u.UserID != "" {
 			id := u.UserID
 			record.UserId = &id
@@ -143,24 +146,91 @@ func (m *management) GetUsageSummary(ctx context.Context, r *connect.Request[v1.
 	if e != nil {
 		return nil, e
 	}
-	if r.Msg.TimeRange != nil || r.Msg.ModelId != nil {
-		return nil, unimplemented()
+	user := sc.UserID
+	if r.Msg.UserId != nil {
+		user = r.Msg.GetUserId()
+	}
+	f, e := usageFilter(r.Msg.TimeRange, user, r.Msg.GetModelId(), nil)
+	if e != nil {
+		return nil, e
+	}
+	a, e := m.store.QueryAggregate(ctx, sc, f)
+	return connect.NewResponse(&v1.GetUsageSummaryResponse{Summary: summary(a)}), rpcError(e)
+}
+func (m *management) ListDailyUsage(ctx context.Context, r *connect.Request[v1.ListDailyUsageRequest]) (*connect.Response[v1.ListDailyUsageResponse], error) {
+	sc, e := m.scope(ctx, r.Msg.OrganizationId)
+	if e != nil {
+		return nil, e
 	}
 	user := sc.UserID
 	if r.Msg.UserId != nil {
 		user = r.Msg.GetUserId()
 	}
-	a, e := m.store.AggregateUsage(ctx, sc, user)
-	return connect.NewResponse(&v1.GetUsageSummaryResponse{Summary: summary(a)}), rpcError(e)
-}
-func (m *management) ListDailyUsage(ctx context.Context, r *connect.Request[v1.ListDailyUsageRequest]) (*connect.Response[v1.ListDailyUsageResponse], error) {
-	if _, e := m.scope(ctx, r.Msg.OrganizationId); e != nil {
+	f, e := usageFilter(r.Msg.TimeRange, user, r.Msg.GetModelId(), r.Msg.Page)
+	if e != nil {
 		return nil, e
 	}
-	return nil, unimplemented()
+	rows, e := m.store.QueryDailyUsage(ctx, sc, f)
+	if e != nil {
+		return nil, rpcError(e)
+	}
+	out := &v1.ListDailyUsageResponse{Page: &v1.PageResponse{}}
+	lastKey := ""
+	for _, d := range rows {
+		key := d.Date.Format("2006-01-02") + "/" + d.UserID + "/" + d.Model
+		if key <= f.After {
+			continue
+		}
+		if len(out.Days) == f.Limit {
+			out.Page.NextPageToken = lastKey
+			break
+		}
+		row := &v1.DailyUsage{Date: d.Date.Format("2006-01-02"), ModelId: d.Model, Summary: summary(d.Aggregate)}
+		if d.UserID != "" {
+			id := d.UserID
+			row.UserId = &id
+		}
+		out.Days = append(out.Days, row)
+		lastKey = key
+	}
+	return connect.NewResponse(out), nil
+}
+func usageFilter(r *v1.TimeRange, user, model string, p *v1.PageRequest) (store.UsageFilter, error) {
+	f := store.UsageFilter{UserID: user, Model: model, After: p.GetPageToken(), Limit: int(p.GetPageSize())}
+	if f.Limit == 0 {
+		f.Limit = 100
+	}
+	if f.Limit > 1000 || len(f.After) > 512 {
+		return f, invalid("invalid page")
+	}
+	if r != nil {
+		if r.Start != nil {
+			if r.Start.CheckValid() != nil {
+				return f, invalid("invalid range start")
+			}
+			v := r.Start.AsTime()
+			f.Start = &v
+		}
+		if r.End != nil {
+			if r.End.CheckValid() != nil {
+				return f, invalid("invalid range end")
+			}
+			v := r.End.AsTime()
+			f.End = &v
+		}
+		if f.Start != nil && f.End != nil && !f.Start.Before(*f.End) {
+			return f, invalid("range end must follow start")
+		}
+	}
+	return f, nil
 }
 func auditMessage(a store.Audit) *v1.AuditRecord {
-	out := &v1.AuditRecord{Id: a.ID, OccurredAt: timestamp(a.CreatedAt), ResourceId: a.TargetID}
+	action := strings.ReplaceAll(strings.ToUpper(a.Action), ".", "_")
+	aliases := map[string]string{"MEMBERSHIP_ROLE_CHANGED": "MEMBER_ROLE_CHANGED", "MEMBERSHIP_REMOVED": "MEMBER_REMOVED", "PROVIDER_CONFIGURATION_CHANGED": "PROVIDER_UPDATED", "PROVIDER_CONFIGURATION_DELETED": "PROVIDER_DELETED", "ORGANIZATION_SETTINGS_CHANGED": "ORGANIZATION_UPDATED", "INSTANCE_SETTINGS_CHANGED": "INSTANCE_SETTINGS_UPDATED"}
+	if v, ok := aliases[action]; ok {
+		action = v
+	}
+	out := &v1.AuditRecord{Action: v1.AuditAction(v1.AuditAction_value["AUDIT_ACTION_"+action]), Id: a.ID, OccurredAt: timestamp(a.CreatedAt), ResourceId: a.TargetID}
 	if a.ActorID != "" {
 		out.ActorUserId = &a.ActorID
 	}

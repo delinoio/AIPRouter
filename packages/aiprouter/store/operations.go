@@ -245,13 +245,16 @@ func (s *Store) Cleanup(ctx context.Context) error {
 
 		queries := []string{
 			"UPDATE api_keys SET revoked=true WHERE NOT handed_off AND handoff_deadline<=clock_timestamp()",
-			"DELETE FROM " + s.temp + ".devices WHERE expires_at<=clock_timestamp()",
+			// Keep only safe terminal metadata for a bounded browser status window.
+			"UPDATE " + s.temp + ".devices SET value=NULL WHERE expires_at<=clock_timestamp()",
+			"DELETE FROM " + s.temp + ".devices WHERE expires_at<=clock_timestamp()-interval '24 hours'",
 			"DELETE FROM " + s.temp + ".states WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM " + s.temp + ".login_states WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM sessions WHERE created_at<=clock_timestamp()-interval '7 days' OR last_seen<=clock_timestamp()-interval '24 hours'",
 			"UPDATE invitations SET status='failed',claim=NULL WHERE status='pending' AND attempts>=3 AND claim_until<=clock_timestamp()",
 			"DELETE FROM " + s.temp + ".mail_tokens WHERE invitation_id IN(SELECT id FROM invitations WHERE status<>'pending' OR expires_at<=clock_timestamp())",
-			"DELETE FROM invitations WHERE expires_at<=clock_timestamp()",
+			// Keep terminal metadata briefly for authenticated recipient inspection; raw mail tokens are already removed.
+			"DELETE FROM invitations WHERE expires_at<=clock_timestamp()-interval '24 hours'",
 			"DELETE FROM transfers WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM usage WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM daily_usage WHERE expires_at<=clock_timestamp()",

@@ -49,14 +49,14 @@ func (s *Store) ListInvitations(ctx context.Context, sc core.Scope) (out []Invit
 		if !elevated(r) {
 			return ErrForbidden
 		}
-		rows, e := tx.QueryContext(ctx, "SELECT id,org_id,email,status,expires_at,attempts FROM invitations WHERE org_id=$1 AND expires_at>clock_timestamp() ORDER BY created_at DESC", sc.OrganizationID)
+		rows, e := tx.QueryContext(ctx, "SELECT "+invitationColumns+" FROM invitations i JOIN organizations o ON o.id=i.org_id WHERE i.org_id=$1 AND i.expires_at>clock_timestamp() ORDER BY i.created_at DESC", sc.OrganizationID)
 		if e != nil {
 			return e
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var i Invitation
-			if e = rows.Scan(&i.ID, &i.OrganizationID, &i.Email, &i.Status, &i.ExpiresAt, &i.Attempts); e != nil {
+			if e = scanInvitation(rows, &i); e != nil {
 				return e
 			}
 			out = append(out, i)

@@ -75,10 +75,12 @@ func (m *management) PollDeviceAuthorization(ctx context.Context, r *connect.Req
 		out.State = v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_PENDING
 	case errors.Is(e, store.ErrExpired):
 		out.State = v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_EXPIRED
-	case d.Status == "denied" && errors.Is(e, store.ErrForbidden):
+	case d.Status == "denied" && (e == nil || errors.Is(e, store.ErrForbidden)):
 		out.State = v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_DENIED
 	case e != nil:
 		return nil, deviceError(e)
+	case d.Status == "revoked":
+		out.State = v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_REVOKED
 	case d.Status == "confirmed":
 		out.State = v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_DELIVERED
 	case d.Status == "approved":
@@ -103,10 +105,28 @@ func (m *management) RevokeDeviceKey(ctx context.Context, r *connect.Request[v1.
 	return connect.NewResponse(&v1.RevokeDeviceKeyResponse{}), deviceError(m.store.AbortDevice(ctx, r.Msg.AuthorizationId, r.Msg.DeviceSecret))
 }
 func deviceMessage(d store.Device) *v1.DeviceAuthorization {
-	return &v1.DeviceAuthorization{AuthorizationId: d.ID, DeviceName: d.Name, ServerAddress: d.Server, ExpiresAt: timestamp(d.ExpiresAt), State: v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_PENDING}
+	state := v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_PENDING
+	switch d.State {
+	case store.DeviceApproved:
+		state = v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_APPROVED
+	case store.DeviceDelivered:
+		state = v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_DELIVERED
+	case store.DeviceDenied:
+		state = v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_DENIED
+	case store.DeviceExpired:
+		state = v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_EXPIRED
+	case store.DeviceRevoked:
+		state = v1.DeviceAuthorizationState_DEVICE_AUTHORIZATION_STATE_REVOKED
+	}
+	out := &v1.DeviceAuthorization{AuthorizationId: d.ID, DeviceName: d.Name, ServerAddress: d.Server, ExpiresAt: timestamp(d.ExpiresAt), State: state, OrganizationId: d.OrganizationID}
+	if d.KeyExpiresAt != nil {
+		out.KeyExpiresAt = timestamp(*d.KeyExpiresAt)
+	}
+	return out
 }
+
 func (m *management) GetDeviceAuthorization(ctx context.Context, r *connect.Request[v1.GetDeviceAuthorizationRequest]) (*connect.Response[v1.GetDeviceAuthorizationResponse], error) {
-	d, e := m.store.InspectDevice(ctx, r.Msg.UserCode)
+	d, e := m.store.InspectDeviceForUser(ctx, identity(ctx).UserID, r.Msg.UserCode)
 	return connect.NewResponse(&v1.GetDeviceAuthorizationResponse{Authorization: deviceMessage(d)}), rpcError(e)
 }
 func (m *management) ApproveDeviceAuthorization(ctx context.Context, r *connect.Request[v1.ApproveDeviceAuthorizationRequest]) (*connect.Response[v1.ApproveDeviceAuthorizationResponse], error) {
@@ -118,7 +138,7 @@ func (m *management) ApproveDeviceAuthorization(ctx context.Context, r *connect.
 	if e != nil {
 		return nil, e
 	}
-	d, e := m.store.InspectDevice(ctx, r.Msg.UserCode)
+	d, e := m.store.InspectDeviceForUser(ctx, identity(ctx).UserID, r.Msg.UserCode)
 	if e != nil {
 		return nil, rpcError(e)
 	}
@@ -130,7 +150,7 @@ func (m *management) ApproveDeviceAuthorization(ctx context.Context, r *connect.
 	return connect.NewResponse(&v1.ApproveDeviceAuthorizationResponse{Authorization: out}), rpcError(e)
 }
 func (m *management) DenyDeviceAuthorization(ctx context.Context, r *connect.Request[v1.DenyDeviceAuthorizationRequest]) (*connect.Response[v1.DenyDeviceAuthorizationResponse], error) {
-	return connect.NewResponse(&v1.DenyDeviceAuthorizationResponse{}), rpcError(m.store.DenyDevice(ctx, r.Msg.UserCode))
+	return connect.NewResponse(&v1.DenyDeviceAuthorizationResponse{}), rpcError(m.store.DenyDeviceForUser(ctx, identity(ctx).UserID, r.Msg.UserCode))
 }
 func (m *management) RevokeCLIKey(ctx context.Context, r *connect.Request[v1.RevokeCLIKeyRequest]) (*connect.Response[v1.RevokeCLIKeyResponse], error) {
 	raw, _ := ctx.Value(bearerKey{}).(string)

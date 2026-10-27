@@ -4,6 +4,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"strings"
 	"time"
@@ -11,6 +12,8 @@ import (
 
 type Invitation struct {
 	ID, OrganizationID, Email, Status string
+	OrganizationName                  string
+	CreatedAt, NextAttemptAt          time.Time
 	ExpiresAt                         time.Time
 	Attempts                          int
 }
@@ -59,7 +62,7 @@ func (s *Store) Invite(ctx context.Context, sc core.Scope, email string) (i Invi
 		if e != nil {
 			return e
 		}
-		if e = tx.QueryRowContext(ctx, "INSERT INTO invitations(id,org_id,email,hash) VALUES($1,$2,$3,$4) RETURNING expires_at", i.ID, sc.OrganizationID, email, core.Hash(raw)).Scan(&i.ExpiresAt); e != nil {
+		if e = tx.QueryRowContext(ctx, "INSERT INTO invitations(id,org_id,email,hash) VALUES($1,$2,$3,$4) RETURNING expires_at,created_at,next_attempt", i.ID, sc.OrganizationID, email, core.Hash(raw)).Scan(&i.ExpiresAt, &i.CreatedAt, &i.NextAttemptAt); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "INSERT INTO "+s.temp+".mail_tokens(invitation_id,value) VALUES($1,$2)", i.ID, value); e != nil {
@@ -87,10 +90,21 @@ func (s *Store) CancelInvite(ctx context.Context, sc core.Scope, id string) erro
 		return s.audit(ctx, tx, sc.OrganizationID, sc.UserID, "invitation.canceled", id)
 	})
 }
-func (s *Store) AcceptInvite(ctx context.Context, userID, raw string) (sc core.Scope, e error) {
+
+var ErrInvitationEmailMismatch = fmt.Errorf("invitation email mismatch: %w", ErrForbidden)
+
+func (s *Store) AcceptInvite(ctx context.Context, userID, raw string) (core.Scope, error) {
+	return s.acceptInvite(ctx, userID, "hash", core.Hash(raw))
+}
+func (s *Store) AcceptInviteID(ctx context.Context, userID, id string) (core.Scope, error) {
+	return s.acceptInvite(ctx, userID, "id::text", id)
+}
+
+// Both selectors use the same organization gate and pending-state transaction.
+func (s *Store) acceptInvite(ctx context.Context, userID, column string, selector any) (sc core.Scope, e error) {
 	e = s.tx(ctx, func(tx *sql.Tx) error {
 		var id, org, email string
-		if e := tx.QueryRowContext(ctx, "SELECT id,org_id FROM invitations WHERE hash=$1", core.Hash(raw)).Scan(&id, &org); e != nil {
+		if e := tx.QueryRowContext(ctx, "SELECT id,org_id FROM invitations WHERE "+column+"=$1", selector).Scan(&id, &org); e != nil {
 			return noRows(e)
 		}
 		if e := s.lock(ctx, tx, org); e != nil {
@@ -104,7 +118,7 @@ func (s *Store) AcceptInvite(ctx context.Context, userID, raw string) (sc core.S
 			return noRows(e)
 		}
 		if emailMatch(actual) != email {
-			return ErrForbidden
+			return ErrInvitationEmailMismatch
 		}
 		sc.OrganizationID = org
 		sc.UserID = userID

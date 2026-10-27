@@ -4,15 +4,22 @@ package main
 import (
 	"connectrpc.com/connect"
 	"context"
+	"errors"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
 	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
 	"net/mail"
+	"time"
 )
 
 func invitation(i store.Invitation) *v1.Invitation {
 	state := v1.LifecycleState_LIFECYCLE_STATE_PENDING
 	delivery := v1.DeliveryState_DELIVERY_STATE_QUEUED
 	switch i.Status {
+	case "expired":
+		state = v1.LifecycleState_LIFECYCLE_STATE_EXPIRED
+	case "superseded":
+		state = v1.LifecycleState_LIFECYCLE_STATE_SUPERSEDED
 	case "accepted":
 		state = v1.LifecycleState_LIFECYCLE_STATE_ACCEPTED
 	case "canceled":
@@ -21,7 +28,7 @@ func invitation(i store.Invitation) *v1.Invitation {
 		state = v1.LifecycleState_LIFECYCLE_STATE_FAILED
 		delivery = v1.DeliveryState_DELIVERY_STATE_FAILED
 	}
-	return &v1.Invitation{Id: i.ID, OrganizationId: i.OrganizationID, Email: i.Email, State: state, DeliveryState: delivery, ExpiresAt: timestamp(i.ExpiresAt), DeliveryAttempts: uint32(i.Attempts)}
+	return &v1.Invitation{OrganizationName: i.OrganizationName, Role: v1.Role_ROLE_MEMBER, CreatedAt: timestamp(i.CreatedAt), NextAttemptAt: timestamp(i.NextAttemptAt), ResendAvailableAt: timestamp(i.CreatedAt.Add(time.Minute)), Id: i.ID, OrganizationId: i.OrganizationID, Email: i.Email, State: state, DeliveryState: delivery, ExpiresAt: timestamp(i.ExpiresAt), DeliveryAttempts: uint32(i.Attempts)}
 }
 func (m *management) CreateInvitation(ctx context.Context, r *connect.Request[v1.CreateInvitationRequest]) (*connect.Response[v1.CreateInvitationResponse], error) {
 	sc, e := m.scope(ctx, r.Msg.OrganizationId)
@@ -66,9 +73,18 @@ func (m *management) CancelInvitation(ctx context.Context, r *connect.Request[v1
 	return connect.NewResponse(&v1.CancelInvitationResponse{}), rpcError(m.store.CancelInvite(ctx, sc, r.Msg.InvitationId))
 }
 func (m *management) AcceptInvitation(ctx context.Context, r *connect.Request[v1.AcceptInvitationRequest]) (*connect.Response[v1.AcceptInvitationResponse], error) {
-	sc, e := m.store.AcceptInvite(ctx, identity(ctx).UserID, r.Msg.Token)
+	if (r.Msg.Token == "") == (r.Msg.GetInvitationId() == "") {
+		return nil, invalid("exactly one invitation selector required")
+	}
+	var sc core.Scope
+	var e error
+	if r.Msg.GetInvitationId() != "" {
+		sc, e = m.store.AcceptInviteID(ctx, identity(ctx).UserID, r.Msg.GetInvitationId())
+	} else {
+		sc, e = m.store.AcceptInvite(ctx, identity(ctx).UserID, r.Msg.Token)
+	}
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, invitationError(e)
 	}
 	o, e := m.store.GetOrganization(ctx, sc)
 	return connect.NewResponse(&v1.AcceptInvitationResponse{Organization: organization(o)}), rpcError(e)
@@ -112,4 +128,35 @@ func (m *management) CancelOwnershipTransfer(ctx context.Context, r *connect.Req
 		return nil, e
 	}
 	return connect.NewResponse(&v1.CancelOwnershipTransferResponse{}), rpcError(m.store.CancelTransferID(ctx, sc, r.Msg.TransferId))
+}
+
+func invitationError(err error) error {
+	if errors.Is(err, store.ErrInvitationEmailMismatch) {
+		e := connect.NewError(connect.CodePermissionDenied, errors.New("invitation email mismatch"))
+		d, _ := connect.NewErrorDetail(&v1.ErrorDetail{Reason: v1.ErrorReason_ERROR_REASON_INVITATION_EMAIL_MISMATCH})
+		e.AddDetail(d)
+		return e
+	}
+	return rpcError(err)
+}
+func (m *management) GetInvitation(ctx context.Context, r *connect.Request[v1.GetInvitationRequest]) (*connect.Response[v1.GetInvitationResponse], error) {
+	if r.Msg.Token == "" {
+		return nil, invalid("invitation token required")
+	}
+	i, e := m.store.GetInvitationForUser(ctx, identity(ctx).UserID, r.Msg.Token)
+	if e != nil {
+		return nil, invitationError(e)
+	}
+	return connect.NewResponse(&v1.GetInvitationResponse{Invitation: invitation(i)}), nil
+}
+func (m *management) ListMyInvitations(ctx context.Context, r *connect.Request[v1.ListMyInvitationsRequest]) (*connect.Response[v1.ListMyInvitationsResponse], error) {
+	list, next, e := m.store.ListMyInvitations(ctx, identity(ctx).UserID, int(r.Msg.Page.GetPageSize()), r.Msg.Page.GetPageToken())
+	if e != nil {
+		return nil, rpcError(e)
+	}
+	out := &v1.ListMyInvitationsResponse{Page: &v1.PageResponse{NextPageToken: next}}
+	for _, i := range list {
+		out.Invitations = append(out.Invitations, invitation(i))
+	}
+	return connect.NewResponse(out), nil
 }

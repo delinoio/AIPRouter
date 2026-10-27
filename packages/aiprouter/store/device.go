@@ -8,7 +8,21 @@ import (
 	"time"
 )
 
+type DeviceState string
+
+const (
+	DevicePending   DeviceState = "pending"
+	DeviceApproved  DeviceState = "approved"
+	DeviceDelivered DeviceState = "confirmed"
+	DeviceDenied    DeviceState = "denied"
+	DeviceExpired   DeviceState = "expired"
+	DeviceRevoked   DeviceState = "revoked"
+)
+
 type Device struct {
+	State                          DeviceState
+	OrganizationID                 string
+	KeyExpiresAt                   *time.Time
 	ID, Code, Secret, Name, Server string
 	ExpiresAt                      time.Time
 	Interval                       int
@@ -27,6 +41,47 @@ func (s *Store) InspectDevice(ctx context.Context, code string) (d Device, e err
 		return noRows(tx.QueryRowContext(ctx, "SELECT id,code,name,server,expires_at FROM "+s.temp+".devices WHERE code=$1 AND status='pending' AND expires_at>clock_timestamp()", code).Scan(&d.ID, &d.Code, &d.Name, &d.Server, &d.ExpiresAt))
 	})
 	return
+}
+
+// InspectDeviceForUser reveals only browser-safe metadata. Pending code possession
+// permits approval; after approval only the approving identity can inspect it.
+func (s *Store) InspectDeviceForUser(ctx context.Context, userID, code string) (d Device, e error) {
+	if userID == "" {
+		return d, ErrForbidden
+	}
+	e = s.tx(ctx, func(tx *sql.Tx) error {
+		var owner sql.NullString
+		var keyRevoked bool
+		var now time.Time
+		err := tx.QueryRowContext(ctx, "SELECT d.id,d.code,d.name,d.server,d.expires_at,d.status,d.user_id,COALESCE(d.org_id,''),k.expires_at,COALESCE(k.revoked,false),clock_timestamp() FROM "+s.temp+".devices d LEFT JOIN api_keys k ON k.id=d.key_id WHERE d.code=$1 AND EXISTS(SELECT 1 FROM users WHERE id=$2)", code, userID).Scan(&d.ID, &d.Code, &d.Name, &d.Server, &d.ExpiresAt, &d.State, &owner, &d.OrganizationID, &d.KeyExpiresAt, &keyRevoked, &now)
+		if err != nil {
+			return noRows(err)
+		}
+		if owner.Valid && owner.String != userID {
+			d = Device{}
+			return ErrNotFound
+		}
+		if (d.State == DevicePending || d.State == DeviceApproved) && !d.ExpiresAt.After(now) {
+			d.State = DeviceExpired
+		} else if d.State == DeviceRevoked || keyRevoked {
+			d.State = DeviceRevoked
+		}
+		return nil
+	})
+	return
+}
+func (s *Store) DenyDeviceForUser(ctx context.Context, userID, code string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		r, e := tx.ExecContext(ctx, "UPDATE "+s.temp+".devices SET status='denied',user_id=$2 WHERE code=$1 AND status='pending' AND expires_at>clock_timestamp() AND EXISTS(SELECT 1 FROM users WHERE id=$2)", code, userID)
+		if e != nil {
+			return e
+		}
+		n, _ := r.RowsAffected()
+		if n != 1 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 func (s *Store) ApproveDevice(ctx context.Context, sc core.Scope, code string, expiry *time.Time) (k Key, e error) {
 	e = s.tx(ctx, func(tx *sql.Tx) error {
@@ -107,6 +162,9 @@ func (s *Store) PollDevice(ctx context.Context, id, secret string) (out DeviceRe
 			resultError = ErrPending
 			return nil
 		}
+		if out.Status == "denied" || out.Status == "revoked" {
+			return nil
+		}
 		if out.Status != "approved" {
 			return ErrForbidden
 		}
@@ -178,7 +236,7 @@ func (s *Store) AbortDevice(ctx context.Context, id, secret string) error {
 				return e
 			}
 		}
-		_, e = tx.ExecContext(ctx, "UPDATE "+s.temp+".devices SET status='denied',value=NULL WHERE id=$1", id)
+		_, e = tx.ExecContext(ctx, "UPDATE "+s.temp+".devices SET status='revoked',value=NULL WHERE id=$1", id)
 		return e
 	})
 }

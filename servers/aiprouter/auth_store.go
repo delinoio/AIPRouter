@@ -20,11 +20,12 @@ func (p persistentAuth) SaveLogin(ctx context.Context, state string, l LoginStat
 func (p persistentAuth) ConsumeLogin(ctx context.Context, state, binding string) (LoginState, error) {
 	l, e := p.s.ConsumeLoginState(ctx, state, binding)
 	if e != nil {
+ if errors.Is(e,store.ErrNotFound)||errors.Is(e,store.ErrExpired){return LoginState{},errAuthentication}
 		return LoginState{}, e
 	}
 	var payload struct{ Verifier, ReturnTo string }
 	if json.Unmarshal([]byte(l.Verifier), &payload) != nil || payload.Verifier == "" {
-		return LoginState{}, errors.New("invalid login state")
+		return LoginState{}, errAuthentication
 	}
 	return LoginState{Verifier: payload.Verifier, ReturnTo: payload.ReturnTo, Nonce: l.Nonce, Binding: l.Binding}, nil
 }

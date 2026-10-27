@@ -93,7 +93,7 @@ func (a *Auth) callback(w http.ResponseWriter, r *http.Request) {
 	a.cookie(w, a.loginCookieName(), "", -1)
 	saved, e := a.store.ConsumeLogin(r.Context(), hashToken(state), parts[1])
 	if e != nil {
-		a.loginError(w, r, "login_expired")
+		if errors.Is(e,errAuthentication){a.loginError(w,r,"login_expired")}else{a.loginError(w,r,"authentication_unavailable")}
 		return
 	}
 	if r.URL.Query().Get("error") != "" || r.URL.Query().Get("code") == "" {

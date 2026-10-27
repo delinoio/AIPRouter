@@ -44,6 +44,13 @@ func errorInterceptor() connect.UnaryInterceptorFunc {
 			case connect.CodeUnavailable:
 				reason = v1.ErrorReason_ERROR_REASON_DATABASE_UNAVAILABLE
 			}
+			for _, existing := range ce.Details() {
+				if value, err := existing.Value(); err == nil {
+					if typed, ok := value.(*v1.ErrorDetail); ok {
+						reason = typed.Reason
+					}
+				}
+			}
 			detail := &v1.ErrorDetail{Reason: reason, RequestId: requestID(ctx)}
 			if value, e := strconv.ParseUint(ce.Meta().Get("Retry-After"), 10, 32); e == nil {
 				v := uint32(value)
