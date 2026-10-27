@@ -399,3 +399,34 @@ func TestModelPolicyLimitsAndAxes(t *testing.T) {
 		t.Fatal(m)
 	}
 }
+
+func TestStrictResponsesPlaintextBackfill(t *testing.T) {
+	p := preset(t, "deepseek", "deepseek-v4-flash", "", "")
+	p.Wire = providers.Responses
+	out := apply(t, p, `{"input":[{"type":"reasoning","encrypted_content":"foreign","summary":[{"type":"summary_text","text":"known summary"}]},{"type":"function_call","call_id":"a","name":"x"},{"type":"function_call_output","call_id":"a","output":"ok"},{"type":"function_call","call_id":"b","name":"x"},{"type":"function_call_output","call_id":"b","output":"ok"}]}`)
+	a := list(out["input"])
+	r := obj(a[0])
+	if r["encrypted_content"] != nil || obj(list(r["content"])[0])["text"] != "known summary" || obj(a[3])["type"] != "reasoning" {
+		t.Fatal(out)
+	}
+}
+func TestMiMoNoneDisablesThinking(t *testing.T) {
+	p := preset(t, "xiaomi", "mimo-v2.6-pro", "", "")
+	b, e := p.TransformChatRequest(body(t, `{"reasoning_effort":"none"}`))
+	if e != nil || obj(b["thinking"])["type"] != "disabled" {
+		t.Fatal(b, e)
+	}
+}
+
+func TestDeepSeekArtifactSchemaScope(t *testing.T) {
+	p := preset(t, "deepseek", "deepseek-v4-flash", "", "")
+	p.Wire = providers.Chat
+	out := apply(t, p, `{"tools":[{"type":"function","function":{"name":"Artifact","strict":true,"parameters":{"type":"object","properties":{"pattern":{"type":"string","pattern":"bad","default":{"pattern":"keep"}}},"anyOf":[{"type":"string"}]}}},{"type":"function","function":{"name":"Other","parameters":{"pattern":"keep"}}}]}`)
+	tools := list(out["tools"])
+	f := obj(obj(tools[0])["function"])
+	s := obj(f["parameters"])
+	prop := obj(obj(s["properties"])["pattern"])
+	if f["strict"] != nil || s["anyOf"] != nil || prop["pattern"] != nil || obj(prop["default"])["pattern"] != "keep" || obj(obj(obj(tools[1])["function"])["parameters"])["pattern"] != "keep" {
+		t.Fatal(out)
+	}
+}

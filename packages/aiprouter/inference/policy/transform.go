@@ -112,13 +112,23 @@ func (p Resolved) chat(b map[string]any) error {
 	if p.fields["promptCacheKey"] == false {
 		delete(b, "prompt_cache_key")
 	}
-	if p.fields["chatServiceTier"] == false || p.fields["supportsServiceTier"] == false || p.modelValue("modelSupportsServiceTier") == false {
+	if p.fields["chatServiceTier"] == false || p.fastOff || first(p.modelValue("modelSupportsServiceTier"), p.fields["supportsServiceTier"]) == false {
 		delete(b, "service_tier")
 	}
-	if p.fields["supportsVerbosity"] == false || p.modelValue("modelSupportsVerbosity") == false {
+	if first(p.modelValue("modelSupportsVerbosity"), p.fields["supportsVerbosity"]) == false {
 		delete(b, "verbosity")
 	}
 	u, _ := url.Parse(p.BaseURL)
+	if u != nil && u.Hostname() == "api.deepseek.com" {
+		for _, tool := range list(b["tools"]) {
+			f := obj(obj(tool)["function"])
+			if f["name"] == "Artifact" && str(f["namespace"]) == "" {
+				f["parameters"] = relaxArtifact(f["parameters"])
+				delete(f, "strict")
+			}
+		}
+	}
+
 	if u != nil && (u.Hostname() == "api.kimi.com" || u.Hostname() == "api.moonshot.ai" || u.Hostname() == "api.moonshot.cn") {
 		budget := schemaBudget{nodes: 4096, expansions: 512, bytes: 1024 * 1024}
 		for _, t := range list(b["tools"]) {
@@ -158,10 +168,8 @@ func (p Resolved) thinking(b map[string]any) {
 	if mapped == "ultra" {
 		mapped = "max"
 	}
-	em := obj(p.modelValue("modelReasoningEffortMap"))
+	em := obj(first(p.modelValue("modelReasoningEffortMap"), p.fields["reasoningEffortMap"]))
 	if v, ok := em[mapped]; ok {
-		mapped = str(v)
-	} else if v, ok := obj(p.fields["reasoningEffortMap"])[mapped]; ok {
 		mapped = str(v)
 	}
 	if mapped == "__omit__" {
@@ -180,6 +188,8 @@ func (p Resolved) thinking(b map[string]any) {
 			} else {
 				kind = "disabled"
 			}
+		} else if effort == "none" {
+			kind = "disabled"
 		} else if b["thinking"] != nil {
 			kind = ""
 		} else if mapped == "enabled" || mapped == "disabled" || mapped == "adaptive" {
@@ -267,15 +277,21 @@ func (p Resolved) responses(b map[string]any) error {
 		}
 		b["store"] = false
 	}
-	if p.fields["supportsServiceTier"] == false || p.modelValue("modelSupportsServiceTier") == false {
+	if p.fastOff || first(p.modelValue("modelSupportsServiceTier"), p.fields["supportsServiceTier"]) == false {
 		delete(b, "service_tier")
 	}
-	if p.fields["supportsVerbosity"] == false || p.modelValue("modelSupportsVerbosity") == false {
+	if first(p.modelValue("modelSupportsVerbosity"), p.fields["supportsVerbosity"]) == false {
 		delete(obj(b["text"]), "verbosity")
 	}
 	if p.modelValue("modelSupportsReasoningSummaries") == false {
 		delete(obj(b["reasoning"]), "summary")
 	}
+
+	if obj(b["reasoning"])["summary"] == "none" {
+		delete(obj(b["reasoning"]), "summary")
+	}
+	delete(obj(b["reasoning"]), "enabled")
+	strictPlaintext := flag(p.fields["preserveResponsesReasoningContent"]) && flag(p.fields["requiresAdjacentResponsesToolResults"])
 	input, ok := b["input"].([]any)
 	if !ok {
 		return nil
@@ -292,6 +308,30 @@ func (p Resolved) responses(b map[string]any) error {
 				continue
 			}
 			delete(m, "status")
+			if strictPlaintext {
+				delete(m, "encrypted_content")
+				hasText := false
+				for _, part := range list(m["content"]) {
+					r := obj(part)
+					if r["type"] == "reasoning_text" && str(r["text"]) != "" {
+						hasText = true
+					}
+				}
+				if !hasText {
+					parts := []any{}
+					for _, part := range list(m["summary"]) {
+						r := obj(part)
+						if r["type"] == "summary_text" && str(r["text"]) != "" {
+							parts = append(parts, map[string]any{"type": "reasoning_text", "text": r["text"]})
+						}
+					}
+					if len(parts) == 0 {
+						parts = append(parts, map[string]any{"type": "reasoning_text", "text": " "})
+					}
+					m["content"] = parts
+				}
+			}
+
 			if _, ok := m["summary"]; !ok {
 				m["summary"] = []any{}
 			}
@@ -312,6 +352,9 @@ func (p Resolved) responses(b map[string]any) error {
 	}
 	if flag(p.fields["statelessResponses"]) || flag(p.fields["requiresPairedResponsesToolResults"]) {
 		out = pairOutputs(out, flag(p.fields["statelessResponses"]) || b["previous_response_id"] == nil)
+	}
+	if strictPlaintext {
+		out = backfillToolReasoning(out)
 	}
 	b["input"] = out
 	if flag(p.fields["requiresAdjacentResponsesToolResults"]) {

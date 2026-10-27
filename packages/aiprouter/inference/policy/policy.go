@@ -37,6 +37,7 @@ type Resolved struct {
 	Auth                                 providers.AuthKind
 	TransportMatchedRegistry             bool
 	fields                               map[string]any
+	fastOff                              bool
 }
 
 func decode(raw []byte) (map[string]any, error) {
@@ -154,8 +155,28 @@ func Resolve(c Config) (Resolved, error) {
 			}
 		}
 	}
-	if o["fastEnabled"] == false || (o["fastEnabled"] == nil && flag(r["fastOptIn"])) {
+	fastOff := o["fastEnabled"] == false || (o["fastEnabled"] == nil && flag(r["fastOptIn"]))
+	if fastOff {
 		f["supportsServiceTier"] = false
+	}
+
+	if c.ProviderID == "openai-apikey" && matched {
+		for _, key := range []string{"modelContextWindows", "modelMaxInputTokens"} {
+			for model, v := range obj(f[key]) {
+				n, ok := number(v)
+				if !ok {
+					continue
+				}
+				for original, cap := range obj(r[key]) {
+					if strings.EqualFold(model, original) {
+						limit, ok := number(cap)
+						if ok && n > limit {
+							obj(f[key])[model] = cap
+						}
+					}
+				}
+			}
+		}
 	}
 	w := c.Wire
 	if matched && generic(w) {
@@ -232,7 +253,7 @@ func Resolve(c Config) (Resolved, error) {
 			return Resolved{}, ErrConfig
 		}
 	}
-	return Resolved{ProviderID: c.ProviderID, Model: c.Model, BaseURL: c.BaseURL, Endpoint: strings.TrimRight(c.BaseURL, "/") + path, Wire: w, Inbound: c.Inbound, Auth: c.Auth, TransportMatchedRegistry: matched, fields: f}, nil
+	return Resolved{ProviderID: c.ProviderID, Model: c.Model, BaseURL: c.BaseURL, Endpoint: strings.TrimRight(c.BaseURL, "/") + path, Wire: w, Inbound: c.Inbound, Auth: c.Auth, TransportMatchedRegistry: matched, fields: f, fastOff: fastOff}, nil
 }
 func hasInbound(a []providers.Inbound, v providers.Inbound) bool {
 	for _, x := range a {

@@ -80,6 +80,14 @@ func (p Resolved) ModelPolicy() ModelPolicy {
 		v := *m.ContextWindow
 		m.MaxInputTokens = &v
 	}
+
+	if p.fastOff {
+		v := false
+		m.SupportsServiceTier = &v
+	}
+	if len(m.InputModalities) == 0 && p.in("noVisionModels", false) {
+		m.InputModalities = []string{"text"}
+	}
 	cap := p.capabilities()
 	m.SupportsReasoning = boolPtr(cap["supportsReasoning"])
 	m.SupportsThinkingToggle = boolPtr(cap["supportsThinkingToggle"])

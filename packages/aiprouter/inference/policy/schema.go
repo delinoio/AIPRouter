@@ -151,3 +151,55 @@ func pointer(root any, ref string) any {
 	}
 	return v
 }
+
+// Artifact is a provider-owned built-in. Its documented relaxed schema must not
+// weaken unrelated tools or literal data inside defaults and examples.
+func relaxArtifact(v any) any {
+	type task struct {
+		value  any
+		names  bool
+		assign func(any)
+	}
+	var result any
+	pending := []task{{value: v, assign: func(x any) { result = x }}}
+	for len(pending) > 0 {
+		n := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if a, ok := n.value.([]any); ok {
+			out := make([]any, len(a))
+			n.assign(out)
+			for i, x := range a {
+				pending = append(pending, task{value: x, assign: func(v any) { out[i] = v }})
+			}
+			continue
+		}
+		m := obj(n.value)
+		if m == nil {
+			n.assign(n.value)
+			continue
+		}
+		out := map[string]any{}
+		n.assign(out)
+		for k, x := range m {
+			if !n.names && (k == "pattern" || k == "anyOf") {
+				continue
+			}
+			bag := false
+			switch k {
+			case "properties", "$defs", "definitions", "patternProperties", "dependentSchemas":
+				bag = true
+			}
+			child := false
+			switch k {
+			case "items", "additionalProperties", "additionalItems", "allOf", "oneOf", "not", "if", "then", "else", "contains", "propertyNames", "prefixItems", "unevaluatedItems", "unevaluatedProperties":
+				child = true
+			}
+			if n.names || bag || child {
+				pending = append(pending, task{value: x, names: !n.names && bag, assign: func(v any) { out[k] = v }})
+			} else {
+				out[k] = x
+			}
+		}
+	}
+	return result
+}

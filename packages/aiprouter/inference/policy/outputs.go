@@ -96,3 +96,42 @@ func pairOutputs(in []any, repairOrphans bool) []any {
 	flush()
 	return out
 }
+
+// This follows the strict Responses plaintext contract only. Authenticated replay
+// restoration and explicit missing-state errors must have already run.
+func backfillToolReasoning(in []any) []any {
+	starts := map[int]bool{}
+	start := -1
+	reasoning, tool := false, false
+	closeTurn := func() {
+		if start >= 0 && tool && !reasoning {
+			starts[start] = true
+		}
+		start = -1
+		reasoning = false
+		tool = false
+	}
+	for i, x := range in {
+		m := obj(x)
+		kind := str(m["type"])
+		assistant := kind == "reasoning" || (kind == "message" && m["role"] == "assistant") || strings.HasSuffix(kind, "_call")
+		if !assistant {
+			closeTurn()
+			continue
+		}
+		if start < 0 {
+			start = i
+		}
+		reasoning = reasoning || kind == "reasoning"
+		tool = tool || kind == "function_call" || kind == "custom_tool_call" || kind == "local_shell_call"
+	}
+	closeTurn()
+	out := []any{}
+	for i, x := range in {
+		if starts[i] {
+			out = append(out, map[string]any{"type": "reasoning", "summary": []any{}, "content": []any{map[string]any{"type": "reasoning_text", "text": " "}}})
+		}
+		out = append(out, x)
+	}
+	return out
+}
