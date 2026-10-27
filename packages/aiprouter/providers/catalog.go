@@ -273,6 +273,21 @@ func contains[T comparable](list []T, v T) bool {
 	return false
 }
 func Resolve(c Connection, model string, inbound Inbound) (Route, error) {
+	return resolve(c, model, inbound, "")
+}
+
+// ResolvePolicyWire accepts only trusted server-side policy.Resolve output, never
+// a management wire/model_wires field. User configuration is still validated in
+// full. Generic protocol changes synthesize auth after selecting the final wire;
+// specialized and project-bound provider pins cannot be bypassed.
+func ResolvePolicyWire(c Connection, model string, inbound Inbound, wire Wire) (Route, error) {
+	if wire == "" {
+		return Route{}, ErrConnection
+	}
+	return resolve(c, model, inbound, wire)
+}
+
+func resolve(c Connection, model string, inbound Inbound, policyWire Wire) (Route, error) {
 	if err := ValidateSavedConnection(c); err != nil {
 		return Route{}, err
 	}
@@ -315,6 +330,16 @@ func Resolve(c Connection, model string, inbound Inbound) (Route, error) {
 	if w := c.ModelWires[r.Model]; w != "" {
 		r.Wire = w
 		r.ForwardCallerServiceTier = false
+	}
+	if policyWire != "" {
+		generic := func(w Wire) bool { return w == Chat || w == Responses || w == Anthropic || w == Google }
+		if policyWire != r.Wire && (!generic(p.Wire) || !generic(policyWire) || p.ID == "google-antigravity" || p.ID == "google-vertex") {
+			return Route{}, ErrConnection
+		}
+		if policyWire != r.Wire {
+			r.ForwardCallerServiceTier = false
+		}
+		r.Wire = policyWire
 	}
 	for k, v := range p.StaticHeaders {
 		r.Headers.Set(k, v)
