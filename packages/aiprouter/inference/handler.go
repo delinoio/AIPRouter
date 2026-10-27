@@ -813,6 +813,13 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				sent := gateClient(client, sendCtx, p, modelBudgetAuthorizer{Authorizer: h.c.Authorizer, record: rec, max: route.MaxSends}, func() { rec.Sends++; h.event(ctx, "upstream_send") })
 				resp, e = client.Do(req)
 				if e != nil {
+					if observed := h.observeTransportFailure(sendCtx, p, t, cred, e, sent.Load()); observed != nil {
+						if sent.Load() {
+							rec.UnmeasuredAttempts++
+						}
+						cancel()
+						return observed
+					}
 					cancel()
 					if ctx.Err() != nil {
 						return ctx.Err()

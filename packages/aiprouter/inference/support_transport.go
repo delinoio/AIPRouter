@@ -115,3 +115,9 @@ func AffinitySession(ctx context.Context) string {
 	}
 	return ""
 }
+
+// HasPhysicalSendBudget lets preselection support helpers fail closed outside an admitted request budget.
+func HasPhysicalSendBudget(ctx context.Context) bool {
+	_, ok := ctx.Value(physicalBudgetKey{}).(SendGate)
+	return ok
+}

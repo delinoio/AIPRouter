@@ -87,6 +87,16 @@ func (x *requestExecutor) do(ctx context.Context, r AdapterRequest, reserved boo
 	})
 	resp, e := client.Do(req)
 	if e != nil {
+		if r.ResponseWire != "" {
+			if observed := x.h.observeTransportFailure(ctx, x.p, x.target, x.credential, e, sent.Load()); observed != nil {
+				if sent.Load() {
+					budgetFor(x.record).mu.Lock()
+					x.record.UnmeasuredAttempts++
+					budgetFor(x.record).mu.Unlock()
+				}
+				return nil, observed
+			}
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
