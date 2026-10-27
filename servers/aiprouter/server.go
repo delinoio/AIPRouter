@@ -140,29 +140,15 @@ func (s *server) serveInference(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			return
 		}
-		c.SetReadLimit(16 << 20)
+		c.SetReadLimit(liveSocketReadLimit)
 		s.sockets.Add(1)
 		defer s.sockets.Done()
 		if r.URL.Path == "/v1/responses" {
-			_ = h.ServeSocket(r.Context(), token, webSocket{c})
+			_ = h.ServeSocket(r.Context(), token, webSocket{c: c})
 		} else {
-			_ = h.ServeRealtimeSocket(r.Context(), token, r.URL.Path, r.URL.Query(), webSocket{c})
+			_ = h.ServeRealtimeSocket(r.Context(), token, r.URL.Path, r.URL.Query(), webSocket{c: c})
 		}
 		return
 	}
 	h.ServeHTTP(w, r)
 }
-
-type webSocket struct{ c *websocket.Conn }
-
-func (w webSocket) Read(ctx context.Context) ([]byte, error) {
-	kind, b, e := w.c.Read(ctx)
-	if e == nil && kind != websocket.MessageText {
-		return nil, errors.New("text frames required")
-	}
-	return b, e
-}
-func (w webSocket) Write(ctx context.Context, b []byte) error {
-	return w.c.Write(ctx, websocket.MessageText, b)
-}
-func (w webSocket) Close() error { return w.c.Close(websocket.StatusNormalClosure, "") }

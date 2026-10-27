@@ -4,26 +4,10 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"github.com/coder/websocket"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
-	"net/http"
 	"time"
 )
-
-type outboundSocketDialer struct{}
-
-func (outboundSocketDialer) Dial(ctx context.Context, endpoint string, headers http.Header, client *http.Client) (inference.Socket, error) {
-	c, response, e := websocket.Dial(ctx, endpoint, &websocket.DialOptions{HTTPClient: client, HTTPHeader: headers, CompressionMode: websocket.CompressionDisabled})
-	if e != nil {
-		if response != nil && response.Body != nil {
-			response.Body.Close()
-		}
-		return nil, e
-	}
-	c.SetReadLimit(16 << 20)
-	return webSocket{c}, nil
-}
 
 type storedLiveBinding struct {
 	Binding           inference.LiveBinding
