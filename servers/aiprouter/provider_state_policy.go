@@ -15,6 +15,8 @@ func providerStatePolicy(namespace string) (providerStateLimits, bool) {
 	switch namespace {
 	case "openai-chat", "openai-responses", "anthropic":
 		return providerStateLimits{time.Hour, 256, 4 << 10, 1 << 20}, true
+	case "compaction-reasoning":
+		return providerStateLimits{24 * time.Hour, 256, 32 << 20, 512 << 20}, true
 	case commandCodeEffortsNamespace:
 		return providerStateLimits{time.Hour, 64, 4096, 256 << 10}, true
 	case "jev-route-pin":
