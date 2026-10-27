@@ -417,3 +417,173 @@ it("sends provider and explicit unknown-outcome filters to records, summary, and
     screen.queryByText(/Outcome filtering applies to this page/),
   ).toBeNull();
 });
+
+describe("provider OAuth integration", () => {
+  it("uses server-advertised methods, passes callback options, and correlates pasted PKCE completion", async () => {
+    const { ProviderOAuthMethod: Method, OAuthState } =
+      await import("@aiprouter/client");
+    const user = userEvent.setup();
+    const begin = vi.fn((_request: unknown) => ({
+      authorization: {
+        id: "auth",
+        state: OAuthState.PENDING,
+        authorizationUrl: "https://provider.example.test/login",
+        callbackState: "safe-state",
+      },
+    }));
+    const complete = vi.fn((_request: unknown) => ({}));
+    mount(<ProvidersPage {...props} />, (r) => {
+      r.service(ProviderService, {
+        listProviderConnections: () => ({ connections: [] }),
+        listProviderCatalog: () => ({
+          providers: [
+            {
+              id: "catalog-provider",
+              displayName: "Catalog provider",
+              authKinds: [ProviderAuthKind.OAUTH],
+              oauthMethods: [Method.PKCE],
+            },
+          ],
+        }),
+        beginProviderOAuth: begin,
+        getProviderOAuth: () => ({
+          authorization: {
+            id: "auth",
+            state: OAuthState.PENDING,
+            callbackState: "safe-state",
+          },
+        }),
+        completeProviderOAuth: complete,
+      });
+      r.service(PoolService, { listPools: () => ({ pools: [] }) });
+      r.service(RoutingService, { listRoutes: () => ({ routes: [] }) });
+    });
+    await user.click(screen.getByRole("button", { name: "Connect provider" }));
+    await user.selectOptions(
+      screen.getByLabelText("Provider"),
+      "catalog-provider",
+    );
+    await user.type(screen.getByLabelText("Account label"), "Personal login");
+    await user.click(
+      screen.getByRole("button", { name: "Continue with OAuth" }),
+    );
+    expect(begin).not.toHaveBeenCalled();
+    expect(
+      within(screen.getByLabelText("Authorization method")).getAllByRole(
+        "option",
+      ),
+    ).toHaveLength(2);
+    await user.selectOptions(
+      screen.getByLabelText("Authorization method"),
+      String(Method.PKCE),
+    );
+    await user.type(
+      screen.getByLabelText("Callback URI"),
+      "http://127.0.0.1:9999/callback",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Start authorization" }),
+    );
+    await screen.findByRole("dialog", { name: "Provider authorization" });
+    expect(begin.mock.calls[0][0]).toMatchObject({
+      organizationId: "one",
+      providerId: "catalog-provider",
+      method: Method.PKCE,
+      redirectUri: "http://127.0.0.1:9999/callback",
+    });
+    const input = screen.getByLabelText(
+      "Authorization code, token, or callback URL",
+    );
+    expect(input.getAttribute("type")).toBe("password");
+    await user.type(
+      input,
+      "http://127.0.0.1:9999/callback?code=one-time-code&state=safe-state",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Complete authorization" }),
+    );
+    await waitFor(() => expect(complete).toHaveBeenCalledOnce());
+    expect(complete.mock.calls[0][0]).toMatchObject({
+      organizationId: "one",
+      authorizationId: "auth",
+      code: "one-time-code",
+      state: "safe-state",
+    });
+    expect(window.location.href).not.toContain("one-time-code");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  it("rejects a mismatched PKCE callback and preserves native callback payloads", async () => {
+    const { ProviderOAuthMethod: Method } = await import("@aiprouter/client");
+    const { oauthCompletion } = await import("../src/providers");
+    expect(() =>
+      oauthCompletion(
+        "https://callback.example.test/?code=x&state=wrong",
+        Method.PKCE,
+        "expected",
+      ),
+    ).toThrow();
+    const native = "zed://login?token=private-token";
+    expect(oauthCompletion(native, Method.NATIVE_CALLBACK, "expected")).toEqual(
+      { code: native, state: "expected" },
+    );
+  });
+  it("uses server default when methods are absent and shows polled completion without a manual token form", async () => {
+    const { OAuthState } = await import("@aiprouter/client");
+    const user = userEvent.setup();
+    const begin = vi.fn((_request: unknown) => ({
+      authorization: {
+        id: "device-auth",
+        state: OAuthState.PENDING,
+        userCode: "ABCD",
+        pollIntervalSeconds: 7,
+        callbackState: "safe",
+      },
+    }));
+    mount(<ProvidersPage {...props} />, (r) => {
+      r.service(ProviderService, {
+        listProviderConnections: () => ({ connections: [] }),
+        listProviderCatalog: () => ({
+          providers: [
+            {
+              id: "default-provider",
+              displayName: "Default provider",
+              authKinds: [ProviderAuthKind.OAUTH],
+            },
+          ],
+        }),
+        beginProviderOAuth: begin,
+        getProviderOAuth: () => ({
+          authorization: {
+            id: "device-auth",
+            state: OAuthState.COMPLETED,
+            connectionId: "created-connection",
+          },
+        }),
+      });
+      r.service(PoolService, { listPools: () => ({ pools: [] }) });
+      r.service(RoutingService, { listRoutes: () => ({ routes: [] }) });
+    });
+    await user.click(screen.getByRole("button", { name: "Connect provider" }));
+    await user.selectOptions(
+      screen.getByLabelText("Provider"),
+      "default-provider",
+    );
+    await user.type(screen.getByLabelText("Account label"), "Default login");
+    await user.click(
+      screen.getByRole("button", { name: "Continue with OAuth" }),
+    );
+    expect(screen.queryByLabelText("Authorization method")).toBeNull();
+    await user.click(
+      screen.getByRole("button", { name: "Start authorization" }),
+    );
+    await screen.findByText(
+      "Provider connected. Your connection is ready in this organization.",
+    );
+    expect(
+      (begin.mock.calls[0][0] as { method?: unknown }).method,
+    ).toBeUndefined();
+    expect(
+      screen.queryByLabelText("Authorization code, token, or callback URL"),
+    ).toBeNull();
+  });
+});

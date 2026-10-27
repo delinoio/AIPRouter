@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { useQuery } from "@connectrpc/connect-query";
 import {
   ProviderService,
   PoolService,
   RoutingService,
   ProviderAuthKind,
+  ProviderOAuthMethod,
+  type BeginProviderOAuthRequest,
   ConnectionState,
   OAuthState,
   type ProviderConnection,
@@ -52,6 +55,12 @@ export function ProvidersPage({ organization }: PageProps) {
   const [remove, setRemove] = useState<ProviderConnection>();
   const [models, setModels] = useState<ProviderConnection>();
   const [oauth, setOauth] = useState<ProviderOAuth>();
+  const [oauthMethod, setOauthMethod] = useState<ProviderOAuthMethod>();
+  const [oauthSetup, setOauthSetup] = useState<{
+    providerId: string;
+    name: string;
+    connectionId?: string;
+  }>();
   const query = useQuery(ProviderService.method.listProviderConnections, {
     organizationId: organization.id,
     page: { pageSize, pageToken: token },
@@ -146,19 +155,13 @@ export function ProvidersPage({ organization }: PageProps) {
                 {c.authKind === ProviderAuthKind.OAUTH && (
                   <Button
                     disabled={action.pending}
-                    onClick={() => {
-                      void action.run(
-                        () =>
-                          api.provider.beginProviderOAuth({
-                            organizationId: organization.id,
-                            providerId: c.providerId,
-                            name: c.name,
-                            connectionId: c.id,
-                          }),
-                        (r) => setOauth(r.authorization),
-                        "Authorization started.",
-                      );
-                    }}
+                    onClick={() =>
+                      setOauthSetup({
+                        providerId: c.providerId,
+                        name: c.name,
+                        connectionId: c.id,
+                      })
+                    }
                   >
                     Reconnect
                   </Button>
@@ -185,6 +188,14 @@ export function ProvidersPage({ organization }: PageProps) {
           pending={action.pending}
           onClose={() => setEdit(undefined)}
           onSave={(values) => {
+            if (edit === true && values.authKind === ProviderAuthKind.OAUTH) {
+              setOauthSetup({
+                providerId: values.providerId,
+                name: values.name,
+              });
+              setEdit(undefined);
+              return;
+            }
             void action.run(
               async () => {
                 if (edit !== true) {
@@ -196,15 +207,6 @@ export function ProvidersPage({ organization }: PageProps) {
                     apiKey: values.secret || undefined,
                   });
                   return undefined;
-                }
-                if (values.authKind === ProviderAuthKind.OAUTH) {
-                  return (
-                    await api.provider.beginProviderOAuth({
-                      organizationId: organization.id,
-                      providerId: values.providerId,
-                      name: values.name,
-                    })
-                  ).authorization;
                 }
                 await api.provider.createProviderConnection({
                   organizationId: organization.id,
@@ -232,10 +234,42 @@ export function ProvidersPage({ organization }: PageProps) {
           onClose={() => setModels(undefined)}
         />
       )}
+      {oauthSetup && (
+        <OAuthSetup
+          provider={catalog.data?.providers.find(
+            (p) => p.id === oauthSetup.providerId,
+          )}
+          pending={action.pending}
+          error={action.error}
+          onClose={() => setOauthSetup(undefined)}
+          onSave={(options) => {
+            void action.run(
+              () =>
+                api.provider.beginProviderOAuth({
+                  organizationId: organization.id,
+                  ...oauthSetup,
+                  ...options,
+                }),
+              (result) => {
+                setOauth(result.authorization);
+                setOauthMethod(
+                  options.method ??
+                    catalog.data?.providers.find(
+                      (p) => p.id === oauthSetup.providerId,
+                    )?.oauthMethods[0],
+                );
+                setOauthSetup(undefined);
+              },
+              "Authorization started.",
+            );
+          }}
+        />
+      )}
       {oauth && (
         <OAuthDialog
           organizationId={organization.id}
           authorization={oauth}
+          method={oauthMethod}
           onClose={() => setOauth(undefined)}
         />
       )}
@@ -457,29 +491,46 @@ function ConnectionEditor({
 function OAuthDialog({
   organizationId,
   authorization,
+  method,
   onClose,
 }: {
   organizationId: string;
   authorization: ProviderOAuth;
+  method?: ProviderOAuthMethod;
   onClose: () => void;
 }) {
   const api = useApi();
   const refresh = useRefresh();
   const action = useAction();
   const [code, setCode] = useState("");
-  const [state, setState] = useState("");
+  const [state, setState] = useState(authorization.callbackState ?? "");
   const result = useQuery(
     ProviderService.method.getProviderOAuth,
     { organizationId, authorizationId: authorization.id },
     {
       refetchInterval: (q) =>
+        !q.state.error &&
         q.state.data?.authorization?.state === OAuthState.PENDING
-          ? Math.max(5, authorization.pollIntervalSeconds ?? 5) * 1000
+          ? Math.max(
+              5,
+              q.state.data?.authorization?.pollIntervalSeconds ??
+                authorization.pollIntervalSeconds ??
+                5,
+            ) * 1000
           : false,
     },
   );
   const auth = result.data?.authorization ?? authorization;
   const pending = auth.state === OAuthState.PENDING;
+  const pollFlow =
+    method === ProviderOAuthMethod.DEVICE ||
+    method === ProviderOAuthMethod.BROWSER_POLL ||
+    auth.pollIntervalSeconds !== undefined ||
+    authorization.pollIntervalSeconds !== undefined;
+  const callbackState = auth.callbackState ?? state;
+  useEffect(() => {
+    if (auth.state === OAuthState.COMPLETED) void refresh();
+  }, [auth.state, refresh]);
   let url: URL | undefined;
   try {
     const parsed = new URL(auth.authorizationUrl);
@@ -517,48 +568,59 @@ function OAuthDialog({
               Enter this code at the provider: <strong>{auth.userCode}</strong>
             </p>
           )}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void action.run(
-                () =>
-                  api.provider.completeProviderOAuth({
-                    organizationId,
-                    authorizationId: auth.id,
-                    code,
-                    state,
-                  }),
-                onClose,
-                "Provider connected.",
-              );
-            }}
-          >
-            <p>
-              If the provider returns an authorization code and state, enter
-              them here.
-            </p>
-            <Field label="Authorization code">
-              <input
-                value={code}
-                autoComplete="off"
-                onChange={(e) => setCode(e.target.value)}
-              />
-            </Field>
-            <Field label="Authorization state">
-              <input
-                value={state}
-                autoComplete="off"
-                onChange={(e) => setState(e.target.value)}
-              />
-            </Field>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={action.pending || !code || !state}
+          {!pollFlow && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void action.run(
+                  () =>
+                    api.provider.completeProviderOAuth({
+                      organizationId,
+                      authorizationId: auth.id,
+                      ...oauthCompletion(code, method, callbackState),
+                    }),
+                  onClose,
+                  "Provider connected.",
+                );
+              }}
             >
-              Complete authorization
-            </Button>
-          </form>
+              <p>
+                Paste the authorization code, token, or full callback URL
+                returned by your provider. This server does not open a local
+                callback listener.
+              </p>
+              <Field label="Authorization code, token, or callback URL">
+                <input
+                  type="password"
+                  value={code}
+                  autoComplete="off"
+                  onChange={(e) => setCode(e.target.value)}
+                />
+              </Field>
+              {!auth.callbackState && (
+                <Field label="Authorization state">
+                  <input
+                    value={state}
+                    autoComplete="off"
+                    onChange={(e) => setState(e.target.value)}
+                  />
+                </Field>
+              )}
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={action.pending || !code || !callbackState}
+              >
+                Complete authorization
+              </Button>
+            </form>
+          )}
+          {pollFlow && (
+            <Notice>
+              Waiting for provider approval. This page checks the provider at
+              its current polling interval.
+            </Notice>
+          )}
           <Button
             disabled={action.pending}
             onClick={() => {
@@ -576,6 +638,11 @@ function OAuthDialog({
             Cancel authorization
           </Button>
         </>
+      )}
+      {auth.state === OAuthState.COMPLETED && auth.connectionId && (
+        <Notice tone="success">
+          Provider connected. Your connection is ready in this organization.
+        </Notice>
       )}
       {action.feedback}
       <ErrorNotice error={result.error} retry={() => void result.refetch()} />
@@ -644,4 +711,156 @@ function ModelsDialog({
       <Button onClick={onClose}>Done</Button>
     </Dialog>
   );
+}
+
+type OAuthOptions = Pick<
+  BeginProviderOAuthRequest,
+  | "method"
+  | "redirectUri"
+  | "loginProvider"
+  | "ssoRegion"
+  | "apiRegion"
+  | "startUrl"
+  | "baseUrl"
+  | "authBaseUrl"
+  | "portalUrl"
+  | "registerUrl"
+  | "clientId"
+>;
+const oauthMethodLabels: Record<number, string> = {
+  [ProviderOAuthMethod.PKCE]: "Browser sign-in (PKCE)",
+  [ProviderOAuthMethod.DEVICE]: "Device code",
+  [ProviderOAuthMethod.BROWSER_POLL]: "Browser approval",
+  [ProviderOAuthMethod.EXPLICIT_TOKEN]: "Provider token",
+  [ProviderOAuthMethod.NATIVE_CALLBACK]: "Native callback",
+};
+function OAuthSetup({
+  provider,
+  pending,
+  error,
+  onClose,
+  onSave,
+}: {
+  provider?: ProviderDefinition;
+  pending: boolean;
+  error: unknown;
+  onClose: () => void;
+  onSave: (options: OAuthOptions) => void;
+}) {
+  const [method, setMethod] = useState<ProviderOAuthMethod | undefined>();
+  const [values, setValues] = useState<Record<string, string>>({});
+  const update = (key: string, value: string) =>
+    setValues((old) => ({ ...old, [key]: value }));
+  const fields = [
+    ["loginProvider", "Login provider"],
+    ["ssoRegion", "SSO region"],
+    ["apiRegion", "API region"],
+    ["startUrl", "Start URL"],
+    ["baseUrl", "API base URL"],
+    ["authBaseUrl", "Authentication base URL"],
+    ["portalUrl", "Portal URL"],
+    ["registerUrl", "Registration URL"],
+    ["clientId", "Client ID"],
+  ] as const;
+  return (
+    <Dialog
+      title={`Authorize ${provider?.displayName ?? "provider"}`}
+      onClose={onClose}
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          const options: OAuthOptions = { method };
+          for (const [key, value] of Object.entries(values)) {
+            if (value.trim()) Object.assign(options, { [key]: value.trim() });
+          }
+          onSave(options);
+        }}
+      >
+        <Notice>
+          Use the callback and regional settings required by your provider.
+          Leave optional settings empty to use the provider defaults.
+        </Notice>
+        {!!provider?.oauthMethods.length && (
+          <Field label="Authorization method">
+            <select
+              value={method ?? ""}
+              onChange={(e) =>
+                setMethod(e.target.value ? Number(e.target.value) : undefined)
+              }
+            >
+              <option value="">Provider default</option>
+              {provider.oauthMethods
+                .filter((m) => m !== ProviderOAuthMethod.UNSPECIFIED)
+                .map((m) => (
+                  <option key={m} value={m}>
+                    {oauthMethodLabels[m] ?? "Provider method"}
+                  </option>
+                ))}
+            </select>
+          </Field>
+        )}
+        <Field
+          label="Callback URI"
+          hint="Required for native callbacks and most PKCE providers. Enter the exact registered callback URI. The server does not start a local listener; paste the resulting callback in the next step."
+        >
+          <input
+            autoFocus
+            type="url"
+            autoComplete="off"
+            value={values.redirectUri ?? ""}
+            onChange={(e) => update("redirectUri", e.target.value)}
+          />
+        </Field>
+        <details>
+          <summary>Regional and advanced provider settings</summary>
+          {fields.map(([key, label]) => (
+            <Field key={key} label={label}>
+              <input
+                type={key.toLowerCase().endsWith("url") ? "url" : "text"}
+                autoComplete="off"
+                value={values[key] ?? ""}
+                onChange={(e) => update(key, e.target.value)}
+              />
+            </Field>
+          ))}
+        </details>
+        <ErrorNotice error={error} />
+        <div className="actions">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" disabled={pending}>
+            {pending ? "Starting…" : "Start authorization"}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+// Native callbacks can carry provider-specific payloads, so preserve their full
+// pasted value. PKCE callbacks carry a code and state; never navigate to that URL.
+export function oauthCompletion(
+  input: string,
+  method: ProviderOAuthMethod | undefined,
+  state: string,
+): { code: string; state: string } {
+  const value = input.trim();
+  if (method === ProviderOAuthMethod.PKCE) {
+    let callback: URL | undefined;
+    try {
+      callback = new URL(value);
+    } catch {
+      /* A standalone authorization code is also valid. */
+    }
+    if (callback) {
+      const code = callback.searchParams.get("code");
+      const returnedState = callback.searchParams.get("state");
+      if (!code || !returnedState || returnedState !== state)
+        throw new ConnectError(
+          "Authorization callback does not match this login.",
+          Code.InvalidArgument,
+        );
+      return { code, state: returnedState };
+    }
+  }
+  return { code: value, state };
 }

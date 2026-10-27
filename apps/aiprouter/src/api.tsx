@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-import { createContext, useContext, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  createContext,
+  useContext,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   createClient,
   ConnectError,
@@ -90,7 +96,7 @@ export function ApiProvider({
 }
 export function useRefresh() {
   const client = useQueryClient();
-  return () => client.invalidateQueries();
+  return useCallback(() => client.invalidateQueries(), [client]);
 }
 export function errorMessage(error: unknown): string {
   const e = ConnectError.from(error);
