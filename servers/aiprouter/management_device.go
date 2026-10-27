@@ -17,7 +17,13 @@ func keyMessage(k store.Key, org string) *v1.InferenceKey {
 	} else if k.ExpiresAt != nil && !k.ExpiresAt.After(time.Now()) {
 		state = v1.KeyState_KEY_STATE_EXPIRED
 	}
-	out := &v1.InferenceKey{Id: k.ID, OrganizationId: org, Name: k.Name, State: state, Kind: v1.KeyKind_KEY_KIND_PERSONAL}
+	out := &v1.InferenceKey{CreatedAt: timestamp(k.CreatedAt), Prefix: k.Prefix, Id: k.ID, OrganizationId: org, Name: k.Name, State: state, Kind: v1.KeyKind_KEY_KIND_PERSONAL}
+	if k.Device {
+		out.Kind = v1.KeyKind_KEY_KIND_CLI
+	}
+	if k.LastUsedAt != nil {
+		out.LastUsedAt = timestamp(*k.LastUsedAt)
+	}
 	if k.ExpiresAt != nil {
 		out.ExpiresAt = timestamp(*k.ExpiresAt)
 	}

@@ -37,6 +37,9 @@ func serverStore(t *testing.T) *store.Store {
 	if e = s.Migrate(context.Background()); e != nil {
 		t.Fatal(e)
 	}
+	if e = s.RegisterAdmissionInstance(context.Background()); e != nil {
+		t.Fatal(e)
+	}
 	t.Cleanup(func() {
 		s.Close()
 		db, e := sql.Open("pgx", dsn)

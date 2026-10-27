@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/artifacts"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
@@ -29,13 +30,16 @@ func run(logger *slog.Logger, args []string) error {
 	if len(args) > 0 {
 		command = args[0]
 	}
-	if len(args) > 1 {
-		return errors.New("usage: aiprouter-server [serve|migrate|restore-invalidate|reencrypt]")
+	if command == "--help" || command == "-h" || command == "help" {
+		_, e := fmt.Fprint(os.Stdout, serverHelp)
+		return e
 	}
-	switch command {
-	case "serve", "migrate", "restore-invalidate", "reencrypt":
-	default:
-		return errors.New("unknown server command")
+	options := []string{}
+	if len(args) > 1 {
+		options = args[1:]
+	}
+	if e := validateServerCommand(command, options); e != nil {
+		return e
 	}
 	c, e := loadConfig(os.Getenv)
 	if e != nil {
@@ -60,6 +64,8 @@ func run(logger *slog.Logger, args []string) error {
 	defer db.Close()
 	if command != "serve" {
 		switch command {
+		case "admission-status", "admission-drain", "admission-reconcile":
+			e = admissionMaintenance(ctx, db, command, options, os.Stdin, os.Stdout)
 		case "migrate":
 			e = db.Migrate(ctx)
 		case "restore-invalidate":
@@ -72,6 +78,9 @@ func run(logger *slog.Logger, args []string) error {
 		}
 		logger.Info("maintenance completed", "command", command)
 		return nil
+	}
+	if e = db.RegisterAdmissionInstance(startup); e != nil {
+		return errors.New("admission instance registration failed")
 	}
 	auth, e := newAuth(startup, c, persistentAuth{s: db})
 	if e != nil {
@@ -92,7 +101,9 @@ func run(logger *slog.Logger, args []string) error {
 	}
 	artifactService := artifacts.New(db, objects)
 	telemetry := newTelemetry(logger)
-	service := &server{config: c, store: db, auth: auth, telemetry: telemetry, artifacts: artifactService}
+	releases := newAdmissionReleaseQueue(context.Background(), db, telemetry)
+	defer releases.Close()
+	service := &server{config: c, store: db, auth: auth, telemetry: telemetry, artifacts: artifactService, releases: releases}
 	if c.ConsoleDir != "" {
 		service.console, e = consoleHandler(c.ConsoleDir)
 		if e != nil {
@@ -112,7 +123,7 @@ func run(logger *slog.Logger, args []string) error {
 	go func() { defer workerWG.Done(); service.mailWorker(workers) }()
 	done := make(chan error, 1)
 	go func() { done <- httpServer.Serve(listener) }()
-	logger.Info("server listening", "address", c.ListenAddr)
+	logger.Info("server listening", "address", c.ListenAddr, "instance_id", db.InstanceID())
 	select {
 	case e := <-done:
 		if !errors.Is(e, http.ErrServerClosed) {
@@ -134,6 +145,9 @@ func run(logger *slog.Logger, args []string) error {
 	case <-finished:
 	case <-shutdown.Done():
 		return errors.New("worker shutdown deadline exceeded")
+	}
+	if e = releases.Wait(shutdown); e != nil {
+		return errors.New("completed admission releases require offline reconciliation")
 	}
 	logger.Info("server stopped")
 	return nil

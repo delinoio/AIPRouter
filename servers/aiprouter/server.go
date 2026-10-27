@@ -8,6 +8,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/artifacts"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/cursor"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/pricing"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
 	rpc "github.com/delinoio/AIPRouter/protos/aiprouter/v1/aiprouterv1connect"
@@ -18,16 +19,19 @@ import (
 )
 
 type server struct {
-	config     Config
-	store      *store.Store
-	auth       *Auth
-	telemetry  *telemetry
-	sockets    sync.WaitGroup
-	artifacts  *artifacts.Service
-	priceMu    sync.Mutex
-	priceJSON  string
-	priceCache *pricing.Snapshot
-	console    http.Handler
+	// Optional embedding/test transport policy; production uses the guarded default.
+	inferenceDestinations *inference.DestinationPolicy
+	releases              *admissionReleaseQueue
+	config                Config
+	store                 *store.Store
+	auth                  *Auth
+	telemetry             *telemetry
+	sockets               sync.WaitGroup
+	artifacts             *artifacts.Service
+	priceMu               sync.Mutex
+	priceJSON             string
+	priceCache            *pricing.Snapshot
+	console               http.Handler
 }
 
 func (s *server) handler() http.Handler {
@@ -59,6 +63,7 @@ func (s *server) handler() http.Handler {
 	register(rpc.NewKeyServiceHandler(m, options...))
 	register(rpc.NewDeviceApprovalServiceHandler(m, options...))
 	register(rpc.NewProviderServiceHandler(m, options...))
+	register(rpc.NewHostedSettingsServiceHandler(m, options...))
 	register(rpc.NewPoolServiceHandler(m, options...))
 	register(rpc.NewRoutingServiceHandler(m, options...))
 	register(rpc.NewUsageServiceHandler(m, options...))
@@ -88,8 +93,24 @@ func (s *server) serveInference(w http.ResponseWriter, r *http.Request) {
 	}
 
 	adapter := &inferenceAdapter{s: s.store, telemetry: s.telemetry, prices: prices}
+	if s.releases != nil {
+		adapter.releaseCompleted = s.releases.Submit
+	}
+	destinations := inference.DestinationPolicy{ApprovedOrigins: settings.Destinations, Rules: settings.DestinationRules}
+	if s.inferenceDestinations != nil {
+		destinations = *s.inferenceDestinations
+		destinations.Rules = settings.DestinationRules
+		destinations.ApprovedOrigins = append(append([]string(nil), destinations.ApprovedOrigins...), settings.Destinations...)
+	}
 	adapters := providerAdapters()
-	h, e := inference.New(inference.Config{Adapters: adapters, RecoveryPolicies: adapter.recoveryPolicies(providerRecoveryPolicies(adapters)), RecoveryDestinations: adapter, Authorizer: adapter, Router: adapter, Views: adapter, Credentials: adapter, Continuations: adapter, ProviderStates: adapter, LiveBindings: adapter, SocketDialer: outboundSocketDialer{}, Usage: adapter, Artifacts: artifactAdapter{service: s.artifacts, auth: adapter}, Observer: s.telemetry, Logger: s.telemetry.logger, Destinations: inference.DestinationPolicy{ApprovedOrigins: settings.Destinations}, MaxRequestBytes: 100 << 20})
+	originals := make(map[inference.Wire]inference.Adapter, len(adapters))
+	for wire, value := range adapters {
+		originals[wire] = value
+	}
+	adapters[cursor.Wire] = cursor.NewWithVision(hostedVisionPrepare(adapter, s.artifacts, originals))
+	recovery := providerRecoveryPolicies(adapters)
+	adapters = hostedProviderAdapters(adapters, adapter, s.artifacts)
+	h, e := inference.New(inference.Config{Adapters: adapters, RecoveryPolicies: adapter.recoveryPolicies(recovery), RecoveryDestinations: adapter, Authorizer: adapter, Router: adapter, Negotiator: adapter, Views: adapter, Credentials: adapter, Continuations: adapter, ProviderStates: adapter, LiveBindings: adapter, SocketDialer: outboundSocketDialer{}, Usage: adapter, Artifacts: artifactAdapter{service: s.artifacts, auth: adapter}, Observer: s.telemetry, Logger: s.telemetry.logger, Destinations: destinations, MaxRequestBytes: 100 << 20})
 	if e != nil {
 		http.Error(w, "inference unavailable", 503)
 		return
