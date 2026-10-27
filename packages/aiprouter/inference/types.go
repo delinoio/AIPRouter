@@ -65,6 +65,8 @@ type Route struct {
 	MaxSends int
 }
 type Target struct {
+	// ForceMessagesTranslation disables Messages passthrough without changing the upstream wire or authentication.
+	ForceMessagesTranslation bool
 	Fast                     bool
 	FastPolicy               *FastPolicy
 	ReasoningEffort          string

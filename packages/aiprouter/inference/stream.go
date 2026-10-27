@@ -121,7 +121,7 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 	stopOnCancel := context.AfterFunc(ctx, func() { resp.Body.Close() })
 	defer stopOnCancel()
 	streaming := b["stream"] == true
-	native := in == t.Wire
+	native := in == t.Wire && !forceMessagesTranslation(in, t)
 	var timer *time.Timer
 	if stall > 0 {
 		timer = time.AfterFunc(stall, func() { cancel(); resp.Body.Close() })

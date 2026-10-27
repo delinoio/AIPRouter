@@ -584,7 +584,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				payload["response_format"] = "b64_json"
 			}
 			if op == Generate && (adapter == nil || t.Wire == Chat || t.Wire == Responses || t.Wire == Anthropic) {
-				payload, e = translateRequest(requestBody, in, t.Wire)
+				payload, e = translateTargetRequest(requestBody, in, t)
 				if e != nil {
 					return e
 				}
@@ -1238,7 +1238,7 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 	if e != nil {
 		return e
 	}
-	if op == Generate && in != t.Wire {
+	if op == Generate && (in != t.Wire || forceMessagesTranslation(in, t)) {
 		r, e := parseResult(out, t.Wire)
 		if e != nil {
 			return e
