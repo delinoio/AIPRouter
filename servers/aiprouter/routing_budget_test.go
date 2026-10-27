@@ -33,8 +33,8 @@ func TestRoutingHostedBudgetUsesCurrentOwnerSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if route.MaxSends != baseline+12 {
-		t.Fatalf("hosted allowance=%d want=%d", route.MaxSends, baseline+12)
+	if route.MaxSends != baseline*4+9 {
+		t.Fatalf("hosted allowance=%d want=%d", route.MaxSends, baseline*4+9)
 	}
 	disabled := false
 	settings.Search.Enabled = &disabled

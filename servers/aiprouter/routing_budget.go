@@ -13,7 +13,7 @@ import (
 
 // These allowances cover bounded support exchanges, not extra retry attempts.
 // All exchanges still consume the original ledger and current dispatch guard.
-func (a *inferenceAdapter) hostedExchangeAllowance(ctx context.Context, p inference.Principal) (int, error) {
+func (a *inferenceAdapter) hostedExchangeAllowance(ctx context.Context, p inference.Principal, mainBudget int) (int, error) {
 	settings, err := readHostedSettings(ctx, a.s, scopeOf(p))
 	if err != nil {
 		return 0, inferenceError(err)
@@ -63,8 +63,8 @@ func (a *inferenceAdapter) hostedExchangeAllowance(ctx context.Context, p infere
 		extra += n * (sends + 2)
 	}
 	if extra > 0 {
-		extra += 3
-	} // Three bounded helper rounds can each require another main-model send.
+		extra += 3 * mainBudget
+	} // Each helper round repeats the original adapter preflights and bounded exchanges.
 	return extra, nil
 }
 

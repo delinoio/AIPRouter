@@ -241,7 +241,7 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 	if len(out.Targets) == 0 {
 		return out, inference.ErrNoCredential
 	}
-	extra, err := a.hostedExchangeAllowance(ctx, p)
+	extra, err := a.hostedExchangeAllowance(ctx, p, out.MaxSends)
 	if err != nil {
 		return out, err
 	}
