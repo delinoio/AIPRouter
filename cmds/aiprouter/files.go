@@ -31,10 +31,12 @@ type Record struct {
 	Originals       map[string]Backup `json:"originals,omitempty"`
 }
 type Backup struct {
-	Removed       bool `json:"removed,omitempty"`
-	Path          string
-	Before, After []byte
-	Existed       bool
+	BeforeSnapshot string `json:"beforeSnapshot,omitempty"`
+	AfterSnapshot  string `json:"afterSnapshot,omitempty"`
+	Removed        bool   `json:"removed,omitempty"`
+	Path           string
+	Before, After  []byte
+	Existed        bool
 }
 type Change struct {
 	RuntimeMode   NativeCompatibilityMode
@@ -79,6 +81,12 @@ func safeParents(path string) error {
 	return nil
 }
 func readConfig(path string) ([]byte, bool, error) {
+	return readConfigLimit(path, configSizeLimit(path))
+}
+func readNativeCatalog(path string) ([]byte, bool, error) {
+	return readConfigLimit(path, MaxNativeCatalogBytes)
+}
+func readConfigLimit(path string, limit int) ([]byte, bool, error) {
 	if err := safeParents(path); err != nil {
 		return nil, false, err
 	}
@@ -86,8 +94,8 @@ func readConfig(path string) ([]byte, bool, error) {
 	if os.IsNotExist(err) {
 		return nil, false, nil
 	}
-	if err != nil || !s.Mode().IsRegular() || s.Size() > MaxConfigBytes {
-		return nil, false, errors.New("configuration must be a readable regular file of at most 4 MiB")
+	if err != nil || !s.Mode().IsRegular() || s.Size() > int64(limit) {
+		return nil, false, errors.New("configuration must be a readable regular file within its size limit")
 	}
 	f, err := openConfig(path)
 	if err != nil {
@@ -101,8 +109,8 @@ func readConfig(path string) ([]byte, bool, error) {
 	if err != nil || !os.SameFile(s, opened) {
 		return nil, false, ErrConflict
 	}
-	b, err := io.ReadAll(io.LimitReader(f, MaxConfigBytes+1))
-	if err != nil || len(b) > MaxConfigBytes {
+	b, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	if err != nil || len(b) > limit {
 		return nil, false, errors.New("cannot read bounded configuration")
 	}
 	current, e := os.Lstat(path)
@@ -112,8 +120,8 @@ func readConfig(path string) ([]byte, bool, error) {
 	return b, true, nil
 }
 func (d Disk) write(path string, b []byte, validators ...func() error) error {
-	if len(b) > MaxConfigBytes {
-		return errors.New("configuration exceeds 4 MiB")
+	if len(b) > configSizeLimit(path) {
+		return errors.New("configuration exceeds its size limit")
 	}
 	if err := safeParents(path); err != nil {
 		return err
@@ -167,10 +175,10 @@ func (d Disk) Load() (State, error) {
 	if json.Unmarshal(b, &s) != nil || s.Profiles == nil || s.Active == nil || s.Records == nil {
 		return State{}, errors.New("state is invalid; preserve it for recovery")
 	}
-	return s, nil
+	return d.hydrateState(s)
 }
 func (d Disk) Save(s State) error {
-	b, e := json.MarshalIndent(s, "", "  ")
+	b, e := d.marshalState(s)
 	if e != nil {
 		return e
 	}
@@ -222,9 +230,23 @@ type Pending struct {
 }
 
 func copyState(s State) State {
-	data, _ := json.Marshal(s)
-	var out State
-	_ = json.Unmarshal(data, &out)
+	out := emptyState()
+	for key, p := range s.Profiles {
+		out.Profiles[key] = p
+	}
+	for key, value := range s.Active {
+		out.Active[key] = value
+	}
+	for key, r := range s.Records {
+		r.Files = append([]Backup(nil), r.Files...)
+		originals := make(map[string]Backup, len(r.Originals))
+		for path, b := range r.Originals {
+			originals[path] = b
+		}
+		r.Originals = originals
+		out.Records[key] = r
+	}
+	// Snapshot bytes are immutable; copy metadata without re-encoding large blobs.
 	return out
 }
 func updatedRecord(s State, client, profile string, changes []Change) (Record, error) {
@@ -359,7 +381,10 @@ func (d Disk) transact(s *State, desired State, changes []Change, client, profil
 			absent[c.Path] = true
 		}
 	}
-	data, _ := json.Marshal(Pending{Kind: kind, Absent: absent, Record: record, Desired: desired, Locks: lockPaths})
+	data, e := d.marshalPending(Pending{Kind: kind, Absent: absent, Record: record, Desired: desired, Locks: lockPaths})
+	if e != nil {
+		return e
+	}
 	if e := d.write(pending, data); e != nil {
 		return e
 	}
@@ -397,7 +422,7 @@ func (d Disk) transact(s *State, desired State, changes []Change, client, profil
 		return e
 	}
 	*s = desired
-	return os.Remove(pending)
+	return d.finishJournal(pending)
 }
 func restoreBytes(b Backup, current []byte) ([]byte, error) {
 	if bytes.Equal(current, b.After) {

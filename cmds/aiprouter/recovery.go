@@ -22,6 +22,10 @@ func (a *Application) Recover(s *State) error {
 	if json.Unmarshal(data, &pending) != nil || pending.Record.Client == "" || len(pending.Record.Files) == 0 || pending.Desired.Profiles == nil {
 		return errors.New("invalid recovery record; preserve it for manual recovery")
 	}
+	pending, e = a.Disk.hydratePending(pending)
+	if e != nil {
+		return e
+	}
 	release, e := a.Disk.nativeLocks(pending.Locks)
 	if e != nil {
 		return e
@@ -34,16 +38,14 @@ func (a *Application) Recover(s *State) error {
 		return errors.New("unknown transaction kind; preserve journal")
 	}
 	record := pending.Record
-	actual, _ := json.Marshal(s)
-	intended, _ := json.Marshal(pending.Desired)
-	if bytes.Equal(actual, intended) {
+	if statesEquivalent(*s, pending.Desired) {
 		for _, b := range record.Files {
 			current, exists, e := readConfig(b.Path)
 			if e != nil || exists == pending.Absent[b.Path] || !bytes.Equal(current, b.After) {
 				return ErrConflict
 			}
 		}
-		return os.Remove(path)
+		return a.Disk.finishJournal(path)
 	}
 
 	for _, b := range record.Files {
@@ -81,7 +83,7 @@ func (a *Application) Recover(s *State) error {
 			return e
 		}
 	}
-	return os.Remove(path)
+	return a.Disk.finishJournal(path)
 }
 
 // Restore recovery moves forward. Rolling backward could resurrect a revoked
@@ -147,5 +149,46 @@ func (a *Application) finishRestore(s *State, p Pending, journal string) error {
 		return e
 	}
 	*s = desired
-	return os.Remove(journal)
+	return a.Disk.finishJournal(journal)
+}
+
+// Compare hydrated bytes directly instead of allocating a base64 encoding of
+// potentially large native snapshots. Empty and nil collections are equivalent.
+func statesEquivalent(a, b State) bool {
+	if len(a.Profiles) != len(b.Profiles) || len(a.Active) != len(b.Active) || len(a.Records) != len(b.Records) {
+		return false
+	}
+	for key, p := range a.Profiles {
+		other, ok := b.Profiles[key]
+		if !ok || p != other {
+			return false
+		}
+	}
+	for key, value := range a.Active {
+		other, ok := b.Active[key]
+		if !ok || value != other {
+			return false
+		}
+	}
+	sameBackup := func(x, y Backup) bool {
+		return x.Path == y.Path && x.Existed == y.Existed && x.Removed == y.Removed && bytes.Equal(x.Before, y.Before) && bytes.Equal(x.After, y.After)
+	}
+	for key, r := range a.Records {
+		other, ok := b.Records[key]
+		if !ok || r.Profile != other.Profile || r.Client != other.Client || r.RuntimeMode != other.RuntimeMode || len(r.Files) != len(other.Files) || len(r.Originals) != len(other.Originals) {
+			return false
+		}
+		for i, file := range r.Files {
+			if !sameBackup(file, other.Files[i]) {
+				return false
+			}
+		}
+		for path, file := range r.Originals {
+			value, ok := other.Originals[path]
+			if !ok || !sameBackup(file, value) {
+				return false
+			}
+		}
+	}
+	return true
 }
