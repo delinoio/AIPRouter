@@ -105,7 +105,21 @@ func hostedMediaBody(args, decl map[string]any, model string, video bool) (map[s
 	}
 	return body, path, nil
 }
+
+const (
+	hostedDownloadConnectTimeout = 10 * time.Second
+	hostedDownloadIdleTimeout    = 60 * time.Second
+)
+
 func (o *hostedOperation) download(ctx context.Context, raw string, limit int64) (artifacts.Image, error) {
+	return o.downloadWithTimeouts(ctx, raw, limit, hostedDownloadConnectTimeout, hostedDownloadIdleTimeout)
+}
+
+// The pinned artifacts transport bounds connection setup and inactivity, not the
+// total download duration. Keep the caller's image/video deadline and cancellation;
+// the guarded transport still owns destination checks and the physical-send gate.
+func (o *hostedOperation) downloadWithTimeouts(ctx context.Context, raw string, limit int64, connect, idle time.Duration) (artifacts.Image, error) {
+	ctx = inference.WithSupportTimeouts(ctx, inference.SupportTimeouts{Connect: connect, Idle: idle})
 	u, e := url.Parse(raw)
 	if e != nil || u.User != nil || u.Fragment != "" {
 		return artifacts.Image{}, inference.ErrDestination
@@ -115,8 +129,6 @@ func (o *hostedOperation) download(ctx context.Context, raw string, limit int64)
 	if e != nil {
 		return artifacts.Image{}, e
 	}
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
 	b, h, e := o.transport.exchange(ctx, req, limit)
 	if e != nil {
 		return artifacts.Image{}, e
