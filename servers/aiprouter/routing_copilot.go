@@ -325,3 +325,9 @@ func resolveCopilotAuto(ctx context.Context, t inference.Target, c inference.Cre
 	c.Headers.Set("X-GitHub-Api-Version", "2026-08-01")
 	return t, c, expires, nil
 }
+
+var _ inference.Negotiator = (*inferenceAdapter)(nil)
+
+func (a *inferenceAdapter) Negotiate(ctx context.Context, p inference.Principal, target inference.Target, credential inference.Credential, body json.RawMessage, policy inference.DestinationPolicy) (inference.Target, inference.Credential, time.Time, error) {
+	return a.negotiateCopilot(ctx, p, target, credential, body, policy)
+}
