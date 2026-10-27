@@ -249,3 +249,40 @@ func TestNativeAffinitySuccessCounter(t *testing.T) {
 		t.Fatal("late completion resurrected counter", e)
 	}
 }
+
+func TestAccountSoftDeniedExactVersionModelAndExpiry(t *testing.T) {
+	s, l, v := nativeFixture(t)
+	ctx := context.Background()
+	if denied, e := s.AccountSoftDenied(ctx, l, "native", v, "model"); e != nil || denied {
+		t.Fatal(denied, e)
+	}
+	if e := s.SetAccountSoftDenial(ctx, l, "native", v, "model"); e != nil {
+		t.Fatal(e)
+	}
+	if denied, e := s.AccountSoftDenied(ctx, l, "native", v, "model"); e != nil || !denied {
+		t.Fatal(denied, e)
+	}
+	if denied, e := s.AccountSoftDenied(ctx, l, "native", v, "other"); e != nil || denied {
+		t.Fatal(denied, e)
+	}
+	execSQL(t, s, "UPDATE account_soft_denials SET until_at=clock_timestamp()-interval '1 second'")
+	if denied, e := s.AccountSoftDenied(ctx, l, "native", v, "model"); e != nil || denied {
+		t.Fatal(denied, e)
+	}
+	if e := s.PutPrivate(ctx, l.Principal.Scope, "provider", "native", []byte("replacement")); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := s.AccountSoftDenied(ctx, l, "native", v, "model"); !errors.Is(e, ErrForbidden) {
+		t.Fatal("stale credential read", e)
+	}
+	_, next, e := s.GetPrivateVersion(ctx, l.Principal.Scope, "provider", "native")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.Release(ctx, l); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.AccountSoftDenied(ctx, l, "native", next, "model"); !errors.Is(e, ErrForbidden) {
+		t.Fatal("released lease read", e)
+	}
+}

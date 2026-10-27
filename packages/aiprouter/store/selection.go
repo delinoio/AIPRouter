@@ -259,3 +259,16 @@ func (s *Store) SetAccountSoftDenial(ctx context.Context, l Lease, id, version, 
 		return e
 	})
 }
+
+// AccountSoftDenied reads exact-model evidence before native priority narrowing.
+// Callers restore the original eligible set if every candidate is softly denied.
+func (s *Store) AccountSoftDenied(ctx context.Context, l Lease, id, version, model string) (denied bool, e error) {
+	e = s.tx(ctx, func(tx *sql.Tx) error {
+		if e := s.checkNativeAccount(ctx, tx, l, id, version); e != nil {
+			return e
+		}
+		sc := l.Principal.Scope
+		return tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM account_soft_denials WHERE org_id=$1 AND user_id=$2 AND id=$3 AND version=$4 AND model=$5 AND until_at>clock_timestamp())", sc.OrganizationID, sc.UserID, id, version, model).Scan(&denied)
+	})
+	return
+}
