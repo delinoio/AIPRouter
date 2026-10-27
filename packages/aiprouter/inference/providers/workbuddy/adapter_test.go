@@ -89,7 +89,7 @@ func TestConversationBinding(t *testing.T) {
 	in := fixture()
 	r, _ := build(t, a, in)
 	in.Body = json.RawMessage(`{"messages":[{"role":"user","content":"Hello"},{"role":"assistant","tool_calls":[{"id":"call","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call","content":"result"}]}`)
-	r2, _ := build(t, a, in)
+	r2, _ := build(t, New(), in)
 	if r.Headers.Get("X-Conversation-ID") != r2.Headers.Get("X-Conversation-ID") || r.Headers.Get("X-Conversation-Request-ID") != r2.Headers.Get("X-Conversation-Request-ID") {
 		t.Fatal("tool continuation changed turn")
 	}

@@ -26,7 +26,12 @@ const maxBytes = 32 << 20
 // Adapter holds only a process-lifetime privacy salt, never account or request state.
 type Adapter struct{ salt [32]byte }
 
-func New() *Adapter { a := &Adapter{}; rand.Read(a.salt[:]); return a }
+// The server may construct adapters per HTTP request. Share only this immutable
+// random salt so a tool continuation keeps its conversation/user-turn identifiers.
+// No account identity, token, prompt, or alias table is stored at package scope.
+var sessionSalt = func() (salt [32]byte) { rand.Read(salt[:]); return }()
+
+func New() *Adapter { return &Adapter{salt: sessionSalt} }
 
 var _ inference.Adapter = (*Adapter)(nil)
 var _ inference.ContextualAdapter = (*Adapter)(nil)
@@ -92,6 +97,9 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	team := in.Credential.Headers.Get("X-Enterprise-Id")
 	if team != "" && !valid(team, 1024) {
 		return inference.AdapterRequest{}, inference.ErrNoCredential
+	}
+	if _, e := toolMetadata(in); e != nil {
+		return inference.AdapterRequest{}, e
 	}
 	body, _, e := requestBody(in)
 	if e != nil {
@@ -222,6 +230,10 @@ func requestBody(in inference.AdapterInput) (object, map[string]string, error) {
 	if v, ok := b["max_completion_tokens"]; ok {
 		b["max_tokens"] = v
 		delete(b, "max_completion_tokens")
+	}
+	if b["tool_choice"] == "none" {
+		delete(b, "tools")
+		delete(b, "tool_choice")
 	}
 	aliases := map[string]string{}
 	forward := map[string]string{}

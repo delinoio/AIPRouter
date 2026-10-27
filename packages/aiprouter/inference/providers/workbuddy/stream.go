@@ -22,6 +22,7 @@ func wireError() error { return &inference.Error{Status: 502, Code: "workbuddy_i
 // streamReader translates one event at a time without producer goroutines. Close
 // closes the upstream immediately; cancellation interrupts a blocked upstream read.
 type streamReader struct {
+	terminal bool
 	metadata map[string]object
 	ctx      context.Context
 	source   io.ReadCloser
@@ -80,6 +81,9 @@ func (s *streamReader) Read(p []byte) (int, error) {
 		if s.pending != nil && s.pending.Len() > 0 {
 			return s.pending.Read(p)
 		}
+		if s.terminal {
+			return 0, io.EOF
+		}
 		var data []string
 		size := 0
 		found := false
@@ -110,6 +114,7 @@ func (s *streamReader) Read(p []byte) (int, error) {
 		}
 		payload := strings.Join(data, "\n")
 		if payload == "[DONE]" {
+			s.terminal = true
 			for key, name := range s.names {
 				if name != "" && !s.sent[key] {
 					return 0, wireError()
@@ -135,7 +140,13 @@ func (s *streamReader) Read(p []byte) (int, error) {
 				name := str(f["name"])
 				key := choiceIndex + ":" + strIndex(call["index"], ti)
 				if name != "" {
+					if len(s.names) >= 4096 && s.names[key] == "" {
+						return 0, wireError()
+					}
 					s.names[key] += name
+					if len(s.names[key]) > 64 {
+						return 0, wireError()
+					}
 					delete(f, "name")
 					if original, ok := s.aliases[s.names[key]]; ok {
 						if s.sent[key] {

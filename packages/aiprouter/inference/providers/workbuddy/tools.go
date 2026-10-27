@@ -57,7 +57,15 @@ func toolMetadata(in inference.AdapterInput) (map[string]object, error) {
 		}
 		return nil
 	}
-	if e = visit(arr(b["tools"]), "", 0); e != nil {
+	catalog := append([]any{}, arr(b["tools"])...)
+	catalog = append(catalog, arr(b["additional_tools"])...)
+	for _, v := range arr(b["input"]) {
+		m := obj(v)
+		if m["type"] == "tool_search_output" || m["type"] == "additional_tools" {
+			catalog = append(catalog, arr(m["tools"])...)
+		}
+	}
+	if e = visit(catalog, "", 0); e != nil {
 		return nil, e
 	}
 	return out, nil
