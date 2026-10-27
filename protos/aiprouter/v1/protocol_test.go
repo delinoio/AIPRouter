@@ -100,3 +100,67 @@ func TestPrivateResourcesAndOperatorBoundary(t *testing.T) {
 		t.Fatal("device compensation may not select an arbitrary key")
 	}
 }
+
+func TestRecipientInvitationAndDeviceContracts(t *testing.T) {
+	service := v1.File_aiprouter_v1_organization_proto.Services().ByName("InvitationService")
+	for _, name := range []protoreflect.Name{"GetInvitation", "ListMyInvitations", "AcceptInvitation"} {
+		method := service.Methods().ByName(name)
+		if method == nil {
+			t.Fatalf("missing recipient method %s", name)
+		}
+		if proto.GetExtension(method.Options(), v1.E_AuthScope) != v1.AuthScope_AUTH_SCOPE_WEB_SESSION {
+			t.Fatalf("recipient method must require session: %s", name)
+		}
+	}
+	list := (&v1.ListMyInvitationsRequest{}).ProtoReflect().Descriptor()
+	if list.Fields().Len() != 1 || list.Fields().ByName("page") == nil {
+		t.Fatal("recipient listing must not accept a caller-selected email or user")
+	}
+	invite := (&v1.Invitation{}).ProtoReflect().Descriptor()
+	for _, name := range []protoreflect.Name{"token", "raw_token", "acceptance_url"} {
+		if invite.Fields().ByName(name) != nil {
+			t.Fatalf("recipient list exposes token: %s", name)
+		}
+	}
+	for _, state := range []v1.LifecycleState{v1.LifecycleState_LIFECYCLE_STATE_PENDING, v1.LifecycleState_LIFECYCLE_STATE_ACCEPTED, v1.LifecycleState_LIFECYCLE_STATE_CANCELED, v1.LifecycleState_LIFECYCLE_STATE_EXPIRED, v1.LifecycleState_LIFECYCLE_STATE_SUPERSEDED, v1.LifecycleState_LIFECYCLE_STATE_FAILED} {
+		original := &v1.GetInvitationResponse{Invitation: &v1.Invitation{Id: "invite", OrganizationId: "org", OrganizationName: "Organization", Email: "recipient@example.test", Role: v1.Role_ROLE_MEMBER, State: state}}
+		wire, err := proto.Marshal(original)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := &v1.GetInvitationResponse{}
+		if err = proto.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(original, decoded) {
+			t.Fatal("invitation detail or lifecycle lost")
+		}
+	}
+	for _, request := range []*v1.AcceptInvitationRequest{{Token: "link-token"}, {InvitationId: proto.String("invite")}} {
+		wire, err := proto.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := &v1.AcceptInvitationRequest{}
+		if err = proto.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(request, decoded) {
+			t.Fatal("acceptance selector compatibility lost")
+		}
+	}
+	for number := int32(1); number <= 6; number++ {
+		original := &v1.DeviceAuthorization{State: v1.DeviceAuthorizationState(number)}
+		wire, err := proto.Marshal(original)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := &v1.DeviceAuthorization{}
+		if err = proto.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if decoded.State != original.State {
+			t.Fatal("browser device lifecycle lost")
+		}
+	}
+}

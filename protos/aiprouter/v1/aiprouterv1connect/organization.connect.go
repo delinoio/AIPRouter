@@ -78,6 +78,12 @@ const (
 	// MembershipServiceRemoveMemberProcedure is the fully-qualified name of the MembershipService's
 	// RemoveMember RPC.
 	MembershipServiceRemoveMemberProcedure = "/aiprouter.v1.MembershipService/RemoveMember"
+	// InvitationServiceGetInvitationProcedure is the fully-qualified name of the InvitationService's
+	// GetInvitation RPC.
+	InvitationServiceGetInvitationProcedure = "/aiprouter.v1.InvitationService/GetInvitation"
+	// InvitationServiceListMyInvitationsProcedure is the fully-qualified name of the
+	// InvitationService's ListMyInvitations RPC.
+	InvitationServiceListMyInvitationsProcedure = "/aiprouter.v1.InvitationService/ListMyInvitations"
 	// InvitationServiceCreateInvitationProcedure is the fully-qualified name of the InvitationService's
 	// CreateInvitation RPC.
 	InvitationServiceCreateInvitationProcedure = "/aiprouter.v1.InvitationService/CreateInvitation"
@@ -553,6 +559,14 @@ func (UnimplementedMembershipServiceHandler) RemoveMember(context.Context, *conn
 
 // InvitationServiceClient is a client for the aiprouter.v1.InvitationService service.
 type InvitationServiceClient interface {
+	// Requires a verified session email and possession of the link token. Invalid tokens
+	// return NOT_FOUND. Wrong email returns PERMISSION_DENIED with ErrorDetail reason
+	// INVITATION_EMAIL_MISMATCH and no recipient or organization metadata.
+	// Matching recipients can inspect pending or terminal lifecycle states.
+	GetInvitation(context.Context, *connect.Request[v1.GetInvitationRequest]) (*connect.Response[v1.GetInvitationResponse], error)
+	// Only actionable pending invitations addressed to the current verified email.
+	// No email/user selector or raw link token is exposed. Page tokens are session-scoped.
+	ListMyInvitations(context.Context, *connect.Request[v1.ListMyInvitationsRequest]) (*connect.Response[v1.ListMyInvitationsResponse], error)
 	CreateInvitation(context.Context, *connect.Request[v1.CreateInvitationRequest]) (*connect.Response[v1.CreateInvitationResponse], error)
 	ListInvitations(context.Context, *connect.Request[v1.ListInvitationsRequest]) (*connect.Response[v1.ListInvitationsResponse], error)
 	ResendInvitation(context.Context, *connect.Request[v1.ResendInvitationRequest]) (*connect.Response[v1.ResendInvitationResponse], error)
@@ -571,6 +585,18 @@ func NewInvitationServiceClient(httpClient connect.HTTPClient, baseURL string, o
 	baseURL = strings.TrimRight(baseURL, "/")
 	invitationServiceMethods := v1.File_aiprouter_v1_organization_proto.Services().ByName("InvitationService").Methods()
 	return &invitationServiceClient{
+		getInvitation: connect.NewClient[v1.GetInvitationRequest, v1.GetInvitationResponse](
+			httpClient,
+			baseURL+InvitationServiceGetInvitationProcedure,
+			connect.WithSchema(invitationServiceMethods.ByName("GetInvitation")),
+			connect.WithClientOptions(opts...),
+		),
+		listMyInvitations: connect.NewClient[v1.ListMyInvitationsRequest, v1.ListMyInvitationsResponse](
+			httpClient,
+			baseURL+InvitationServiceListMyInvitationsProcedure,
+			connect.WithSchema(invitationServiceMethods.ByName("ListMyInvitations")),
+			connect.WithClientOptions(opts...),
+		),
 		createInvitation: connect.NewClient[v1.CreateInvitationRequest, v1.CreateInvitationResponse](
 			httpClient,
 			baseURL+InvitationServiceCreateInvitationProcedure,
@@ -606,11 +632,23 @@ func NewInvitationServiceClient(httpClient connect.HTTPClient, baseURL string, o
 
 // invitationServiceClient implements InvitationServiceClient.
 type invitationServiceClient struct {
-	createInvitation *connect.Client[v1.CreateInvitationRequest, v1.CreateInvitationResponse]
-	listInvitations  *connect.Client[v1.ListInvitationsRequest, v1.ListInvitationsResponse]
-	resendInvitation *connect.Client[v1.ResendInvitationRequest, v1.ResendInvitationResponse]
-	cancelInvitation *connect.Client[v1.CancelInvitationRequest, v1.CancelInvitationResponse]
-	acceptInvitation *connect.Client[v1.AcceptInvitationRequest, v1.AcceptInvitationResponse]
+	getInvitation     *connect.Client[v1.GetInvitationRequest, v1.GetInvitationResponse]
+	listMyInvitations *connect.Client[v1.ListMyInvitationsRequest, v1.ListMyInvitationsResponse]
+	createInvitation  *connect.Client[v1.CreateInvitationRequest, v1.CreateInvitationResponse]
+	listInvitations   *connect.Client[v1.ListInvitationsRequest, v1.ListInvitationsResponse]
+	resendInvitation  *connect.Client[v1.ResendInvitationRequest, v1.ResendInvitationResponse]
+	cancelInvitation  *connect.Client[v1.CancelInvitationRequest, v1.CancelInvitationResponse]
+	acceptInvitation  *connect.Client[v1.AcceptInvitationRequest, v1.AcceptInvitationResponse]
+}
+
+// GetInvitation calls aiprouter.v1.InvitationService.GetInvitation.
+func (c *invitationServiceClient) GetInvitation(ctx context.Context, req *connect.Request[v1.GetInvitationRequest]) (*connect.Response[v1.GetInvitationResponse], error) {
+	return c.getInvitation.CallUnary(ctx, req)
+}
+
+// ListMyInvitations calls aiprouter.v1.InvitationService.ListMyInvitations.
+func (c *invitationServiceClient) ListMyInvitations(ctx context.Context, req *connect.Request[v1.ListMyInvitationsRequest]) (*connect.Response[v1.ListMyInvitationsResponse], error) {
+	return c.listMyInvitations.CallUnary(ctx, req)
 }
 
 // CreateInvitation calls aiprouter.v1.InvitationService.CreateInvitation.
@@ -640,6 +678,14 @@ func (c *invitationServiceClient) AcceptInvitation(ctx context.Context, req *con
 
 // InvitationServiceHandler is an implementation of the aiprouter.v1.InvitationService service.
 type InvitationServiceHandler interface {
+	// Requires a verified session email and possession of the link token. Invalid tokens
+	// return NOT_FOUND. Wrong email returns PERMISSION_DENIED with ErrorDetail reason
+	// INVITATION_EMAIL_MISMATCH and no recipient or organization metadata.
+	// Matching recipients can inspect pending or terminal lifecycle states.
+	GetInvitation(context.Context, *connect.Request[v1.GetInvitationRequest]) (*connect.Response[v1.GetInvitationResponse], error)
+	// Only actionable pending invitations addressed to the current verified email.
+	// No email/user selector or raw link token is exposed. Page tokens are session-scoped.
+	ListMyInvitations(context.Context, *connect.Request[v1.ListMyInvitationsRequest]) (*connect.Response[v1.ListMyInvitationsResponse], error)
 	CreateInvitation(context.Context, *connect.Request[v1.CreateInvitationRequest]) (*connect.Response[v1.CreateInvitationResponse], error)
 	ListInvitations(context.Context, *connect.Request[v1.ListInvitationsRequest]) (*connect.Response[v1.ListInvitationsResponse], error)
 	ResendInvitation(context.Context, *connect.Request[v1.ResendInvitationRequest]) (*connect.Response[v1.ResendInvitationResponse], error)
@@ -654,6 +700,18 @@ type InvitationServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewInvitationServiceHandler(svc InvitationServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	invitationServiceMethods := v1.File_aiprouter_v1_organization_proto.Services().ByName("InvitationService").Methods()
+	invitationServiceGetInvitationHandler := connect.NewUnaryHandler(
+		InvitationServiceGetInvitationProcedure,
+		svc.GetInvitation,
+		connect.WithSchema(invitationServiceMethods.ByName("GetInvitation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	invitationServiceListMyInvitationsHandler := connect.NewUnaryHandler(
+		InvitationServiceListMyInvitationsProcedure,
+		svc.ListMyInvitations,
+		connect.WithSchema(invitationServiceMethods.ByName("ListMyInvitations")),
+		connect.WithHandlerOptions(opts...),
+	)
 	invitationServiceCreateInvitationHandler := connect.NewUnaryHandler(
 		InvitationServiceCreateInvitationProcedure,
 		svc.CreateInvitation,
@@ -686,6 +744,10 @@ func NewInvitationServiceHandler(svc InvitationServiceHandler, opts ...connect.H
 	)
 	return "/aiprouter.v1.InvitationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case InvitationServiceGetInvitationProcedure:
+			invitationServiceGetInvitationHandler.ServeHTTP(w, r)
+		case InvitationServiceListMyInvitationsProcedure:
+			invitationServiceListMyInvitationsHandler.ServeHTTP(w, r)
 		case InvitationServiceCreateInvitationProcedure:
 			invitationServiceCreateInvitationHandler.ServeHTTP(w, r)
 		case InvitationServiceListInvitationsProcedure:
@@ -704,6 +766,14 @@ func NewInvitationServiceHandler(svc InvitationServiceHandler, opts ...connect.H
 
 // UnimplementedInvitationServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedInvitationServiceHandler struct{}
+
+func (UnimplementedInvitationServiceHandler) GetInvitation(context.Context, *connect.Request[v1.GetInvitationRequest]) (*connect.Response[v1.GetInvitationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aiprouter.v1.InvitationService.GetInvitation is not implemented"))
+}
+
+func (UnimplementedInvitationServiceHandler) ListMyInvitations(context.Context, *connect.Request[v1.ListMyInvitationsRequest]) (*connect.Response[v1.ListMyInvitationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aiprouter.v1.InvitationService.ListMyInvitations is not implemented"))
+}
 
 func (UnimplementedInvitationServiceHandler) CreateInvitation(context.Context, *connect.Request[v1.CreateInvitationRequest]) (*connect.Response[v1.CreateInvitationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aiprouter.v1.InvitationService.CreateInvitation is not implemented"))

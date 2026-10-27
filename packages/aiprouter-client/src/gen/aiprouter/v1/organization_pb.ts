@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aiprouter/v1/organization.proto.
  */
 export const file_aiprouter_v1_organization: GenFile = /*@__PURE__*/
-  fileDesc("Ch9haXByb3V0ZXIvdjEvb3JnYW5pemF0aW9uLnByb3RvEgxhaXByb3V0ZXIudjEiegoMT3JnYW5pemF0aW9uEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSIAoEcm9sZRgDIAEoDjISLmFpcHJvdXRlci52MS5Sb2xlEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIo8BCgZNZW1iZXISDwoHdXNlcl9pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSDQoFZW1haWwYAyABKAkSIAoEcm9sZRgEIAEoDjISLmFpcHJvdXRlci52MS5Sb2xlEi0KCWpvaW5lZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAi2wIKCkludml0YXRpb24SCgoCaWQYASABKAkSFwoPb3JnYW5pemF0aW9uX2lkGAIgASgJEg0KBWVtYWlsGAMgASgJEisKBXN0YXRlGAQgASgOMhwuYWlwcm91dGVyLnYxLkxpZmVjeWNsZVN0YXRlEjMKDmRlbGl2ZXJ5X3N0YXRlGAUgASgOMhsuYWlwcm91dGVyLnYxLkRlbGl2ZXJ5U3RhdGUSLgoKZXhwaXJlc19hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGQoRZGVsaXZlcnlfYXR0ZW1wdHMYByABKA0SMwoPbmV4dF9hdHRlbXB0X2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI3ChNyZXNlbmRfYXZhaWxhYmxlX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCK/AQoRT3duZXJzaGlwVHJhbnNmZXISCgoCaWQYASABKAkSFwoPb3JnYW5pemF0aW9uX2lkGAIgASgJEhQKDGZyb21fdXNlcl9pZBgDIAEoCRISCgp0b191c2VyX2lkGAQgASgJEisKBXN0YXRlGAUgASgOMhwuYWlwcm91dGVyLnYxLkxpZmVjeWNsZVN0YXRlEi4KCmV4cGlyZXNfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIhMKEUdldFNlc3Npb25SZXF1ZXN0Is4BChJHZXRTZXNzaW9uUmVzcG9uc2USDwoHdXNlcl9pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSDQoFZW1haWwYAyABKAkSHAoUaXNfaW5zdGFuY2Vfb3BlcmF0b3IYBCABKAgSNAoQYXV0aGVudGljYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKZXhwaXJlc19hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiDwoNTG9nb3V0UmVxdWVzdCIQCg5Mb2dvdXRSZXNwb25zZSIWChREZWxldGVBY2NvdW50UmVxdWVzdCIXChVEZWxldGVBY2NvdW50UmVzcG9uc2UiKQoZQ3JlYXRlT3JnYW5pemF0aW9uUmVxdWVzdBIMCgRuYW1lGAEgASgJIk4KGkNyZWF0ZU9yZ2FuaXphdGlvblJlc3BvbnNlEjAKDG9yZ2FuaXphdGlvbhgBIAEoCzIaLmFpcHJvdXRlci52MS5Pcmdhbml6YXRpb24iQwoYTGlzdE9yZ2FuaXphdGlvbnNSZXF1ZXN0EicKBHBhZ2UYASABKAsyGS5haXByb3V0ZXIudjEuUGFnZVJlcXVlc3QieAoZTGlzdE9yZ2FuaXphdGlvbnNSZXNwb25zZRIxCg1vcmdhbml6YXRpb25zGAEgAygLMhouYWlwcm91dGVyLnYxLk9yZ2FuaXphdGlvbhIoCgRwYWdlGAIgASgLMhouYWlwcm91dGVyLnYxLlBhZ2VSZXNwb25zZSIxChZHZXRPcmdhbml6YXRpb25SZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCSJLChdHZXRPcmdhbml6YXRpb25SZXNwb25zZRIwCgxvcmdhbml6YXRpb24YASABKAsyGi5haXByb3V0ZXIudjEuT3JnYW5pemF0aW9uIkIKGVVwZGF0ZU9yZ2FuaXphdGlvblJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEgwKBG5hbWUYAiABKAkiTgoaVXBkYXRlT3JnYW5pemF0aW9uUmVzcG9uc2USMAoMb3JnYW5pemF0aW9uGAEgASgLMhouYWlwcm91dGVyLnYxLk9yZ2FuaXphdGlvbiI0ChlEZWxldGVPcmdhbml6YXRpb25SZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCSIcChpEZWxldGVPcmdhbml6YXRpb25SZXNwb25zZSIzChhMZWF2ZU9yZ2FuaXphdGlvblJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJIhsKGUxlYXZlT3JnYW5pemF0aW9uUmVzcG9uc2UiVgoSTGlzdE1lbWJlcnNSZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRInCgRwYWdlGAIgASgLMhkuYWlwcm91dGVyLnYxLlBhZ2VSZXF1ZXN0ImYKE0xpc3RNZW1iZXJzUmVzcG9uc2USJQoHbWVtYmVycxgBIAMoCzIULmFpcHJvdXRlci52MS5NZW1iZXISKAoEcGFnZRgCIAEoCzIaLmFpcHJvdXRlci52MS5QYWdlUmVzcG9uc2UiYgoUU2V0TWVtYmVyUm9sZVJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEg8KB3VzZXJfaWQYAiABKAkSIAoEcm9sZRgDIAEoDjISLmFpcHJvdXRlci52MS5Sb2xlIj0KFVNldE1lbWJlclJvbGVSZXNwb25zZRIkCgZtZW1iZXIYASABKAsyFC5haXByb3V0ZXIudjEuTWVtYmVyIj8KE1JlbW92ZU1lbWJlclJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEg8KB3VzZXJfaWQYAiABKAkiFgoUUmVtb3ZlTWVtYmVyUmVzcG9uc2UiQQoXQ3JlYXRlSW52aXRhdGlvblJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEg0KBWVtYWlsGAIgASgJIkgKGENyZWF0ZUludml0YXRpb25SZXNwb25zZRIsCgppbnZpdGF0aW9uGAEgASgLMhguYWlwcm91dGVyLnYxLkludml0YXRpb24iWgoWTGlzdEludml0YXRpb25zUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSJwoEcGFnZRgCIAEoCzIZLmFpcHJvdXRlci52MS5QYWdlUmVxdWVzdCJyChdMaXN0SW52aXRhdGlvbnNSZXNwb25zZRItCgtpbnZpdGF0aW9ucxgBIAMoCzIYLmFpcHJvdXRlci52MS5JbnZpdGF0aW9uEigKBHBhZ2UYAiABKAsyGi5haXByb3V0ZXIudjEuUGFnZVJlc3BvbnNlIkkKF1Jlc2VuZEludml0YXRpb25SZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRIVCg1pbnZpdGF0aW9uX2lkGAIgASgJIkgKGFJlc2VuZEludml0YXRpb25SZXNwb25zZRIsCgppbnZpdGF0aW9uGAEgASgLMhguYWlwcm91dGVyLnYxLkludml0YXRpb24iSQoXQ2FuY2VsSW52aXRhdGlvblJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhUKDWludml0YXRpb25faWQYAiABKAkiGgoYQ2FuY2VsSW52aXRhdGlvblJlc3BvbnNlIigKF0FjY2VwdEludml0YXRpb25SZXF1ZXN0Eg0KBXRva2VuGAEgASgJIkwKGEFjY2VwdEludml0YXRpb25SZXNwb25zZRIwCgxvcmdhbml6YXRpb24YASABKAsyGi5haXByb3V0ZXIudjEuT3JnYW5pemF0aW9uIjYKG0dldE93bmVyc2hpcFRyYW5zZmVyUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkiUQocR2V0T3duZXJzaGlwVHJhbnNmZXJSZXNwb25zZRIxCgh0cmFuc2ZlchgBIAEoCzIfLmFpcHJvdXRlci52MS5Pd25lcnNoaXBUcmFuc2ZlciJAChROb21pbmF0ZU93bmVyUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSDwoHdXNlcl9pZBgCIAEoCSJKChVOb21pbmF0ZU93bmVyUmVzcG9uc2USMQoIdHJhbnNmZXIYASABKAsyHy5haXByb3V0ZXIudjEuT3duZXJzaGlwVHJhbnNmZXIiRgoWQWNjZXB0T3duZXJzaGlwUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSEwoLdHJhbnNmZXJfaWQYAiABKAkiSwoXQWNjZXB0T3duZXJzaGlwUmVzcG9uc2USMAoMb3JnYW5pemF0aW9uGAEgASgLMhouYWlwcm91dGVyLnYxLk9yZ2FuaXphdGlvbiJOCh5DYW5jZWxPd25lcnNoaXBUcmFuc2ZlclJlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEhMKC3RyYW5zZmVyX2lkGAIgASgJIiEKH0NhbmNlbE93bmVyc2hpcFRyYW5zZmVyUmVzcG9uc2UykgIKDkFjY291bnRTZXJ2aWNlElUKCkdldFNlc3Npb24SHy5haXByb3V0ZXIudjEuR2V0U2Vzc2lvblJlcXVlc3QaIC5haXByb3V0ZXIudjEuR2V0U2Vzc2lvblJlc3BvbnNlIgTI8xgCEkkKBkxvZ291dBIbLmFpcHJvdXRlci52MS5Mb2dvdXRSZXF1ZXN0GhwuYWlwcm91dGVyLnYxLkxvZ291dFJlc3BvbnNlIgTI8xgCEl4KDURlbGV0ZUFjY291bnQSIi5haXByb3V0ZXIudjEuRGVsZXRlQWNjb3VudFJlcXVlc3QaIy5haXByb3V0ZXIudjEuRGVsZXRlQWNjb3VudFJlc3BvbnNlIgTI8xgCMqAFChNPcmdhbml6YXRpb25TZXJ2aWNlEm0KEkNyZWF0ZU9yZ2FuaXphdGlvbhInLmFpcHJvdXRlci52MS5DcmVhdGVPcmdhbml6YXRpb25SZXF1ZXN0GiguYWlwcm91dGVyLnYxLkNyZWF0ZU9yZ2FuaXphdGlvblJlc3BvbnNlIgTI8xgCEmoKEUxpc3RPcmdhbml6YXRpb25zEiYuYWlwcm91dGVyLnYxLkxpc3RPcmdhbml6YXRpb25zUmVxdWVzdBonLmFpcHJvdXRlci52MS5MaXN0T3JnYW5pemF0aW9uc1Jlc3BvbnNlIgTI8xgCEmQKD0dldE9yZ2FuaXphdGlvbhIkLmFpcHJvdXRlci52MS5HZXRPcmdhbml6YXRpb25SZXF1ZXN0GiUuYWlwcm91dGVyLnYxLkdldE9yZ2FuaXphdGlvblJlc3BvbnNlIgTI8xgDEm0KElVwZGF0ZU9yZ2FuaXphdGlvbhInLmFpcHJvdXRlci52MS5VcGRhdGVPcmdhbml6YXRpb25SZXF1ZXN0GiguYWlwcm91dGVyLnYxLlVwZGF0ZU9yZ2FuaXphdGlvblJlc3BvbnNlIgTI8xgEEm0KEkRlbGV0ZU9yZ2FuaXphdGlvbhInLmFpcHJvdXRlci52MS5EZWxldGVPcmdhbml6YXRpb25SZXF1ZXN0GiguYWlwcm91dGVyLnYxLkRlbGV0ZU9yZ2FuaXphdGlvblJlc3BvbnNlIgTI8xgFEmoKEUxlYXZlT3JnYW5pemF0aW9uEiYuYWlwcm91dGVyLnYxLkxlYXZlT3JnYW5pemF0aW9uUmVxdWVzdBonLmFpcHJvdXRlci52MS5MZWF2ZU9yZ2FuaXphdGlvblJlc3BvbnNlIgTI8xgDMqoCChFNZW1iZXJzaGlwU2VydmljZRJYCgtMaXN0TWVtYmVycxIgLmFpcHJvdXRlci52MS5MaXN0TWVtYmVyc1JlcXVlc3QaIS5haXByb3V0ZXIudjEuTGlzdE1lbWJlcnNSZXNwb25zZSIEyPMYAxJeCg1TZXRNZW1iZXJSb2xlEiIuYWlwcm91dGVyLnYxLlNldE1lbWJlclJvbGVSZXF1ZXN0GiMuYWlwcm91dGVyLnYxLlNldE1lbWJlclJvbGVSZXNwb25zZSIEyPMYBRJbCgxSZW1vdmVNZW1iZXISIS5haXByb3V0ZXIudjEuUmVtb3ZlTWVtYmVyUmVxdWVzdBoiLmFpcHJvdXRlci52MS5SZW1vdmVNZW1iZXJSZXNwb25zZSIEyPMYBDKdBAoRSW52aXRhdGlvblNlcnZpY2USZwoQQ3JlYXRlSW52aXRhdGlvbhIlLmFpcHJvdXRlci52MS5DcmVhdGVJbnZpdGF0aW9uUmVxdWVzdBomLmFpcHJvdXRlci52MS5DcmVhdGVJbnZpdGF0aW9uUmVzcG9uc2UiBMjzGAQSZAoPTGlzdEludml0YXRpb25zEiQuYWlwcm91dGVyLnYxLkxpc3RJbnZpdGF0aW9uc1JlcXVlc3QaJS5haXByb3V0ZXIudjEuTGlzdEludml0YXRpb25zUmVzcG9uc2UiBMjzGAQSZwoQUmVzZW5kSW52aXRhdGlvbhIlLmFpcHJvdXRlci52MS5SZXNlbmRJbnZpdGF0aW9uUmVxdWVzdBomLmFpcHJvdXRlci52MS5SZXNlbmRJbnZpdGF0aW9uUmVzcG9uc2UiBMjzGAQSZwoQQ2FuY2VsSW52aXRhdGlvbhIlLmFpcHJvdXRlci52MS5DYW5jZWxJbnZpdGF0aW9uUmVxdWVzdBomLmFpcHJvdXRlci52MS5DYW5jZWxJbnZpdGF0aW9uUmVzcG9uc2UiBMjzGAQSZwoQQWNjZXB0SW52aXRhdGlvbhIlLmFpcHJvdXRlci52MS5BY2NlcHRJbnZpdGF0aW9uUmVxdWVzdBomLmFpcHJvdXRlci52MS5BY2NlcHRJbnZpdGF0aW9uUmVzcG9uc2UiBMjzGAIyywMKEE93bmVyc2hpcFNlcnZpY2UScwoUR2V0T3duZXJzaGlwVHJhbnNmZXISKS5haXByb3V0ZXIudjEuR2V0T3duZXJzaGlwVHJhbnNmZXJSZXF1ZXN0GiouYWlwcm91dGVyLnYxLkdldE93bmVyc2hpcFRyYW5zZmVyUmVzcG9uc2UiBMjzGAMSXgoNTm9taW5hdGVPd25lchIiLmFpcHJvdXRlci52MS5Ob21pbmF0ZU93bmVyUmVxdWVzdBojLmFpcHJvdXRlci52MS5Ob21pbmF0ZU93bmVyUmVzcG9uc2UiBMjzGAUSZAoPQWNjZXB0T3duZXJzaGlwEiQuYWlwcm91dGVyLnYxLkFjY2VwdE93bmVyc2hpcFJlcXVlc3QaJS5haXByb3V0ZXIudjEuQWNjZXB0T3duZXJzaGlwUmVzcG9uc2UiBMjzGAMSfAoXQ2FuY2VsT3duZXJzaGlwVHJhbnNmZXISLC5haXByb3V0ZXIudjEuQ2FuY2VsT3duZXJzaGlwVHJhbnNmZXJSZXF1ZXN0Gi0uYWlwcm91dGVyLnYxLkNhbmNlbE93bmVyc2hpcFRyYW5zZmVyUmVzcG9uc2UiBMjzGAVCP1o9Z2l0aHViLmNvbS9kZWxpbm9pby9BSVBSb3V0ZXIvcHJvdG9zL2FpcHJvdXRlci92MTthaXByb3V0ZXJ2MWIGcHJvdG8z", [file_aiprouter_v1_common, file_google_protobuf_timestamp]);
+  fileDesc("Ch9haXByb3V0ZXIvdjEvb3JnYW5pemF0aW9uLnByb3RvEgxhaXByb3V0ZXIudjEiegoMT3JnYW5pemF0aW9uEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSIAoEcm9sZRgDIAEoDjISLmFpcHJvdXRlci52MS5Sb2xlEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIo8BCgZNZW1iZXISDwoHdXNlcl9pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSDQoFZW1haWwYAyABKAkSIAoEcm9sZRgEIAEoDjISLmFpcHJvdXRlci52MS5Sb2xlEi0KCWpvaW5lZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiyAMKCkludml0YXRpb24SCgoCaWQYASABKAkSFwoPb3JnYW5pemF0aW9uX2lkGAIgASgJEg0KBWVtYWlsGAMgASgJEisKBXN0YXRlGAQgASgOMhwuYWlwcm91dGVyLnYxLkxpZmVjeWNsZVN0YXRlEjMKDmRlbGl2ZXJ5X3N0YXRlGAUgASgOMhsuYWlwcm91dGVyLnYxLkRlbGl2ZXJ5U3RhdGUSLgoKZXhwaXJlc19hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGQoRZGVsaXZlcnlfYXR0ZW1wdHMYByABKA0SMwoPbmV4dF9hdHRlbXB0X2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI3ChNyZXNlbmRfYXZhaWxhYmxlX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIZChFvcmdhbml6YXRpb25fbmFtZRgKIAEoCRIgCgRyb2xlGAsgASgOMhIuYWlwcm91dGVyLnYxLlJvbGUSLgoKY3JlYXRlZF9hdBgMIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAivwEKEU93bmVyc2hpcFRyYW5zZmVyEgoKAmlkGAEgASgJEhcKD29yZ2FuaXphdGlvbl9pZBgCIAEoCRIUCgxmcm9tX3VzZXJfaWQYAyABKAkSEgoKdG9fdXNlcl9pZBgEIAEoCRIrCgVzdGF0ZRgFIAEoDjIcLmFpcHJvdXRlci52MS5MaWZlY3ljbGVTdGF0ZRIuCgpleHBpcmVzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCITChFHZXRTZXNzaW9uUmVxdWVzdCLOAQoSR2V0U2Vzc2lvblJlc3BvbnNlEg8KB3VzZXJfaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEg0KBWVtYWlsGAMgASgJEhwKFGlzX2luc3RhbmNlX29wZXJhdG9yGAQgASgIEjQKEGF1dGhlbnRpY2F0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmV4cGlyZXNfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIg8KDUxvZ291dFJlcXVlc3QiEAoOTG9nb3V0UmVzcG9uc2UiFgoURGVsZXRlQWNjb3VudFJlcXVlc3QiFwoVRGVsZXRlQWNjb3VudFJlc3BvbnNlIikKGUNyZWF0ZU9yZ2FuaXphdGlvblJlcXVlc3QSDAoEbmFtZRgBIAEoCSJOChpDcmVhdGVPcmdhbml6YXRpb25SZXNwb25zZRIwCgxvcmdhbml6YXRpb24YASABKAsyGi5haXByb3V0ZXIudjEuT3JnYW5pemF0aW9uIkMKGExpc3RPcmdhbml6YXRpb25zUmVxdWVzdBInCgRwYWdlGAEgASgLMhkuYWlwcm91dGVyLnYxLlBhZ2VSZXF1ZXN0IngKGUxpc3RPcmdhbml6YXRpb25zUmVzcG9uc2USMQoNb3JnYW5pemF0aW9ucxgBIAMoCzIaLmFpcHJvdXRlci52MS5Pcmdhbml6YXRpb24SKAoEcGFnZRgCIAEoCzIaLmFpcHJvdXRlci52MS5QYWdlUmVzcG9uc2UiMQoWR2V0T3JnYW5pemF0aW9uUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkiSwoXR2V0T3JnYW5pemF0aW9uUmVzcG9uc2USMAoMb3JnYW5pemF0aW9uGAEgASgLMhouYWlwcm91dGVyLnYxLk9yZ2FuaXphdGlvbiJCChlVcGRhdGVPcmdhbml6YXRpb25SZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRIMCgRuYW1lGAIgASgJIk4KGlVwZGF0ZU9yZ2FuaXphdGlvblJlc3BvbnNlEjAKDG9yZ2FuaXphdGlvbhgBIAEoCzIaLmFpcHJvdXRlci52MS5Pcmdhbml6YXRpb24iNAoZRGVsZXRlT3JnYW5pemF0aW9uUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkiHAoaRGVsZXRlT3JnYW5pemF0aW9uUmVzcG9uc2UiMwoYTGVhdmVPcmdhbml6YXRpb25SZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCSIbChlMZWF2ZU9yZ2FuaXphdGlvblJlc3BvbnNlIlYKEkxpc3RNZW1iZXJzUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSJwoEcGFnZRgCIAEoCzIZLmFpcHJvdXRlci52MS5QYWdlUmVxdWVzdCJmChNMaXN0TWVtYmVyc1Jlc3BvbnNlEiUKB21lbWJlcnMYASADKAsyFC5haXByb3V0ZXIudjEuTWVtYmVyEigKBHBhZ2UYAiABKAsyGi5haXByb3V0ZXIudjEuUGFnZVJlc3BvbnNlImIKFFNldE1lbWJlclJvbGVSZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRIPCgd1c2VyX2lkGAIgASgJEiAKBHJvbGUYAyABKA4yEi5haXByb3V0ZXIudjEuUm9sZSI9ChVTZXRNZW1iZXJSb2xlUmVzcG9uc2USJAoGbWVtYmVyGAEgASgLMhQuYWlwcm91dGVyLnYxLk1lbWJlciI/ChNSZW1vdmVNZW1iZXJSZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRIPCgd1c2VyX2lkGAIgASgJIhYKFFJlbW92ZU1lbWJlclJlc3BvbnNlIiUKFEdldEludml0YXRpb25SZXF1ZXN0Eg0KBXRva2VuGAEgASgJIkUKFUdldEludml0YXRpb25SZXNwb25zZRIsCgppbnZpdGF0aW9uGAEgASgLMhguYWlwcm91dGVyLnYxLkludml0YXRpb24iQwoYTGlzdE15SW52aXRhdGlvbnNSZXF1ZXN0EicKBHBhZ2UYASABKAsyGS5haXByb3V0ZXIudjEuUGFnZVJlcXVlc3QidAoZTGlzdE15SW52aXRhdGlvbnNSZXNwb25zZRItCgtpbnZpdGF0aW9ucxgBIAMoCzIYLmFpcHJvdXRlci52MS5JbnZpdGF0aW9uEigKBHBhZ2UYAiABKAsyGi5haXByb3V0ZXIudjEuUGFnZVJlc3BvbnNlIkEKF0NyZWF0ZUludml0YXRpb25SZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRINCgVlbWFpbBgCIAEoCSJIChhDcmVhdGVJbnZpdGF0aW9uUmVzcG9uc2USLAoKaW52aXRhdGlvbhgBIAEoCzIYLmFpcHJvdXRlci52MS5JbnZpdGF0aW9uIloKFkxpc3RJbnZpdGF0aW9uc1JlcXVlc3QSFwoPb3JnYW5pemF0aW9uX2lkGAEgASgJEicKBHBhZ2UYAiABKAsyGS5haXByb3V0ZXIudjEuUGFnZVJlcXVlc3QicgoXTGlzdEludml0YXRpb25zUmVzcG9uc2USLQoLaW52aXRhdGlvbnMYASADKAsyGC5haXByb3V0ZXIudjEuSW52aXRhdGlvbhIoCgRwYWdlGAIgASgLMhouYWlwcm91dGVyLnYxLlBhZ2VSZXNwb25zZSJJChdSZXNlbmRJbnZpdGF0aW9uUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSFQoNaW52aXRhdGlvbl9pZBgCIAEoCSJIChhSZXNlbmRJbnZpdGF0aW9uUmVzcG9uc2USLAoKaW52aXRhdGlvbhgBIAEoCzIYLmFpcHJvdXRlci52MS5JbnZpdGF0aW9uIkkKF0NhbmNlbEludml0YXRpb25SZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRIVCg1pbnZpdGF0aW9uX2lkGAIgASgJIhoKGENhbmNlbEludml0YXRpb25SZXNwb25zZSJWChdBY2NlcHRJbnZpdGF0aW9uUmVxdWVzdBINCgV0b2tlbhgBIAEoCRIaCg1pbnZpdGF0aW9uX2lkGAIgASgJSACIAQFCEAoOX2ludml0YXRpb25faWQiTAoYQWNjZXB0SW52aXRhdGlvblJlc3BvbnNlEjAKDG9yZ2FuaXphdGlvbhgBIAEoCzIaLmFpcHJvdXRlci52MS5Pcmdhbml6YXRpb24iNgobR2V0T3duZXJzaGlwVHJhbnNmZXJSZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCSJRChxHZXRPd25lcnNoaXBUcmFuc2ZlclJlc3BvbnNlEjEKCHRyYW5zZmVyGAEgASgLMh8uYWlwcm91dGVyLnYxLk93bmVyc2hpcFRyYW5zZmVyIkAKFE5vbWluYXRlT3duZXJSZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRIPCgd1c2VyX2lkGAIgASgJIkoKFU5vbWluYXRlT3duZXJSZXNwb25zZRIxCgh0cmFuc2ZlchgBIAEoCzIfLmFpcHJvdXRlci52MS5Pd25lcnNoaXBUcmFuc2ZlciJGChZBY2NlcHRPd25lcnNoaXBSZXF1ZXN0EhcKD29yZ2FuaXphdGlvbl9pZBgBIAEoCRITCgt0cmFuc2Zlcl9pZBgCIAEoCSJLChdBY2NlcHRPd25lcnNoaXBSZXNwb25zZRIwCgxvcmdhbml6YXRpb24YASABKAsyGi5haXByb3V0ZXIudjEuT3JnYW5pemF0aW9uIk4KHkNhbmNlbE93bmVyc2hpcFRyYW5zZmVyUmVxdWVzdBIXCg9vcmdhbml6YXRpb25faWQYASABKAkSEwoLdHJhbnNmZXJfaWQYAiABKAkiIQofQ2FuY2VsT3duZXJzaGlwVHJhbnNmZXJSZXNwb25zZTKSAgoOQWNjb3VudFNlcnZpY2USVQoKR2V0U2Vzc2lvbhIfLmFpcHJvdXRlci52MS5HZXRTZXNzaW9uUmVxdWVzdBogLmFpcHJvdXRlci52MS5HZXRTZXNzaW9uUmVzcG9uc2UiBMjzGAISSQoGTG9nb3V0EhsuYWlwcm91dGVyLnYxLkxvZ291dFJlcXVlc3QaHC5haXByb3V0ZXIudjEuTG9nb3V0UmVzcG9uc2UiBMjzGAISXgoNRGVsZXRlQWNjb3VudBIiLmFpcHJvdXRlci52MS5EZWxldGVBY2NvdW50UmVxdWVzdBojLmFpcHJvdXRlci52MS5EZWxldGVBY2NvdW50UmVzcG9uc2UiBMjzGAIyoAUKE09yZ2FuaXphdGlvblNlcnZpY2USbQoSQ3JlYXRlT3JnYW5pemF0aW9uEicuYWlwcm91dGVyLnYxLkNyZWF0ZU9yZ2FuaXphdGlvblJlcXVlc3QaKC5haXByb3V0ZXIudjEuQ3JlYXRlT3JnYW5pemF0aW9uUmVzcG9uc2UiBMjzGAISagoRTGlzdE9yZ2FuaXphdGlvbnMSJi5haXByb3V0ZXIudjEuTGlzdE9yZ2FuaXphdGlvbnNSZXF1ZXN0GicuYWlwcm91dGVyLnYxLkxpc3RPcmdhbml6YXRpb25zUmVzcG9uc2UiBMjzGAISZAoPR2V0T3JnYW5pemF0aW9uEiQuYWlwcm91dGVyLnYxLkdldE9yZ2FuaXphdGlvblJlcXVlc3QaJS5haXByb3V0ZXIudjEuR2V0T3JnYW5pemF0aW9uUmVzcG9uc2UiBMjzGAMSbQoSVXBkYXRlT3JnYW5pemF0aW9uEicuYWlwcm91dGVyLnYxLlVwZGF0ZU9yZ2FuaXphdGlvblJlcXVlc3QaKC5haXByb3V0ZXIudjEuVXBkYXRlT3JnYW5pemF0aW9uUmVzcG9uc2UiBMjzGAQSbQoSRGVsZXRlT3JnYW5pemF0aW9uEicuYWlwcm91dGVyLnYxLkRlbGV0ZU9yZ2FuaXphdGlvblJlcXVlc3QaKC5haXByb3V0ZXIudjEuRGVsZXRlT3JnYW5pemF0aW9uUmVzcG9uc2UiBMjzGAUSagoRTGVhdmVPcmdhbml6YXRpb24SJi5haXByb3V0ZXIudjEuTGVhdmVPcmdhbml6YXRpb25SZXF1ZXN0GicuYWlwcm91dGVyLnYxLkxlYXZlT3JnYW5pemF0aW9uUmVzcG9uc2UiBMjzGAMyqgIKEU1lbWJlcnNoaXBTZXJ2aWNlElgKC0xpc3RNZW1iZXJzEiAuYWlwcm91dGVyLnYxLkxpc3RNZW1iZXJzUmVxdWVzdBohLmFpcHJvdXRlci52MS5MaXN0TWVtYmVyc1Jlc3BvbnNlIgTI8xgDEl4KDVNldE1lbWJlclJvbGUSIi5haXByb3V0ZXIudjEuU2V0TWVtYmVyUm9sZVJlcXVlc3QaIy5haXByb3V0ZXIudjEuU2V0TWVtYmVyUm9sZVJlc3BvbnNlIgTI8xgFElsKDFJlbW92ZU1lbWJlchIhLmFpcHJvdXRlci52MS5SZW1vdmVNZW1iZXJSZXF1ZXN0GiIuYWlwcm91dGVyLnYxLlJlbW92ZU1lbWJlclJlc3BvbnNlIgTI8xgEMukFChFJbnZpdGF0aW9uU2VydmljZRJeCg1HZXRJbnZpdGF0aW9uEiIuYWlwcm91dGVyLnYxLkdldEludml0YXRpb25SZXF1ZXN0GiMuYWlwcm91dGVyLnYxLkdldEludml0YXRpb25SZXNwb25zZSIEyPMYAhJqChFMaXN0TXlJbnZpdGF0aW9ucxImLmFpcHJvdXRlci52MS5MaXN0TXlJbnZpdGF0aW9uc1JlcXVlc3QaJy5haXByb3V0ZXIudjEuTGlzdE15SW52aXRhdGlvbnNSZXNwb25zZSIEyPMYAhJnChBDcmVhdGVJbnZpdGF0aW9uEiUuYWlwcm91dGVyLnYxLkNyZWF0ZUludml0YXRpb25SZXF1ZXN0GiYuYWlwcm91dGVyLnYxLkNyZWF0ZUludml0YXRpb25SZXNwb25zZSIEyPMYBBJkCg9MaXN0SW52aXRhdGlvbnMSJC5haXByb3V0ZXIudjEuTGlzdEludml0YXRpb25zUmVxdWVzdBolLmFpcHJvdXRlci52MS5MaXN0SW52aXRhdGlvbnNSZXNwb25zZSIEyPMYBBJnChBSZXNlbmRJbnZpdGF0aW9uEiUuYWlwcm91dGVyLnYxLlJlc2VuZEludml0YXRpb25SZXF1ZXN0GiYuYWlwcm91dGVyLnYxLlJlc2VuZEludml0YXRpb25SZXNwb25zZSIEyPMYBBJnChBDYW5jZWxJbnZpdGF0aW9uEiUuYWlwcm91dGVyLnYxLkNhbmNlbEludml0YXRpb25SZXF1ZXN0GiYuYWlwcm91dGVyLnYxLkNhbmNlbEludml0YXRpb25SZXNwb25zZSIEyPMYBBJnChBBY2NlcHRJbnZpdGF0aW9uEiUuYWlwcm91dGVyLnYxLkFjY2VwdEludml0YXRpb25SZXF1ZXN0GiYuYWlwcm91dGVyLnYxLkFjY2VwdEludml0YXRpb25SZXNwb25zZSIEyPMYAjLLAwoQT3duZXJzaGlwU2VydmljZRJzChRHZXRPd25lcnNoaXBUcmFuc2ZlchIpLmFpcHJvdXRlci52MS5HZXRPd25lcnNoaXBUcmFuc2ZlclJlcXVlc3QaKi5haXByb3V0ZXIudjEuR2V0T3duZXJzaGlwVHJhbnNmZXJSZXNwb25zZSIEyPMYAxJeCg1Ob21pbmF0ZU93bmVyEiIuYWlwcm91dGVyLnYxLk5vbWluYXRlT3duZXJSZXF1ZXN0GiMuYWlwcm91dGVyLnYxLk5vbWluYXRlT3duZXJSZXNwb25zZSIEyPMYBRJkCg9BY2NlcHRPd25lcnNoaXASJC5haXByb3V0ZXIudjEuQWNjZXB0T3duZXJzaGlwUmVxdWVzdBolLmFpcHJvdXRlci52MS5BY2NlcHRPd25lcnNoaXBSZXNwb25zZSIEyPMYAxJ8ChdDYW5jZWxPd25lcnNoaXBUcmFuc2ZlchIsLmFpcHJvdXRlci52MS5DYW5jZWxPd25lcnNoaXBUcmFuc2ZlclJlcXVlc3QaLS5haXByb3V0ZXIudjEuQ2FuY2VsT3duZXJzaGlwVHJhbnNmZXJSZXNwb25zZSIEyPMYBUI/Wj1naXRodWIuY29tL2RlbGlub2lvL0FJUFJvdXRlci9wcm90b3MvYWlwcm91dGVyL3YxO2FpcHJvdXRlcnYxYgZwcm90bzM", [file_aiprouter_v1_common, file_google_protobuf_timestamp]);
 
 /**
  * @generated from message aiprouter.v1.Organization
@@ -135,6 +135,23 @@ export type Invitation = Message<"aiprouter.v1.Invitation"> & {
    * @generated from field: google.protobuf.Timestamp resend_available_at = 9;
    */
   resendAvailableAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: string organization_name = 10;
+   */
+  organizationName: string;
+
+  /**
+   * Invitations currently grant MEMBER only; administrator promotion is a separate owner action.
+   *
+   * @generated from field: aiprouter.v1.Role role = 11;
+   */
+  role: Role;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 12;
+   */
+  createdAt?: Timestamp | undefined;
 };
 
 /**
@@ -623,6 +640,81 @@ export const RemoveMemberResponseSchema: GenMessage<RemoveMemberResponse> = /*@_
   messageDesc(file_aiprouter_v1_organization, 27);
 
 /**
+ * @generated from message aiprouter.v1.GetInvitationRequest
+ */
+export type GetInvitationRequest = Message<"aiprouter.v1.GetInvitationRequest"> & {
+  /**
+   * Sensitive link token: never log request bodies or echo tokens in responses/errors.
+   *
+   * @generated from field: string token = 1;
+   */
+  token: string;
+};
+
+/**
+ * Describes the message aiprouter.v1.GetInvitationRequest.
+ * Use `create(GetInvitationRequestSchema)` to create a new message.
+ */
+export const GetInvitationRequestSchema: GenMessage<GetInvitationRequest> = /*@__PURE__*/
+  messageDesc(file_aiprouter_v1_organization, 28);
+
+/**
+ * @generated from message aiprouter.v1.GetInvitationResponse
+ */
+export type GetInvitationResponse = Message<"aiprouter.v1.GetInvitationResponse"> & {
+  /**
+   * @generated from field: aiprouter.v1.Invitation invitation = 1;
+   */
+  invitation?: Invitation | undefined;
+};
+
+/**
+ * Describes the message aiprouter.v1.GetInvitationResponse.
+ * Use `create(GetInvitationResponseSchema)` to create a new message.
+ */
+export const GetInvitationResponseSchema: GenMessage<GetInvitationResponse> = /*@__PURE__*/
+  messageDesc(file_aiprouter_v1_organization, 29);
+
+/**
+ * @generated from message aiprouter.v1.ListMyInvitationsRequest
+ */
+export type ListMyInvitationsRequest = Message<"aiprouter.v1.ListMyInvitationsRequest"> & {
+  /**
+   * @generated from field: aiprouter.v1.PageRequest page = 1;
+   */
+  page?: PageRequest | undefined;
+};
+
+/**
+ * Describes the message aiprouter.v1.ListMyInvitationsRequest.
+ * Use `create(ListMyInvitationsRequestSchema)` to create a new message.
+ */
+export const ListMyInvitationsRequestSchema: GenMessage<ListMyInvitationsRequest> = /*@__PURE__*/
+  messageDesc(file_aiprouter_v1_organization, 30);
+
+/**
+ * @generated from message aiprouter.v1.ListMyInvitationsResponse
+ */
+export type ListMyInvitationsResponse = Message<"aiprouter.v1.ListMyInvitationsResponse"> & {
+  /**
+   * @generated from field: repeated aiprouter.v1.Invitation invitations = 1;
+   */
+  invitations: Invitation[];
+
+  /**
+   * @generated from field: aiprouter.v1.PageResponse page = 2;
+   */
+  page?: PageResponse | undefined;
+};
+
+/**
+ * Describes the message aiprouter.v1.ListMyInvitationsResponse.
+ * Use `create(ListMyInvitationsResponseSchema)` to create a new message.
+ */
+export const ListMyInvitationsResponseSchema: GenMessage<ListMyInvitationsResponse> = /*@__PURE__*/
+  messageDesc(file_aiprouter_v1_organization, 31);
+
+/**
  * @generated from message aiprouter.v1.CreateInvitationRequest
  */
 export type CreateInvitationRequest = Message<"aiprouter.v1.CreateInvitationRequest"> & {
@@ -642,7 +734,7 @@ export type CreateInvitationRequest = Message<"aiprouter.v1.CreateInvitationRequ
  * Use `create(CreateInvitationRequestSchema)` to create a new message.
  */
 export const CreateInvitationRequestSchema: GenMessage<CreateInvitationRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 28);
+  messageDesc(file_aiprouter_v1_organization, 32);
 
 /**
  * @generated from message aiprouter.v1.CreateInvitationResponse
@@ -659,7 +751,7 @@ export type CreateInvitationResponse = Message<"aiprouter.v1.CreateInvitationRes
  * Use `create(CreateInvitationResponseSchema)` to create a new message.
  */
 export const CreateInvitationResponseSchema: GenMessage<CreateInvitationResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 29);
+  messageDesc(file_aiprouter_v1_organization, 33);
 
 /**
  * @generated from message aiprouter.v1.ListInvitationsRequest
@@ -681,7 +773,7 @@ export type ListInvitationsRequest = Message<"aiprouter.v1.ListInvitationsReques
  * Use `create(ListInvitationsRequestSchema)` to create a new message.
  */
 export const ListInvitationsRequestSchema: GenMessage<ListInvitationsRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 30);
+  messageDesc(file_aiprouter_v1_organization, 34);
 
 /**
  * @generated from message aiprouter.v1.ListInvitationsResponse
@@ -703,7 +795,7 @@ export type ListInvitationsResponse = Message<"aiprouter.v1.ListInvitationsRespo
  * Use `create(ListInvitationsResponseSchema)` to create a new message.
  */
 export const ListInvitationsResponseSchema: GenMessage<ListInvitationsResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 31);
+  messageDesc(file_aiprouter_v1_organization, 35);
 
 /**
  * @generated from message aiprouter.v1.ResendInvitationRequest
@@ -725,7 +817,7 @@ export type ResendInvitationRequest = Message<"aiprouter.v1.ResendInvitationRequ
  * Use `create(ResendInvitationRequestSchema)` to create a new message.
  */
 export const ResendInvitationRequestSchema: GenMessage<ResendInvitationRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 32);
+  messageDesc(file_aiprouter_v1_organization, 36);
 
 /**
  * @generated from message aiprouter.v1.ResendInvitationResponse
@@ -742,7 +834,7 @@ export type ResendInvitationResponse = Message<"aiprouter.v1.ResendInvitationRes
  * Use `create(ResendInvitationResponseSchema)` to create a new message.
  */
 export const ResendInvitationResponseSchema: GenMessage<ResendInvitationResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 33);
+  messageDesc(file_aiprouter_v1_organization, 37);
 
 /**
  * @generated from message aiprouter.v1.CancelInvitationRequest
@@ -764,7 +856,7 @@ export type CancelInvitationRequest = Message<"aiprouter.v1.CancelInvitationRequ
  * Use `create(CancelInvitationRequestSchema)` to create a new message.
  */
 export const CancelInvitationRequestSchema: GenMessage<CancelInvitationRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 34);
+  messageDesc(file_aiprouter_v1_organization, 38);
 
 /**
  * @generated from message aiprouter.v1.CancelInvitationResponse
@@ -777,16 +869,26 @@ export type CancelInvitationResponse = Message<"aiprouter.v1.CancelInvitationRes
  * Use `create(CancelInvitationResponseSchema)` to create a new message.
  */
 export const CancelInvitationResponseSchema: GenMessage<CancelInvitationResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 35);
+  messageDesc(file_aiprouter_v1_organization, 39);
 
 /**
  * @generated from message aiprouter.v1.AcceptInvitationRequest
  */
 export type AcceptInvitationRequest = Message<"aiprouter.v1.AcceptInvitationRequest"> & {
   /**
+   * Exactly one nonempty selector is required. Preserve token-based link acceptance.
+   *
    * @generated from field: string token = 1;
    */
   token: string;
+
+  /**
+   * ID-based onboarding acceptance still requires the matching verified session email.
+   * IDs confer no authority. Recheck email, pending state and expiry atomically.
+   *
+   * @generated from field: optional string invitation_id = 2;
+   */
+  invitationId?: string | undefined;
 };
 
 /**
@@ -794,7 +896,7 @@ export type AcceptInvitationRequest = Message<"aiprouter.v1.AcceptInvitationRequ
  * Use `create(AcceptInvitationRequestSchema)` to create a new message.
  */
 export const AcceptInvitationRequestSchema: GenMessage<AcceptInvitationRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 36);
+  messageDesc(file_aiprouter_v1_organization, 40);
 
 /**
  * @generated from message aiprouter.v1.AcceptInvitationResponse
@@ -811,7 +913,7 @@ export type AcceptInvitationResponse = Message<"aiprouter.v1.AcceptInvitationRes
  * Use `create(AcceptInvitationResponseSchema)` to create a new message.
  */
 export const AcceptInvitationResponseSchema: GenMessage<AcceptInvitationResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 37);
+  messageDesc(file_aiprouter_v1_organization, 41);
 
 /**
  * @generated from message aiprouter.v1.GetOwnershipTransferRequest
@@ -828,7 +930,7 @@ export type GetOwnershipTransferRequest = Message<"aiprouter.v1.GetOwnershipTran
  * Use `create(GetOwnershipTransferRequestSchema)` to create a new message.
  */
 export const GetOwnershipTransferRequestSchema: GenMessage<GetOwnershipTransferRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 38);
+  messageDesc(file_aiprouter_v1_organization, 42);
 
 /**
  * @generated from message aiprouter.v1.GetOwnershipTransferResponse
@@ -845,7 +947,7 @@ export type GetOwnershipTransferResponse = Message<"aiprouter.v1.GetOwnershipTra
  * Use `create(GetOwnershipTransferResponseSchema)` to create a new message.
  */
 export const GetOwnershipTransferResponseSchema: GenMessage<GetOwnershipTransferResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 39);
+  messageDesc(file_aiprouter_v1_organization, 43);
 
 /**
  * @generated from message aiprouter.v1.NominateOwnerRequest
@@ -867,7 +969,7 @@ export type NominateOwnerRequest = Message<"aiprouter.v1.NominateOwnerRequest"> 
  * Use `create(NominateOwnerRequestSchema)` to create a new message.
  */
 export const NominateOwnerRequestSchema: GenMessage<NominateOwnerRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 40);
+  messageDesc(file_aiprouter_v1_organization, 44);
 
 /**
  * @generated from message aiprouter.v1.NominateOwnerResponse
@@ -884,7 +986,7 @@ export type NominateOwnerResponse = Message<"aiprouter.v1.NominateOwnerResponse"
  * Use `create(NominateOwnerResponseSchema)` to create a new message.
  */
 export const NominateOwnerResponseSchema: GenMessage<NominateOwnerResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 41);
+  messageDesc(file_aiprouter_v1_organization, 45);
 
 /**
  * @generated from message aiprouter.v1.AcceptOwnershipRequest
@@ -906,7 +1008,7 @@ export type AcceptOwnershipRequest = Message<"aiprouter.v1.AcceptOwnershipReques
  * Use `create(AcceptOwnershipRequestSchema)` to create a new message.
  */
 export const AcceptOwnershipRequestSchema: GenMessage<AcceptOwnershipRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 42);
+  messageDesc(file_aiprouter_v1_organization, 46);
 
 /**
  * @generated from message aiprouter.v1.AcceptOwnershipResponse
@@ -923,7 +1025,7 @@ export type AcceptOwnershipResponse = Message<"aiprouter.v1.AcceptOwnershipRespo
  * Use `create(AcceptOwnershipResponseSchema)` to create a new message.
  */
 export const AcceptOwnershipResponseSchema: GenMessage<AcceptOwnershipResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 43);
+  messageDesc(file_aiprouter_v1_organization, 47);
 
 /**
  * @generated from message aiprouter.v1.CancelOwnershipTransferRequest
@@ -945,7 +1047,7 @@ export type CancelOwnershipTransferRequest = Message<"aiprouter.v1.CancelOwnersh
  * Use `create(CancelOwnershipTransferRequestSchema)` to create a new message.
  */
 export const CancelOwnershipTransferRequestSchema: GenMessage<CancelOwnershipTransferRequest> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 44);
+  messageDesc(file_aiprouter_v1_organization, 48);
 
 /**
  * @generated from message aiprouter.v1.CancelOwnershipTransferResponse
@@ -958,7 +1060,7 @@ export type CancelOwnershipTransferResponse = Message<"aiprouter.v1.CancelOwners
  * Use `create(CancelOwnershipTransferResponseSchema)` to create a new message.
  */
 export const CancelOwnershipTransferResponseSchema: GenMessage<CancelOwnershipTransferResponse> = /*@__PURE__*/
-  messageDesc(file_aiprouter_v1_organization, 45);
+  messageDesc(file_aiprouter_v1_organization, 49);
 
 /**
  * @generated from service aiprouter.v1.AccountService
@@ -1087,6 +1189,30 @@ export const MembershipService: GenService<{
  * @generated from service aiprouter.v1.InvitationService
  */
 export const InvitationService: GenService<{
+  /**
+   * Requires a verified session email and possession of the link token. Invalid tokens
+   * return NOT_FOUND. Wrong email returns PERMISSION_DENIED with ErrorDetail reason
+   * INVITATION_EMAIL_MISMATCH and no recipient or organization metadata.
+   * Matching recipients can inspect pending or terminal lifecycle states.
+   *
+   * @generated from rpc aiprouter.v1.InvitationService.GetInvitation
+   */
+  getInvitation: {
+    methodKind: "unary";
+    input: typeof GetInvitationRequestSchema;
+    output: typeof GetInvitationResponseSchema;
+  },
+  /**
+   * Only actionable pending invitations addressed to the current verified email.
+   * No email/user selector or raw link token is exposed. Page tokens are session-scoped.
+   *
+   * @generated from rpc aiprouter.v1.InvitationService.ListMyInvitations
+   */
+  listMyInvitations: {
+    methodKind: "unary";
+    input: typeof ListMyInvitationsRequestSchema;
+    output: typeof ListMyInvitationsResponseSchema;
+  },
   /**
    * @generated from rpc aiprouter.v1.InvitationService.CreateInvitation
    */

@@ -60,3 +60,61 @@ test("generated descriptors are directly usable by Connect and Connect Query", a
     "aiprouter.v1.RevokeCLIKeyRequest",
   );
 });
+
+test("recipient invitation descriptors preserve selectors and lifecycle", async () => {
+  const {
+    InvitationService,
+    AcceptInvitationRequestSchema,
+    GetInvitationResponseSchema,
+    LifecycleState,
+    Role,
+    ErrorReason,
+  } = await import("../src/index.js");
+  assert.equal(
+    InvitationService.method.getInvitation.input.typeName,
+    "aiprouter.v1.GetInvitationRequest",
+  );
+  assert.deepEqual(
+    InvitationService.method.listMyInvitations.input.fields.map(
+      (field) => field.name,
+    ),
+    ["page"],
+  );
+  const request = create(AcceptInvitationRequestSchema, {
+    invitationId: "invitation",
+  });
+  assert.equal(request.token, "");
+  assert.equal(
+    fromBinary(
+      AcceptInvitationRequestSchema,
+      toBinary(AcceptInvitationRequestSchema, request),
+    ).invitationId,
+    "invitation",
+  );
+  for (const state of [
+    LifecycleState.PENDING,
+    LifecycleState.ACCEPTED,
+    LifecycleState.CANCELED,
+    LifecycleState.EXPIRED,
+    LifecycleState.SUPERSEDED,
+    LifecycleState.FAILED,
+  ]) {
+    const response = create(GetInvitationResponseSchema, {
+      invitation: {
+        id: "invitation",
+        organizationName: "Organization",
+        email: "recipient@example.test",
+        role: Role.MEMBER,
+        state,
+      },
+    });
+    assert.deepEqual(
+      fromBinary(
+        GetInvitationResponseSchema,
+        toBinary(GetInvitationResponseSchema, response),
+      ),
+      response,
+    );
+  }
+  assert.ok(ErrorReason.INVITATION_EMAIL_MISMATCH);
+});

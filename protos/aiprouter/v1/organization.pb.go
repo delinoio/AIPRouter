@@ -179,8 +179,12 @@ type Invitation struct {
 	DeliveryAttempts  uint32                 `protobuf:"varint,7,opt,name=delivery_attempts,json=deliveryAttempts,proto3" json:"delivery_attempts,omitempty"`
 	NextAttemptAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=next_attempt_at,json=nextAttemptAt,proto3" json:"next_attempt_at,omitempty"`
 	ResendAvailableAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=resend_available_at,json=resendAvailableAt,proto3" json:"resend_available_at,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	OrganizationName  string                 `protobuf:"bytes,10,opt,name=organization_name,json=organizationName,proto3" json:"organization_name,omitempty"`
+	// Invitations currently grant MEMBER only; administrator promotion is a separate owner action.
+	Role          Role                   `protobuf:"varint,11,opt,name=role,proto3,enum=aiprouter.v1.Role" json:"role,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Invitation) Reset() {
@@ -272,6 +276,27 @@ func (x *Invitation) GetNextAttemptAt() *timestamppb.Timestamp {
 func (x *Invitation) GetResendAvailableAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.ResendAvailableAt
+	}
+	return nil
+}
+
+func (x *Invitation) GetOrganizationName() string {
+	if x != nil {
+		return x.OrganizationName
+	}
+	return ""
+}
+
+func (x *Invitation) GetRole() Role {
+	if x != nil {
+		return x.Role
+	}
+	return Role_ROLE_UNSPECIFIED
+}
+
+func (x *Invitation) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
 	}
 	return nil
 }
@@ -1448,6 +1473,191 @@ func (*RemoveMemberResponse) Descriptor() ([]byte, []int) {
 	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{27}
 }
 
+type GetInvitationRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Sensitive link token: never log request bodies or echo tokens in responses/errors.
+	Token         string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetInvitationRequest) Reset() {
+	*x = GetInvitationRequest{}
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetInvitationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetInvitationRequest) ProtoMessage() {}
+
+func (x *GetInvitationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetInvitationRequest.ProtoReflect.Descriptor instead.
+func (*GetInvitationRequest) Descriptor() ([]byte, []int) {
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *GetInvitationRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+type GetInvitationResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Invitation    *Invitation            `protobuf:"bytes,1,opt,name=invitation,proto3" json:"invitation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetInvitationResponse) Reset() {
+	*x = GetInvitationResponse{}
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetInvitationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetInvitationResponse) ProtoMessage() {}
+
+func (x *GetInvitationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetInvitationResponse.ProtoReflect.Descriptor instead.
+func (*GetInvitationResponse) Descriptor() ([]byte, []int) {
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *GetInvitationResponse) GetInvitation() *Invitation {
+	if x != nil {
+		return x.Invitation
+	}
+	return nil
+}
+
+type ListMyInvitationsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Page          *PageRequest           `protobuf:"bytes,1,opt,name=page,proto3" json:"page,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMyInvitationsRequest) Reset() {
+	*x = ListMyInvitationsRequest{}
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMyInvitationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMyInvitationsRequest) ProtoMessage() {}
+
+func (x *ListMyInvitationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMyInvitationsRequest.ProtoReflect.Descriptor instead.
+func (*ListMyInvitationsRequest) Descriptor() ([]byte, []int) {
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ListMyInvitationsRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+type ListMyInvitationsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Invitations   []*Invitation          `protobuf:"bytes,1,rep,name=invitations,proto3" json:"invitations,omitempty"`
+	Page          *PageResponse          `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMyInvitationsResponse) Reset() {
+	*x = ListMyInvitationsResponse{}
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMyInvitationsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMyInvitationsResponse) ProtoMessage() {}
+
+func (x *ListMyInvitationsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMyInvitationsResponse.ProtoReflect.Descriptor instead.
+func (*ListMyInvitationsResponse) Descriptor() ([]byte, []int) {
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ListMyInvitationsResponse) GetInvitations() []*Invitation {
+	if x != nil {
+		return x.Invitations
+	}
+	return nil
+}
+
+func (x *ListMyInvitationsResponse) GetPage() *PageResponse {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 type CreateInvitationRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	OrganizationId string                 `protobuf:"bytes,1,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
@@ -1458,7 +1668,7 @@ type CreateInvitationRequest struct {
 
 func (x *CreateInvitationRequest) Reset() {
 	*x = CreateInvitationRequest{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[28]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1470,7 +1680,7 @@ func (x *CreateInvitationRequest) String() string {
 func (*CreateInvitationRequest) ProtoMessage() {}
 
 func (x *CreateInvitationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[28]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1483,7 +1693,7 @@ func (x *CreateInvitationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateInvitationRequest.ProtoReflect.Descriptor instead.
 func (*CreateInvitationRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{28}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *CreateInvitationRequest) GetOrganizationId() string {
@@ -1509,7 +1719,7 @@ type CreateInvitationResponse struct {
 
 func (x *CreateInvitationResponse) Reset() {
 	*x = CreateInvitationResponse{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[29]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1521,7 +1731,7 @@ func (x *CreateInvitationResponse) String() string {
 func (*CreateInvitationResponse) ProtoMessage() {}
 
 func (x *CreateInvitationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[29]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1534,7 +1744,7 @@ func (x *CreateInvitationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateInvitationResponse.ProtoReflect.Descriptor instead.
 func (*CreateInvitationResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{29}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *CreateInvitationResponse) GetInvitation() *Invitation {
@@ -1554,7 +1764,7 @@ type ListInvitationsRequest struct {
 
 func (x *ListInvitationsRequest) Reset() {
 	*x = ListInvitationsRequest{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[30]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1566,7 +1776,7 @@ func (x *ListInvitationsRequest) String() string {
 func (*ListInvitationsRequest) ProtoMessage() {}
 
 func (x *ListInvitationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[30]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1579,7 +1789,7 @@ func (x *ListInvitationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInvitationsRequest.ProtoReflect.Descriptor instead.
 func (*ListInvitationsRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{30}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ListInvitationsRequest) GetOrganizationId() string {
@@ -1606,7 +1816,7 @@ type ListInvitationsResponse struct {
 
 func (x *ListInvitationsResponse) Reset() {
 	*x = ListInvitationsResponse{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[31]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1618,7 +1828,7 @@ func (x *ListInvitationsResponse) String() string {
 func (*ListInvitationsResponse) ProtoMessage() {}
 
 func (x *ListInvitationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[31]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1631,7 +1841,7 @@ func (x *ListInvitationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInvitationsResponse.ProtoReflect.Descriptor instead.
 func (*ListInvitationsResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{31}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ListInvitationsResponse) GetInvitations() []*Invitation {
@@ -1658,7 +1868,7 @@ type ResendInvitationRequest struct {
 
 func (x *ResendInvitationRequest) Reset() {
 	*x = ResendInvitationRequest{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[32]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1670,7 +1880,7 @@ func (x *ResendInvitationRequest) String() string {
 func (*ResendInvitationRequest) ProtoMessage() {}
 
 func (x *ResendInvitationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[32]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1683,7 +1893,7 @@ func (x *ResendInvitationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResendInvitationRequest.ProtoReflect.Descriptor instead.
 func (*ResendInvitationRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{32}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ResendInvitationRequest) GetOrganizationId() string {
@@ -1709,7 +1919,7 @@ type ResendInvitationResponse struct {
 
 func (x *ResendInvitationResponse) Reset() {
 	*x = ResendInvitationResponse{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[33]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1721,7 +1931,7 @@ func (x *ResendInvitationResponse) String() string {
 func (*ResendInvitationResponse) ProtoMessage() {}
 
 func (x *ResendInvitationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[33]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1734,7 +1944,7 @@ func (x *ResendInvitationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResendInvitationResponse.ProtoReflect.Descriptor instead.
 func (*ResendInvitationResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{33}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ResendInvitationResponse) GetInvitation() *Invitation {
@@ -1754,7 +1964,7 @@ type CancelInvitationRequest struct {
 
 func (x *CancelInvitationRequest) Reset() {
 	*x = CancelInvitationRequest{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[34]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1766,7 +1976,7 @@ func (x *CancelInvitationRequest) String() string {
 func (*CancelInvitationRequest) ProtoMessage() {}
 
 func (x *CancelInvitationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[34]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1779,7 +1989,7 @@ func (x *CancelInvitationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelInvitationRequest.ProtoReflect.Descriptor instead.
 func (*CancelInvitationRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{34}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *CancelInvitationRequest) GetOrganizationId() string {
@@ -1804,7 +2014,7 @@ type CancelInvitationResponse struct {
 
 func (x *CancelInvitationResponse) Reset() {
 	*x = CancelInvitationResponse{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[35]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1816,7 +2026,7 @@ func (x *CancelInvitationResponse) String() string {
 func (*CancelInvitationResponse) ProtoMessage() {}
 
 func (x *CancelInvitationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[35]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1829,19 +2039,23 @@ func (x *CancelInvitationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelInvitationResponse.ProtoReflect.Descriptor instead.
 func (*CancelInvitationResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{35}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{39}
 }
 
 type AcceptInvitationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Exactly one nonempty selector is required. Preserve token-based link acceptance.
+	Token string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	// ID-based onboarding acceptance still requires the matching verified session email.
+	// IDs confer no authority. Recheck email, pending state and expiry atomically.
+	InvitationId  *string `protobuf:"bytes,2,opt,name=invitation_id,json=invitationId,proto3,oneof" json:"invitation_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AcceptInvitationRequest) Reset() {
 	*x = AcceptInvitationRequest{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[36]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1853,7 +2067,7 @@ func (x *AcceptInvitationRequest) String() string {
 func (*AcceptInvitationRequest) ProtoMessage() {}
 
 func (x *AcceptInvitationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[36]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1866,12 +2080,19 @@ func (x *AcceptInvitationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptInvitationRequest.ProtoReflect.Descriptor instead.
 func (*AcceptInvitationRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{36}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *AcceptInvitationRequest) GetToken() string {
 	if x != nil {
 		return x.Token
+	}
+	return ""
+}
+
+func (x *AcceptInvitationRequest) GetInvitationId() string {
+	if x != nil && x.InvitationId != nil {
+		return *x.InvitationId
 	}
 	return ""
 }
@@ -1885,7 +2106,7 @@ type AcceptInvitationResponse struct {
 
 func (x *AcceptInvitationResponse) Reset() {
 	*x = AcceptInvitationResponse{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[37]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1897,7 +2118,7 @@ func (x *AcceptInvitationResponse) String() string {
 func (*AcceptInvitationResponse) ProtoMessage() {}
 
 func (x *AcceptInvitationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[37]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1910,7 +2131,7 @@ func (x *AcceptInvitationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptInvitationResponse.ProtoReflect.Descriptor instead.
 func (*AcceptInvitationResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{37}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *AcceptInvitationResponse) GetOrganization() *Organization {
@@ -1929,7 +2150,7 @@ type GetOwnershipTransferRequest struct {
 
 func (x *GetOwnershipTransferRequest) Reset() {
 	*x = GetOwnershipTransferRequest{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[38]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1941,7 +2162,7 @@ func (x *GetOwnershipTransferRequest) String() string {
 func (*GetOwnershipTransferRequest) ProtoMessage() {}
 
 func (x *GetOwnershipTransferRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[38]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1954,7 +2175,7 @@ func (x *GetOwnershipTransferRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetOwnershipTransferRequest.ProtoReflect.Descriptor instead.
 func (*GetOwnershipTransferRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{38}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *GetOwnershipTransferRequest) GetOrganizationId() string {
@@ -1973,7 +2194,7 @@ type GetOwnershipTransferResponse struct {
 
 func (x *GetOwnershipTransferResponse) Reset() {
 	*x = GetOwnershipTransferResponse{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[39]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1985,7 +2206,7 @@ func (x *GetOwnershipTransferResponse) String() string {
 func (*GetOwnershipTransferResponse) ProtoMessage() {}
 
 func (x *GetOwnershipTransferResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[39]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1998,7 +2219,7 @@ func (x *GetOwnershipTransferResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetOwnershipTransferResponse.ProtoReflect.Descriptor instead.
 func (*GetOwnershipTransferResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{39}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *GetOwnershipTransferResponse) GetTransfer() *OwnershipTransfer {
@@ -2018,7 +2239,7 @@ type NominateOwnerRequest struct {
 
 func (x *NominateOwnerRequest) Reset() {
 	*x = NominateOwnerRequest{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[40]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2030,7 +2251,7 @@ func (x *NominateOwnerRequest) String() string {
 func (*NominateOwnerRequest) ProtoMessage() {}
 
 func (x *NominateOwnerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[40]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2043,7 +2264,7 @@ func (x *NominateOwnerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NominateOwnerRequest.ProtoReflect.Descriptor instead.
 func (*NominateOwnerRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{40}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *NominateOwnerRequest) GetOrganizationId() string {
@@ -2069,7 +2290,7 @@ type NominateOwnerResponse struct {
 
 func (x *NominateOwnerResponse) Reset() {
 	*x = NominateOwnerResponse{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[41]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2081,7 +2302,7 @@ func (x *NominateOwnerResponse) String() string {
 func (*NominateOwnerResponse) ProtoMessage() {}
 
 func (x *NominateOwnerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[41]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2094,7 +2315,7 @@ func (x *NominateOwnerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NominateOwnerResponse.ProtoReflect.Descriptor instead.
 func (*NominateOwnerResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{41}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *NominateOwnerResponse) GetTransfer() *OwnershipTransfer {
@@ -2114,7 +2335,7 @@ type AcceptOwnershipRequest struct {
 
 func (x *AcceptOwnershipRequest) Reset() {
 	*x = AcceptOwnershipRequest{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[42]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2126,7 +2347,7 @@ func (x *AcceptOwnershipRequest) String() string {
 func (*AcceptOwnershipRequest) ProtoMessage() {}
 
 func (x *AcceptOwnershipRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[42]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2139,7 +2360,7 @@ func (x *AcceptOwnershipRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptOwnershipRequest.ProtoReflect.Descriptor instead.
 func (*AcceptOwnershipRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{42}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *AcceptOwnershipRequest) GetOrganizationId() string {
@@ -2165,7 +2386,7 @@ type AcceptOwnershipResponse struct {
 
 func (x *AcceptOwnershipResponse) Reset() {
 	*x = AcceptOwnershipResponse{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[43]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2177,7 +2398,7 @@ func (x *AcceptOwnershipResponse) String() string {
 func (*AcceptOwnershipResponse) ProtoMessage() {}
 
 func (x *AcceptOwnershipResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[43]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2190,7 +2411,7 @@ func (x *AcceptOwnershipResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptOwnershipResponse.ProtoReflect.Descriptor instead.
 func (*AcceptOwnershipResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{43}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *AcceptOwnershipResponse) GetOrganization() *Organization {
@@ -2210,7 +2431,7 @@ type CancelOwnershipTransferRequest struct {
 
 func (x *CancelOwnershipTransferRequest) Reset() {
 	*x = CancelOwnershipTransferRequest{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[44]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2222,7 +2443,7 @@ func (x *CancelOwnershipTransferRequest) String() string {
 func (*CancelOwnershipTransferRequest) ProtoMessage() {}
 
 func (x *CancelOwnershipTransferRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[44]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2235,7 +2456,7 @@ func (x *CancelOwnershipTransferRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelOwnershipTransferRequest.ProtoReflect.Descriptor instead.
 func (*CancelOwnershipTransferRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{44}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *CancelOwnershipTransferRequest) GetOrganizationId() string {
@@ -2260,7 +2481,7 @@ type CancelOwnershipTransferResponse struct {
 
 func (x *CancelOwnershipTransferResponse) Reset() {
 	*x = CancelOwnershipTransferResponse{}
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[45]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2272,7 +2493,7 @@ func (x *CancelOwnershipTransferResponse) String() string {
 func (*CancelOwnershipTransferResponse) ProtoMessage() {}
 
 func (x *CancelOwnershipTransferResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_organization_proto_msgTypes[45]
+	mi := &file_aiprouter_v1_organization_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2285,7 +2506,7 @@ func (x *CancelOwnershipTransferResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelOwnershipTransferResponse.ProtoReflect.Descriptor instead.
 func (*CancelOwnershipTransferResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{45}
+	return file_aiprouter_v1_organization_proto_rawDescGZIP(), []int{49}
 }
 
 var File_aiprouter_v1_organization_proto protoreflect.FileDescriptor
@@ -2304,7 +2525,7 @@ const file_aiprouter_v1_organization_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12&\n" +
 	"\x04role\x18\x04 \x01(\x0e2\x12.aiprouter.v1.RoleR\x04role\x127\n" +
-	"\tjoined_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\bjoinedAt\"\xcb\x03\n" +
+	"\tjoined_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\bjoinedAt\"\xdb\x04\n" +
 	"\n" +
 	"Invitation\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
@@ -2316,7 +2537,12 @@ const file_aiprouter_v1_organization_proto_rawDesc = "" +
 	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12+\n" +
 	"\x11delivery_attempts\x18\a \x01(\rR\x10deliveryAttempts\x12B\n" +
 	"\x0fnext_attempt_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\rnextAttemptAt\x12J\n" +
-	"\x13resend_available_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x11resendAvailableAt\"\xfb\x01\n" +
+	"\x13resend_available_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x11resendAvailableAt\x12+\n" +
+	"\x11organization_name\x18\n" +
+	" \x01(\tR\x10organizationName\x12&\n" +
+	"\x04role\x18\v \x01(\x0e2\x12.aiprouter.v1.RoleR\x04role\x129\n" +
+	"\n" +
+	"created_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xfb\x01\n" +
 	"\x11OwnershipTransfer\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12 \n" +
@@ -2379,7 +2605,18 @@ const file_aiprouter_v1_organization_proto_rawDesc = "" +
 	"\x13RemoveMemberRequest\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\"\x16\n" +
-	"\x14RemoveMemberResponse\"X\n" +
+	"\x14RemoveMemberResponse\",\n" +
+	"\x14GetInvitationRequest\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"Q\n" +
+	"\x15GetInvitationResponse\x128\n" +
+	"\n" +
+	"invitation\x18\x01 \x01(\v2\x18.aiprouter.v1.InvitationR\n" +
+	"invitation\"I\n" +
+	"\x18ListMyInvitationsRequest\x12-\n" +
+	"\x04page\x18\x01 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04page\"\x87\x01\n" +
+	"\x19ListMyInvitationsResponse\x12:\n" +
+	"\vinvitations\x18\x01 \x03(\v2\x18.aiprouter.v1.InvitationR\vinvitations\x12.\n" +
+	"\x04page\x18\x02 \x01(\v2\x1a.aiprouter.v1.PageResponseR\x04page\"X\n" +
 	"\x17CreateInvitationRequest\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\"T\n" +
@@ -2403,9 +2640,11 @@ const file_aiprouter_v1_organization_proto_rawDesc = "" +
 	"\x17CancelInvitationRequest\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12#\n" +
 	"\rinvitation_id\x18\x02 \x01(\tR\finvitationId\"\x1a\n" +
-	"\x18CancelInvitationResponse\"/\n" +
+	"\x18CancelInvitationResponse\"k\n" +
 	"\x17AcceptInvitationRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"Z\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12(\n" +
+	"\rinvitation_id\x18\x02 \x01(\tH\x00R\finvitationId\x88\x01\x01B\x10\n" +
+	"\x0e_invitation_id\"Z\n" +
 	"\x18AcceptInvitationResponse\x12>\n" +
 	"\forganization\x18\x01 \x01(\v2\x1a.aiprouter.v1.OrganizationR\forganization\"F\n" +
 	"\x1bGetOwnershipTransferRequest\x12'\n" +
@@ -2443,8 +2682,10 @@ const file_aiprouter_v1_organization_proto_rawDesc = "" +
 	"\x11MembershipService\x12X\n" +
 	"\vListMembers\x12 .aiprouter.v1.ListMembersRequest\x1a!.aiprouter.v1.ListMembersResponse\"\x04\xc8\xf3\x18\x03\x12^\n" +
 	"\rSetMemberRole\x12\".aiprouter.v1.SetMemberRoleRequest\x1a#.aiprouter.v1.SetMemberRoleResponse\"\x04\xc8\xf3\x18\x05\x12[\n" +
-	"\fRemoveMember\x12!.aiprouter.v1.RemoveMemberRequest\x1a\".aiprouter.v1.RemoveMemberResponse\"\x04\xc8\xf3\x18\x042\x9d\x04\n" +
-	"\x11InvitationService\x12g\n" +
+	"\fRemoveMember\x12!.aiprouter.v1.RemoveMemberRequest\x1a\".aiprouter.v1.RemoveMemberResponse\"\x04\xc8\xf3\x18\x042\xe9\x05\n" +
+	"\x11InvitationService\x12^\n" +
+	"\rGetInvitation\x12\".aiprouter.v1.GetInvitationRequest\x1a#.aiprouter.v1.GetInvitationResponse\"\x04\xc8\xf3\x18\x02\x12j\n" +
+	"\x11ListMyInvitations\x12&.aiprouter.v1.ListMyInvitationsRequest\x1a'.aiprouter.v1.ListMyInvitationsResponse\"\x04\xc8\xf3\x18\x02\x12g\n" +
 	"\x10CreateInvitation\x12%.aiprouter.v1.CreateInvitationRequest\x1a&.aiprouter.v1.CreateInvitationResponse\"\x04\xc8\xf3\x18\x04\x12d\n" +
 	"\x0fListInvitations\x12$.aiprouter.v1.ListInvitationsRequest\x1a%.aiprouter.v1.ListInvitationsResponse\"\x04\xc8\xf3\x18\x04\x12g\n" +
 	"\x10ResendInvitation\x12%.aiprouter.v1.ResendInvitationRequest\x1a&.aiprouter.v1.ResendInvitationResponse\"\x04\xc8\xf3\x18\x04\x12g\n" +
@@ -2468,7 +2709,7 @@ func file_aiprouter_v1_organization_proto_rawDescGZIP() []byte {
 	return file_aiprouter_v1_organization_proto_rawDescData
 }
 
-var file_aiprouter_v1_organization_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
+var file_aiprouter_v1_organization_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
 var file_aiprouter_v1_organization_proto_goTypes = []any{
 	(*Organization)(nil),                    // 0: aiprouter.v1.Organization
 	(*Member)(nil),                          // 1: aiprouter.v1.Member
@@ -2498,112 +2739,126 @@ var file_aiprouter_v1_organization_proto_goTypes = []any{
 	(*SetMemberRoleResponse)(nil),           // 25: aiprouter.v1.SetMemberRoleResponse
 	(*RemoveMemberRequest)(nil),             // 26: aiprouter.v1.RemoveMemberRequest
 	(*RemoveMemberResponse)(nil),            // 27: aiprouter.v1.RemoveMemberResponse
-	(*CreateInvitationRequest)(nil),         // 28: aiprouter.v1.CreateInvitationRequest
-	(*CreateInvitationResponse)(nil),        // 29: aiprouter.v1.CreateInvitationResponse
-	(*ListInvitationsRequest)(nil),          // 30: aiprouter.v1.ListInvitationsRequest
-	(*ListInvitationsResponse)(nil),         // 31: aiprouter.v1.ListInvitationsResponse
-	(*ResendInvitationRequest)(nil),         // 32: aiprouter.v1.ResendInvitationRequest
-	(*ResendInvitationResponse)(nil),        // 33: aiprouter.v1.ResendInvitationResponse
-	(*CancelInvitationRequest)(nil),         // 34: aiprouter.v1.CancelInvitationRequest
-	(*CancelInvitationResponse)(nil),        // 35: aiprouter.v1.CancelInvitationResponse
-	(*AcceptInvitationRequest)(nil),         // 36: aiprouter.v1.AcceptInvitationRequest
-	(*AcceptInvitationResponse)(nil),        // 37: aiprouter.v1.AcceptInvitationResponse
-	(*GetOwnershipTransferRequest)(nil),     // 38: aiprouter.v1.GetOwnershipTransferRequest
-	(*GetOwnershipTransferResponse)(nil),    // 39: aiprouter.v1.GetOwnershipTransferResponse
-	(*NominateOwnerRequest)(nil),            // 40: aiprouter.v1.NominateOwnerRequest
-	(*NominateOwnerResponse)(nil),           // 41: aiprouter.v1.NominateOwnerResponse
-	(*AcceptOwnershipRequest)(nil),          // 42: aiprouter.v1.AcceptOwnershipRequest
-	(*AcceptOwnershipResponse)(nil),         // 43: aiprouter.v1.AcceptOwnershipResponse
-	(*CancelOwnershipTransferRequest)(nil),  // 44: aiprouter.v1.CancelOwnershipTransferRequest
-	(*CancelOwnershipTransferResponse)(nil), // 45: aiprouter.v1.CancelOwnershipTransferResponse
-	(Role)(0),                               // 46: aiprouter.v1.Role
-	(*timestamppb.Timestamp)(nil),           // 47: google.protobuf.Timestamp
-	(LifecycleState)(0),                     // 48: aiprouter.v1.LifecycleState
-	(DeliveryState)(0),                      // 49: aiprouter.v1.DeliveryState
-	(*PageRequest)(nil),                     // 50: aiprouter.v1.PageRequest
-	(*PageResponse)(nil),                    // 51: aiprouter.v1.PageResponse
+	(*GetInvitationRequest)(nil),            // 28: aiprouter.v1.GetInvitationRequest
+	(*GetInvitationResponse)(nil),           // 29: aiprouter.v1.GetInvitationResponse
+	(*ListMyInvitationsRequest)(nil),        // 30: aiprouter.v1.ListMyInvitationsRequest
+	(*ListMyInvitationsResponse)(nil),       // 31: aiprouter.v1.ListMyInvitationsResponse
+	(*CreateInvitationRequest)(nil),         // 32: aiprouter.v1.CreateInvitationRequest
+	(*CreateInvitationResponse)(nil),        // 33: aiprouter.v1.CreateInvitationResponse
+	(*ListInvitationsRequest)(nil),          // 34: aiprouter.v1.ListInvitationsRequest
+	(*ListInvitationsResponse)(nil),         // 35: aiprouter.v1.ListInvitationsResponse
+	(*ResendInvitationRequest)(nil),         // 36: aiprouter.v1.ResendInvitationRequest
+	(*ResendInvitationResponse)(nil),        // 37: aiprouter.v1.ResendInvitationResponse
+	(*CancelInvitationRequest)(nil),         // 38: aiprouter.v1.CancelInvitationRequest
+	(*CancelInvitationResponse)(nil),        // 39: aiprouter.v1.CancelInvitationResponse
+	(*AcceptInvitationRequest)(nil),         // 40: aiprouter.v1.AcceptInvitationRequest
+	(*AcceptInvitationResponse)(nil),        // 41: aiprouter.v1.AcceptInvitationResponse
+	(*GetOwnershipTransferRequest)(nil),     // 42: aiprouter.v1.GetOwnershipTransferRequest
+	(*GetOwnershipTransferResponse)(nil),    // 43: aiprouter.v1.GetOwnershipTransferResponse
+	(*NominateOwnerRequest)(nil),            // 44: aiprouter.v1.NominateOwnerRequest
+	(*NominateOwnerResponse)(nil),           // 45: aiprouter.v1.NominateOwnerResponse
+	(*AcceptOwnershipRequest)(nil),          // 46: aiprouter.v1.AcceptOwnershipRequest
+	(*AcceptOwnershipResponse)(nil),         // 47: aiprouter.v1.AcceptOwnershipResponse
+	(*CancelOwnershipTransferRequest)(nil),  // 48: aiprouter.v1.CancelOwnershipTransferRequest
+	(*CancelOwnershipTransferResponse)(nil), // 49: aiprouter.v1.CancelOwnershipTransferResponse
+	(Role)(0),                               // 50: aiprouter.v1.Role
+	(*timestamppb.Timestamp)(nil),           // 51: google.protobuf.Timestamp
+	(LifecycleState)(0),                     // 52: aiprouter.v1.LifecycleState
+	(DeliveryState)(0),                      // 53: aiprouter.v1.DeliveryState
+	(*PageRequest)(nil),                     // 54: aiprouter.v1.PageRequest
+	(*PageResponse)(nil),                    // 55: aiprouter.v1.PageResponse
 }
 var file_aiprouter_v1_organization_proto_depIdxs = []int32{
-	46, // 0: aiprouter.v1.Organization.role:type_name -> aiprouter.v1.Role
-	47, // 1: aiprouter.v1.Organization.created_at:type_name -> google.protobuf.Timestamp
-	46, // 2: aiprouter.v1.Member.role:type_name -> aiprouter.v1.Role
-	47, // 3: aiprouter.v1.Member.joined_at:type_name -> google.protobuf.Timestamp
-	48, // 4: aiprouter.v1.Invitation.state:type_name -> aiprouter.v1.LifecycleState
-	49, // 5: aiprouter.v1.Invitation.delivery_state:type_name -> aiprouter.v1.DeliveryState
-	47, // 6: aiprouter.v1.Invitation.expires_at:type_name -> google.protobuf.Timestamp
-	47, // 7: aiprouter.v1.Invitation.next_attempt_at:type_name -> google.protobuf.Timestamp
-	47, // 8: aiprouter.v1.Invitation.resend_available_at:type_name -> google.protobuf.Timestamp
-	48, // 9: aiprouter.v1.OwnershipTransfer.state:type_name -> aiprouter.v1.LifecycleState
-	47, // 10: aiprouter.v1.OwnershipTransfer.expires_at:type_name -> google.protobuf.Timestamp
-	47, // 11: aiprouter.v1.GetSessionResponse.authenticated_at:type_name -> google.protobuf.Timestamp
-	47, // 12: aiprouter.v1.GetSessionResponse.expires_at:type_name -> google.protobuf.Timestamp
-	0,  // 13: aiprouter.v1.CreateOrganizationResponse.organization:type_name -> aiprouter.v1.Organization
-	50, // 14: aiprouter.v1.ListOrganizationsRequest.page:type_name -> aiprouter.v1.PageRequest
-	0,  // 15: aiprouter.v1.ListOrganizationsResponse.organizations:type_name -> aiprouter.v1.Organization
-	51, // 16: aiprouter.v1.ListOrganizationsResponse.page:type_name -> aiprouter.v1.PageResponse
-	0,  // 17: aiprouter.v1.GetOrganizationResponse.organization:type_name -> aiprouter.v1.Organization
-	0,  // 18: aiprouter.v1.UpdateOrganizationResponse.organization:type_name -> aiprouter.v1.Organization
-	50, // 19: aiprouter.v1.ListMembersRequest.page:type_name -> aiprouter.v1.PageRequest
-	1,  // 20: aiprouter.v1.ListMembersResponse.members:type_name -> aiprouter.v1.Member
-	51, // 21: aiprouter.v1.ListMembersResponse.page:type_name -> aiprouter.v1.PageResponse
-	46, // 22: aiprouter.v1.SetMemberRoleRequest.role:type_name -> aiprouter.v1.Role
-	1,  // 23: aiprouter.v1.SetMemberRoleResponse.member:type_name -> aiprouter.v1.Member
-	2,  // 24: aiprouter.v1.CreateInvitationResponse.invitation:type_name -> aiprouter.v1.Invitation
-	50, // 25: aiprouter.v1.ListInvitationsRequest.page:type_name -> aiprouter.v1.PageRequest
-	2,  // 26: aiprouter.v1.ListInvitationsResponse.invitations:type_name -> aiprouter.v1.Invitation
-	51, // 27: aiprouter.v1.ListInvitationsResponse.page:type_name -> aiprouter.v1.PageResponse
-	2,  // 28: aiprouter.v1.ResendInvitationResponse.invitation:type_name -> aiprouter.v1.Invitation
-	0,  // 29: aiprouter.v1.AcceptInvitationResponse.organization:type_name -> aiprouter.v1.Organization
-	3,  // 30: aiprouter.v1.GetOwnershipTransferResponse.transfer:type_name -> aiprouter.v1.OwnershipTransfer
-	3,  // 31: aiprouter.v1.NominateOwnerResponse.transfer:type_name -> aiprouter.v1.OwnershipTransfer
-	0,  // 32: aiprouter.v1.AcceptOwnershipResponse.organization:type_name -> aiprouter.v1.Organization
-	4,  // 33: aiprouter.v1.AccountService.GetSession:input_type -> aiprouter.v1.GetSessionRequest
-	6,  // 34: aiprouter.v1.AccountService.Logout:input_type -> aiprouter.v1.LogoutRequest
-	8,  // 35: aiprouter.v1.AccountService.DeleteAccount:input_type -> aiprouter.v1.DeleteAccountRequest
-	10, // 36: aiprouter.v1.OrganizationService.CreateOrganization:input_type -> aiprouter.v1.CreateOrganizationRequest
-	12, // 37: aiprouter.v1.OrganizationService.ListOrganizations:input_type -> aiprouter.v1.ListOrganizationsRequest
-	14, // 38: aiprouter.v1.OrganizationService.GetOrganization:input_type -> aiprouter.v1.GetOrganizationRequest
-	16, // 39: aiprouter.v1.OrganizationService.UpdateOrganization:input_type -> aiprouter.v1.UpdateOrganizationRequest
-	18, // 40: aiprouter.v1.OrganizationService.DeleteOrganization:input_type -> aiprouter.v1.DeleteOrganizationRequest
-	20, // 41: aiprouter.v1.OrganizationService.LeaveOrganization:input_type -> aiprouter.v1.LeaveOrganizationRequest
-	22, // 42: aiprouter.v1.MembershipService.ListMembers:input_type -> aiprouter.v1.ListMembersRequest
-	24, // 43: aiprouter.v1.MembershipService.SetMemberRole:input_type -> aiprouter.v1.SetMemberRoleRequest
-	26, // 44: aiprouter.v1.MembershipService.RemoveMember:input_type -> aiprouter.v1.RemoveMemberRequest
-	28, // 45: aiprouter.v1.InvitationService.CreateInvitation:input_type -> aiprouter.v1.CreateInvitationRequest
-	30, // 46: aiprouter.v1.InvitationService.ListInvitations:input_type -> aiprouter.v1.ListInvitationsRequest
-	32, // 47: aiprouter.v1.InvitationService.ResendInvitation:input_type -> aiprouter.v1.ResendInvitationRequest
-	34, // 48: aiprouter.v1.InvitationService.CancelInvitation:input_type -> aiprouter.v1.CancelInvitationRequest
-	36, // 49: aiprouter.v1.InvitationService.AcceptInvitation:input_type -> aiprouter.v1.AcceptInvitationRequest
-	38, // 50: aiprouter.v1.OwnershipService.GetOwnershipTransfer:input_type -> aiprouter.v1.GetOwnershipTransferRequest
-	40, // 51: aiprouter.v1.OwnershipService.NominateOwner:input_type -> aiprouter.v1.NominateOwnerRequest
-	42, // 52: aiprouter.v1.OwnershipService.AcceptOwnership:input_type -> aiprouter.v1.AcceptOwnershipRequest
-	44, // 53: aiprouter.v1.OwnershipService.CancelOwnershipTransfer:input_type -> aiprouter.v1.CancelOwnershipTransferRequest
-	5,  // 54: aiprouter.v1.AccountService.GetSession:output_type -> aiprouter.v1.GetSessionResponse
-	7,  // 55: aiprouter.v1.AccountService.Logout:output_type -> aiprouter.v1.LogoutResponse
-	9,  // 56: aiprouter.v1.AccountService.DeleteAccount:output_type -> aiprouter.v1.DeleteAccountResponse
-	11, // 57: aiprouter.v1.OrganizationService.CreateOrganization:output_type -> aiprouter.v1.CreateOrganizationResponse
-	13, // 58: aiprouter.v1.OrganizationService.ListOrganizations:output_type -> aiprouter.v1.ListOrganizationsResponse
-	15, // 59: aiprouter.v1.OrganizationService.GetOrganization:output_type -> aiprouter.v1.GetOrganizationResponse
-	17, // 60: aiprouter.v1.OrganizationService.UpdateOrganization:output_type -> aiprouter.v1.UpdateOrganizationResponse
-	19, // 61: aiprouter.v1.OrganizationService.DeleteOrganization:output_type -> aiprouter.v1.DeleteOrganizationResponse
-	21, // 62: aiprouter.v1.OrganizationService.LeaveOrganization:output_type -> aiprouter.v1.LeaveOrganizationResponse
-	23, // 63: aiprouter.v1.MembershipService.ListMembers:output_type -> aiprouter.v1.ListMembersResponse
-	25, // 64: aiprouter.v1.MembershipService.SetMemberRole:output_type -> aiprouter.v1.SetMemberRoleResponse
-	27, // 65: aiprouter.v1.MembershipService.RemoveMember:output_type -> aiprouter.v1.RemoveMemberResponse
-	29, // 66: aiprouter.v1.InvitationService.CreateInvitation:output_type -> aiprouter.v1.CreateInvitationResponse
-	31, // 67: aiprouter.v1.InvitationService.ListInvitations:output_type -> aiprouter.v1.ListInvitationsResponse
-	33, // 68: aiprouter.v1.InvitationService.ResendInvitation:output_type -> aiprouter.v1.ResendInvitationResponse
-	35, // 69: aiprouter.v1.InvitationService.CancelInvitation:output_type -> aiprouter.v1.CancelInvitationResponse
-	37, // 70: aiprouter.v1.InvitationService.AcceptInvitation:output_type -> aiprouter.v1.AcceptInvitationResponse
-	39, // 71: aiprouter.v1.OwnershipService.GetOwnershipTransfer:output_type -> aiprouter.v1.GetOwnershipTransferResponse
-	41, // 72: aiprouter.v1.OwnershipService.NominateOwner:output_type -> aiprouter.v1.NominateOwnerResponse
-	43, // 73: aiprouter.v1.OwnershipService.AcceptOwnership:output_type -> aiprouter.v1.AcceptOwnershipResponse
-	45, // 74: aiprouter.v1.OwnershipService.CancelOwnershipTransfer:output_type -> aiprouter.v1.CancelOwnershipTransferResponse
-	54, // [54:75] is the sub-list for method output_type
-	33, // [33:54] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	50, // 0: aiprouter.v1.Organization.role:type_name -> aiprouter.v1.Role
+	51, // 1: aiprouter.v1.Organization.created_at:type_name -> google.protobuf.Timestamp
+	50, // 2: aiprouter.v1.Member.role:type_name -> aiprouter.v1.Role
+	51, // 3: aiprouter.v1.Member.joined_at:type_name -> google.protobuf.Timestamp
+	52, // 4: aiprouter.v1.Invitation.state:type_name -> aiprouter.v1.LifecycleState
+	53, // 5: aiprouter.v1.Invitation.delivery_state:type_name -> aiprouter.v1.DeliveryState
+	51, // 6: aiprouter.v1.Invitation.expires_at:type_name -> google.protobuf.Timestamp
+	51, // 7: aiprouter.v1.Invitation.next_attempt_at:type_name -> google.protobuf.Timestamp
+	51, // 8: aiprouter.v1.Invitation.resend_available_at:type_name -> google.protobuf.Timestamp
+	50, // 9: aiprouter.v1.Invitation.role:type_name -> aiprouter.v1.Role
+	51, // 10: aiprouter.v1.Invitation.created_at:type_name -> google.protobuf.Timestamp
+	52, // 11: aiprouter.v1.OwnershipTransfer.state:type_name -> aiprouter.v1.LifecycleState
+	51, // 12: aiprouter.v1.OwnershipTransfer.expires_at:type_name -> google.protobuf.Timestamp
+	51, // 13: aiprouter.v1.GetSessionResponse.authenticated_at:type_name -> google.protobuf.Timestamp
+	51, // 14: aiprouter.v1.GetSessionResponse.expires_at:type_name -> google.protobuf.Timestamp
+	0,  // 15: aiprouter.v1.CreateOrganizationResponse.organization:type_name -> aiprouter.v1.Organization
+	54, // 16: aiprouter.v1.ListOrganizationsRequest.page:type_name -> aiprouter.v1.PageRequest
+	0,  // 17: aiprouter.v1.ListOrganizationsResponse.organizations:type_name -> aiprouter.v1.Organization
+	55, // 18: aiprouter.v1.ListOrganizationsResponse.page:type_name -> aiprouter.v1.PageResponse
+	0,  // 19: aiprouter.v1.GetOrganizationResponse.organization:type_name -> aiprouter.v1.Organization
+	0,  // 20: aiprouter.v1.UpdateOrganizationResponse.organization:type_name -> aiprouter.v1.Organization
+	54, // 21: aiprouter.v1.ListMembersRequest.page:type_name -> aiprouter.v1.PageRequest
+	1,  // 22: aiprouter.v1.ListMembersResponse.members:type_name -> aiprouter.v1.Member
+	55, // 23: aiprouter.v1.ListMembersResponse.page:type_name -> aiprouter.v1.PageResponse
+	50, // 24: aiprouter.v1.SetMemberRoleRequest.role:type_name -> aiprouter.v1.Role
+	1,  // 25: aiprouter.v1.SetMemberRoleResponse.member:type_name -> aiprouter.v1.Member
+	2,  // 26: aiprouter.v1.GetInvitationResponse.invitation:type_name -> aiprouter.v1.Invitation
+	54, // 27: aiprouter.v1.ListMyInvitationsRequest.page:type_name -> aiprouter.v1.PageRequest
+	2,  // 28: aiprouter.v1.ListMyInvitationsResponse.invitations:type_name -> aiprouter.v1.Invitation
+	55, // 29: aiprouter.v1.ListMyInvitationsResponse.page:type_name -> aiprouter.v1.PageResponse
+	2,  // 30: aiprouter.v1.CreateInvitationResponse.invitation:type_name -> aiprouter.v1.Invitation
+	54, // 31: aiprouter.v1.ListInvitationsRequest.page:type_name -> aiprouter.v1.PageRequest
+	2,  // 32: aiprouter.v1.ListInvitationsResponse.invitations:type_name -> aiprouter.v1.Invitation
+	55, // 33: aiprouter.v1.ListInvitationsResponse.page:type_name -> aiprouter.v1.PageResponse
+	2,  // 34: aiprouter.v1.ResendInvitationResponse.invitation:type_name -> aiprouter.v1.Invitation
+	0,  // 35: aiprouter.v1.AcceptInvitationResponse.organization:type_name -> aiprouter.v1.Organization
+	3,  // 36: aiprouter.v1.GetOwnershipTransferResponse.transfer:type_name -> aiprouter.v1.OwnershipTransfer
+	3,  // 37: aiprouter.v1.NominateOwnerResponse.transfer:type_name -> aiprouter.v1.OwnershipTransfer
+	0,  // 38: aiprouter.v1.AcceptOwnershipResponse.organization:type_name -> aiprouter.v1.Organization
+	4,  // 39: aiprouter.v1.AccountService.GetSession:input_type -> aiprouter.v1.GetSessionRequest
+	6,  // 40: aiprouter.v1.AccountService.Logout:input_type -> aiprouter.v1.LogoutRequest
+	8,  // 41: aiprouter.v1.AccountService.DeleteAccount:input_type -> aiprouter.v1.DeleteAccountRequest
+	10, // 42: aiprouter.v1.OrganizationService.CreateOrganization:input_type -> aiprouter.v1.CreateOrganizationRequest
+	12, // 43: aiprouter.v1.OrganizationService.ListOrganizations:input_type -> aiprouter.v1.ListOrganizationsRequest
+	14, // 44: aiprouter.v1.OrganizationService.GetOrganization:input_type -> aiprouter.v1.GetOrganizationRequest
+	16, // 45: aiprouter.v1.OrganizationService.UpdateOrganization:input_type -> aiprouter.v1.UpdateOrganizationRequest
+	18, // 46: aiprouter.v1.OrganizationService.DeleteOrganization:input_type -> aiprouter.v1.DeleteOrganizationRequest
+	20, // 47: aiprouter.v1.OrganizationService.LeaveOrganization:input_type -> aiprouter.v1.LeaveOrganizationRequest
+	22, // 48: aiprouter.v1.MembershipService.ListMembers:input_type -> aiprouter.v1.ListMembersRequest
+	24, // 49: aiprouter.v1.MembershipService.SetMemberRole:input_type -> aiprouter.v1.SetMemberRoleRequest
+	26, // 50: aiprouter.v1.MembershipService.RemoveMember:input_type -> aiprouter.v1.RemoveMemberRequest
+	28, // 51: aiprouter.v1.InvitationService.GetInvitation:input_type -> aiprouter.v1.GetInvitationRequest
+	30, // 52: aiprouter.v1.InvitationService.ListMyInvitations:input_type -> aiprouter.v1.ListMyInvitationsRequest
+	32, // 53: aiprouter.v1.InvitationService.CreateInvitation:input_type -> aiprouter.v1.CreateInvitationRequest
+	34, // 54: aiprouter.v1.InvitationService.ListInvitations:input_type -> aiprouter.v1.ListInvitationsRequest
+	36, // 55: aiprouter.v1.InvitationService.ResendInvitation:input_type -> aiprouter.v1.ResendInvitationRequest
+	38, // 56: aiprouter.v1.InvitationService.CancelInvitation:input_type -> aiprouter.v1.CancelInvitationRequest
+	40, // 57: aiprouter.v1.InvitationService.AcceptInvitation:input_type -> aiprouter.v1.AcceptInvitationRequest
+	42, // 58: aiprouter.v1.OwnershipService.GetOwnershipTransfer:input_type -> aiprouter.v1.GetOwnershipTransferRequest
+	44, // 59: aiprouter.v1.OwnershipService.NominateOwner:input_type -> aiprouter.v1.NominateOwnerRequest
+	46, // 60: aiprouter.v1.OwnershipService.AcceptOwnership:input_type -> aiprouter.v1.AcceptOwnershipRequest
+	48, // 61: aiprouter.v1.OwnershipService.CancelOwnershipTransfer:input_type -> aiprouter.v1.CancelOwnershipTransferRequest
+	5,  // 62: aiprouter.v1.AccountService.GetSession:output_type -> aiprouter.v1.GetSessionResponse
+	7,  // 63: aiprouter.v1.AccountService.Logout:output_type -> aiprouter.v1.LogoutResponse
+	9,  // 64: aiprouter.v1.AccountService.DeleteAccount:output_type -> aiprouter.v1.DeleteAccountResponse
+	11, // 65: aiprouter.v1.OrganizationService.CreateOrganization:output_type -> aiprouter.v1.CreateOrganizationResponse
+	13, // 66: aiprouter.v1.OrganizationService.ListOrganizations:output_type -> aiprouter.v1.ListOrganizationsResponse
+	15, // 67: aiprouter.v1.OrganizationService.GetOrganization:output_type -> aiprouter.v1.GetOrganizationResponse
+	17, // 68: aiprouter.v1.OrganizationService.UpdateOrganization:output_type -> aiprouter.v1.UpdateOrganizationResponse
+	19, // 69: aiprouter.v1.OrganizationService.DeleteOrganization:output_type -> aiprouter.v1.DeleteOrganizationResponse
+	21, // 70: aiprouter.v1.OrganizationService.LeaveOrganization:output_type -> aiprouter.v1.LeaveOrganizationResponse
+	23, // 71: aiprouter.v1.MembershipService.ListMembers:output_type -> aiprouter.v1.ListMembersResponse
+	25, // 72: aiprouter.v1.MembershipService.SetMemberRole:output_type -> aiprouter.v1.SetMemberRoleResponse
+	27, // 73: aiprouter.v1.MembershipService.RemoveMember:output_type -> aiprouter.v1.RemoveMemberResponse
+	29, // 74: aiprouter.v1.InvitationService.GetInvitation:output_type -> aiprouter.v1.GetInvitationResponse
+	31, // 75: aiprouter.v1.InvitationService.ListMyInvitations:output_type -> aiprouter.v1.ListMyInvitationsResponse
+	33, // 76: aiprouter.v1.InvitationService.CreateInvitation:output_type -> aiprouter.v1.CreateInvitationResponse
+	35, // 77: aiprouter.v1.InvitationService.ListInvitations:output_type -> aiprouter.v1.ListInvitationsResponse
+	37, // 78: aiprouter.v1.InvitationService.ResendInvitation:output_type -> aiprouter.v1.ResendInvitationResponse
+	39, // 79: aiprouter.v1.InvitationService.CancelInvitation:output_type -> aiprouter.v1.CancelInvitationResponse
+	41, // 80: aiprouter.v1.InvitationService.AcceptInvitation:output_type -> aiprouter.v1.AcceptInvitationResponse
+	43, // 81: aiprouter.v1.OwnershipService.GetOwnershipTransfer:output_type -> aiprouter.v1.GetOwnershipTransferResponse
+	45, // 82: aiprouter.v1.OwnershipService.NominateOwner:output_type -> aiprouter.v1.NominateOwnerResponse
+	47, // 83: aiprouter.v1.OwnershipService.AcceptOwnership:output_type -> aiprouter.v1.AcceptOwnershipResponse
+	49, // 84: aiprouter.v1.OwnershipService.CancelOwnershipTransfer:output_type -> aiprouter.v1.CancelOwnershipTransferResponse
+	62, // [62:85] is the sub-list for method output_type
+	39, // [39:62] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_aiprouter_v1_organization_proto_init() }
@@ -2612,13 +2867,14 @@ func file_aiprouter_v1_organization_proto_init() {
 		return
 	}
 	file_aiprouter_v1_common_proto_init()
+	file_aiprouter_v1_organization_proto_msgTypes[40].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aiprouter_v1_organization_proto_rawDesc), len(file_aiprouter_v1_organization_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   46,
+			NumMessages:   50,
 			NumExtensions: 0,
 			NumServices:   5,
 		},

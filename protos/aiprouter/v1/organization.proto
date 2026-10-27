@@ -30,6 +30,10 @@ message Invitation {
   uint32 delivery_attempts = 7;
   google.protobuf.Timestamp next_attempt_at = 8;
   google.protobuf.Timestamp resend_available_at = 9;
+  string organization_name = 10;
+  // Invitations currently grant MEMBER only; administrator promotion is a separate owner action.
+  Role role = 11;
+  google.protobuf.Timestamp created_at = 12;
 }
 message OwnershipTransfer {
   string id = 1;
@@ -156,6 +160,18 @@ message RemoveMemberResponse {}
 // Invitations are email-bound, single-use, and expire after seven days.
 // Resend invalidates old links/jobs. Retry timing and SMTP limits remain server policy.
 service InvitationService {
+  // Requires a verified session email and possession of the link token. Invalid tokens
+  // return NOT_FOUND. Wrong email returns PERMISSION_DENIED with ErrorDetail reason
+  // INVITATION_EMAIL_MISMATCH and no recipient or organization metadata.
+  // Matching recipients can inspect pending or terminal lifecycle states.
+  rpc GetInvitation(GetInvitationRequest) returns (GetInvitationResponse) {
+    option (auth_scope) = AUTH_SCOPE_WEB_SESSION;
+  }
+  // Only actionable pending invitations addressed to the current verified email.
+  // No email/user selector or raw link token is exposed. Page tokens are session-scoped.
+  rpc ListMyInvitations(ListMyInvitationsRequest) returns (ListMyInvitationsResponse) {
+    option (auth_scope) = AUTH_SCOPE_WEB_SESSION;
+  }
   rpc CreateInvitation(CreateInvitationRequest) returns (CreateInvitationResponse) {
     option (auth_scope) = AUTH_SCOPE_ORGANIZATION_ADMINISTRATOR;
   }
@@ -171,6 +187,20 @@ service InvitationService {
   rpc AcceptInvitation(AcceptInvitationRequest) returns (AcceptInvitationResponse) {
     option (auth_scope) = AUTH_SCOPE_WEB_SESSION;
   }
+}
+message GetInvitationRequest {
+  // Sensitive link token: never log request bodies or echo tokens in responses/errors.
+  string token = 1;
+}
+message GetInvitationResponse {
+  Invitation invitation = 1;
+}
+message ListMyInvitationsRequest {
+  PageRequest page = 1;
+}
+message ListMyInvitationsResponse {
+  repeated Invitation invitations = 1;
+  PageResponse page = 2;
 }
 message CreateInvitationRequest {
   string organization_id = 1;
@@ -200,7 +230,11 @@ message CancelInvitationRequest {
 }
 message CancelInvitationResponse {}
 message AcceptInvitationRequest {
+  // Exactly one nonempty selector is required. Preserve token-based link acceptance.
   string token = 1;
+  // ID-based onboarding acceptance still requires the matching verified session email.
+  // IDs confer no authority. Recheck email, pending state and expiry atomically.
+  optional string invitation_id = 2;
 }
 message AcceptInvitationResponse {
   Organization organization = 1;

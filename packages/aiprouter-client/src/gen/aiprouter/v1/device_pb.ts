@@ -64,6 +64,11 @@ export const DeviceKeyResultSchema: GenMessage<DeviceKeyResult> = /*@__PURE__*/
   messageDesc(file_aiprouter_v1_device, 0);
 
 /**
+ * Browser inspection reflects persisted lifecycle state, never a synthetic PENDING.
+ * APPROVED means waiting for CLI storage; DELIVERED means confirmation was recorded.
+ * DENIED, EXPIRED and REVOKED remain distinguishable. Never expose the raw key here.
+ * expires_at is the original deadline; organization_id/key_expires_at reflect approval.
+ *
  * @generated from message aiprouter.v1.DeviceAuthorization
  */
 export type DeviceAuthorization = Message<"aiprouter.v1.DeviceAuthorization"> & {

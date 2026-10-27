@@ -110,6 +110,10 @@ func (x *DeviceKeyResult) GetRevocationUrl() string {
 	return ""
 }
 
+// Browser inspection reflects persisted lifecycle state, never a synthetic PENDING.
+// APPROVED means waiting for CLI storage; DELIVERED means confirmation was recorded.
+// DENIED, EXPIRED and REVOKED remain distinguishable. Never expose the raw key here.
+// expires_at is the original deadline; organization_id/key_expires_at reflect approval.
 type DeviceAuthorization struct {
 	state           protoimpl.MessageState   `protogen:"open.v1"`
 	AuthorizationId string                   `protobuf:"bytes,1,opt,name=authorization_id,json=authorizationId,proto3" json:"authorization_id,omitempty"`
