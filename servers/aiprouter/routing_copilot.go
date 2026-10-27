@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
 )
 
 const copilotSessionHeader = "Copilot-Session-Token"
@@ -219,6 +220,14 @@ func routingText(v any) string {
 func resolveCopilotAuto(ctx context.Context, t inference.Target, c inference.Credential, body json.RawMessage, send copilotJSONSender) (inference.Target, inference.Credential, time.Time, error) {
 	t.Headers = t.Headers.Clone()
 	c.Headers = c.Headers.Clone()
+	if c.Headers == nil {
+		c.Headers = make(http.Header)
+	}
+	for k, v := range map[string]string{"Editor-Version": "opencodex/0.1.0", "Editor-Plugin-Version": "opencodex/0.1.0", "Copilot-Integration-Id": "vscode-chat", "X-GitHub-Api-Version": "2026-08-01"} {
+		if c.Headers.Get(k) == "" {
+			c.Headers.Set(k, v)
+		}
+	}
 	t.Headers.Del(copilotSessionHeader)
 	c.Headers.Del(copilotSessionHeader)
 	failed := func(e error) (inference.Target, inference.Credential, time.Time, error) { return t, c, time.Time{}, e }
@@ -318,6 +327,20 @@ func resolveCopilotAuto(ctx context.Context, t inference.Target, c inference.Cre
 	}
 	t.Model = chosen
 	t.Wire = wire
+	// The catalog chose the concrete wire. A logical target's pre-negotiation
+	// endpoint must not override that choice during standard-adapter execution.
+	path := "/chat/completions"
+	if wire == inference.Responses {
+		path = "/responses"
+	}
+	t.Endpoint = strings.TrimRight(t.BaseURL, "/") + path
+	if t.Policy != nil {
+		selected := *t.Policy
+		selected.Model = chosen
+		selected.Wire = providers.Wire(wire)
+		selected.Endpoint = t.Endpoint
+		t.Policy = &selected
+	}
 	if c.Headers == nil {
 		c.Headers = make(http.Header)
 	}
