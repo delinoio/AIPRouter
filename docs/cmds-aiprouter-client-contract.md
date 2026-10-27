@@ -79,6 +79,10 @@ Claude first-party Desktop mode and its model picker, plus the pinned experiment
 
 OS credential stores own profile keys. Client settings and protected recovery backups follow the exact settings lifecycle above. Do not use a normal credential file as an OS-store fallback.
 
+Native Codex generated catalogs/cache and explicitly selected source catalogs accept up to **256 MiB**. Ordinary configuration and serialized state/pending metadata retain **4 MiB** bounds. Store backups larger than **64 KiB**, or smaller backups when metadata would exceed its bound, as owner-protected `<state-dir>/snapshots/<lowercase-sha256>.blob` files. Deduplicate only identical bytes. State and transaction journals retain digest references. Before loading shared immutable snapshot bytes, validate reference syntax, safe regular-file and parent rules, and the SHA-256 digest.
+
+Keep original backups distinct from refresh restoration baselines. Current state and pending desired/rollback records both retain their referenced snapshots. Collect unreferenced blobs only after durable journal completion and validation of all surviving references. Remove only valid owned blobs. Malformed, missing, or corrupt references stop collection and preserve recovery material. Interrupted snapshot creation may leave protected orphan blobs until a later successful transaction. Snapshot blobs remain protected client-settings backups; they are never an OS credential-store fallback.
+
 ## Security
 
 The [service key and device lifecycle](servers-aiprouter-service-contract.md) is normative for the CLI: original ten-minute authorization lifetime, five-second polling, device-secret-authenticated redelivery, storage confirmation, and compensating revocation. Failure to store a key leaves client settings unchanged. A key in client-owned settings requires separate explicit consent. Local relay callers share the selected local-computer trust boundary.

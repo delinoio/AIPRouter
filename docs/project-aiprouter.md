@@ -93,6 +93,7 @@ The earlier execution-agent proposal is superseded by this exclusion.
 - Organization plus user scopes all personal credentials, pools, routing, temporary state, jobs, caches, retries, and metadata access. No shared organization credential pools.
 - `owner`, `administrator`, and `member` identify organization roles; `instance-operator` is separate deployment authority. The service contract owns exact permissions and lifecycle races.
 - PostgreSQL remains authoritative across instances and restarts; fail closed on authorization storage failure. OS credential stores own CLI secrets. R2 signed URLs are bounded bearer capabilities, not fresh authorization on each download.
+- CLI recovery journals retain owner-protected, content-addressed snapshots for large native catalogs under the [client storage contract](cmds-aiprouter-client-contract.md#storage); this does not change OS credential-store ownership.
 - Console and CLI management use versioned Connect RPC schemas; inference protocols remain wire-compatible with the fixed reference and explicit overrides.
 - The self-hosted authenticated console uses Compose rather than the default static Cloudflare Pages hosting. The public docs application uses the default Cloudflare Pages publication target.
 - Hosted inference search preserves the reference provider interface; it is not a new generic AI-search backend. Do not replace that compatibility path with Cloudflare AI Search. A future independent search feature must follow repository defaults or record a separate decision.
