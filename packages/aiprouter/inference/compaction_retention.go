@@ -24,7 +24,10 @@ const retainedReasoningSuffix = "\n</assistant_reasoning>"
 const compactionArchivePrefix = "aipr-retained-v1:"
 
 type compactionRetentionKey struct{}
-type compactionRetention struct{ retained []any }
+type compactionRetention struct {
+	retained []any
+	scope    scopedAdapterState
+}
 
 func retentionLimit(p *ReasoningRetentionPolicy) (int64, error) {
 	percent := p.MaxContextPercent
@@ -140,6 +143,7 @@ func (h *Handler) prepareCompactionRetention(ctx context.Context, scope scopedAd
 		return b, nil
 	}
 	state.retained = nil
+	state.scope = scope
 	policy := scope.t.ReasoningRetention
 	if policy == nil || !policy.Enabled {
 		return b, nil

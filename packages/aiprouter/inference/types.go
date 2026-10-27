@@ -178,6 +178,7 @@ type ArtifactStore interface {
 	URL(context.Context, Principal, string) (string, error)
 }
 type Config struct {
+	CompactionHandoffs   CompactionHandoffs
 	ResponseObserver     PhysicalResponseObserver
 	Negotiator           Negotiator
 	ProviderStates       ProviderStates

@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: Apache-2.0
+package inference
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+type handoffFixture struct {
+	captured []CompactionHandoff
+	lookups  []int
+	cleared  int
+	next     *CompactionHandoff
+	failure  error
+}
+
+func (f *handoffFixture) Capture(_ context.Context, _ Principal, t Target, c Credential) error {
+	f.captured = append(f.captured, CompactionHandoff{t, c})
+	return f.failure
+}
+func (f *handoffFixture) Lookup(_ context.Context, _ Principal, _ Target, h HTTPFailure) (*CompactionHandoff, error) {
+	f.lookups = append(f.lookups, h.Status)
+	return f.next, f.failure
+}
+func (f *handoffFixture) Clear(context.Context, Principal) error { f.cleared++; return f.failure }
+func TestCompactionHandoffCaptureAndNativeClear(t *testing.T) {
+	for _, wire := range []Wire{Chat, Responses} {
+		h, _, _, _, _ := harness(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, fixture(wire)) }, wire)
+		handoff := &handoffFixture{}
+		h.c.CompactionHandoffs = handoff
+		out := call(h, "/v1/responses/compact", `{"model":"m","input":"task"}`)
+		if out.Code != 200 {
+			t.Fatalf("%d %s", out.Code, out.Body)
+		}
+		if wire == Chat {
+			if len(handoff.captured) != 1 || handoff.captured[0].Credential.AccountID != "a" || handoff.captured[0].Target.Wire != Chat {
+				t.Fatal("missing physical identity")
+			}
+		} else if handoff.cleared != 1 || len(handoff.captured) != 0 {
+			t.Fatal("native not cleared")
+		}
+	}
+}
+func TestCompactionQuotaHandoffSharesBudgetAndCredential(t *testing.T) {
+	for _, cap := range []int{1, 2} {
+		sends := 0
+		h, s, _, _, u := harness(t, func(w http.ResponseWriter, r *http.Request) {
+			sends++
+			if strings.HasSuffix(r.URL.Path, "/compact") {
+				w.WriteHeader(400)
+				io.WriteString(w, `{"error":{"message":"quota exhausted"}}`)
+				return
+			}
+			if r.Header.Get("Authorization") != "Bearer handoff-secret" {
+				t.Error("wrong handoff credential")
+			}
+			io.WriteString(w, fixture(Chat))
+		}, Responses)
+		handoff := &handoffFixture{next: &CompactionHandoff{Target: Target{Provider: "concrete", BaseURL: s.URL, Model: "physical-model", Wire: Chat, Auth: APIKey}, Credential: Credential{AccountID: "bound", CredentialVersion: "v1", Secret: "handoff-secret"}}}
+		h.c.CompactionHandoffs = handoff
+		router := h.c.Router.(testRouter)
+		router.route.MaxSends = cap
+		h.c.Router = router
+		out := call(h, "/v1/responses/compact", `{"model":"m","input":"task"}`)
+		if cap == 1 {
+			if out.Code != 400 || sends != 1 || len(handoff.lookups) != 0 {
+				t.Fatal("budget escaped")
+			}
+		} else if out.Code != 200 || sends != 2 || u.records[0].Sends != 2 || len(handoff.lookups) != 1 || len(handoff.captured) != 0 {
+			t.Fatalf("%d %s %+v sends%d", out.Code, out.Body, handoff, sends)
+		}
+	}
+}
+func TestCompaction404NeverLooksUpHandoff(t *testing.T) {
+	h, _, _, _, _ := harness(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/compact") {
+			w.WriteHeader(404)
+			return
+		}
+		io.WriteString(w, fixture(Responses))
+	}, Responses)
+	handoff := &handoffFixture{}
+	h.c.CompactionHandoffs = handoff
+	router := h.c.Router.(testRouter)
+	router.route.MaxSends = 2
+	h.c.Router = router
+	out := call(h, "/v1/responses/compact", `{"model":"m","input":"task"}`)
+	if out.Code != 200 || len(handoff.lookups) != 0 || len(handoff.captured) != 1 {
+		t.Fatalf("%d %s %+v", out.Code, out.Body, handoff)
+	}
+}

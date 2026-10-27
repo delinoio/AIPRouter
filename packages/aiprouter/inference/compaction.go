@@ -77,6 +77,10 @@ func (h *Handler) compactFallback(ctx context.Context, w http.ResponseWriter, p 
 	buffer := &compactBuffer{header: make(http.Header)}
 	ctx = context.WithValue(ctx, compactionRouteKey{}, route)
 	ctx = context.WithValue(ctx, compactionRetentionKey{}, retention)
+	modelState := budgetFor(rec)
+	modelState.modelMu.Lock()
+	modelSendsBefore := modelState.modelSends
+	modelState.modelMu.Unlock()
 	if e := h.execute(ctx, buffer, p, Responses, Generate, prompt, rec); e != nil {
 		return e
 	}
@@ -125,6 +129,18 @@ func (h *Handler) compactFallback(ctx context.Context, w http.ResponseWriter, p 
 	result = append(result, retention.retained...)
 	if e = h.guard(ctx, p); e != nil {
 		return e
+	}
+	modelState.modelMu.Lock()
+	modelWasSent := modelState.modelSends > modelSendsBefore
+	modelState.modelMu.Unlock()
+	if modelWasSent && h.c.CompactionHandoffs != nil && ctx.Value(compactionHandoffKey{}) == nil {
+		scope := retention.scope
+		if scope.c.AccountID == "" || scope.t.Model == "" || len(utf16.Encode([]rune(scope.t.Model))) > 512 {
+			return ErrContinuation
+		}
+		if e = h.c.CompactionHandoffs.Capture(ctx, p, scope.t, scope.c); e != nil {
+			return e
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	return json.NewEncoder(w).Encode(object{"output": result})

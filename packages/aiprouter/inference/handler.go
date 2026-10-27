@@ -454,7 +454,9 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			return e
 		}
 		var cred Credential
-		if state, ok := ctx.Value(continuationKey{}).(Continuation); ok && state.Provider != "" {
+		if handoff, ok := ctx.Value(compactionHandoffKey{}).(CompactionHandoff); ok {
+			cred = handoff.Credential
+		} else if state, ok := ctx.Value(continuationKey{}).(Continuation); ok && state.Provider != "" {
 			if t.Provider != state.Provider || t.Model != state.RoutedModel {
 				return ErrContinuation
 			}
@@ -942,6 +944,19 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					return ErrAmbiguous
 				}
 			}
+			if op == Compact {
+				fallback, handoffErr := h.tryCompactionHandoff(ctx, p, t, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: errorBody, Attempt: transientSends, Refreshed: refreshed}, b, route, rec)
+				if handoffErr != nil {
+					cancel()
+					return handoffErr
+				}
+				if fallback != nil {
+					cancel()
+					w.Header().Set("Content-Type", "application/json")
+					_, err := w.Write(fallback.body.Bytes())
+					return err
+				}
+			}
 			if op == Compact && resp.StatusCode == 404 {
 				cancel()
 				bound := Continuation{Provider: t.Provider, AccountID: cred.AccountID, Model: str(b["model"]), RoutedModel: t.Model}
@@ -1273,6 +1288,16 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 	if op == ImageGeneration || op == ImageEdit {
 		if e = h.images(ctx, p, out); e != nil {
 			return e
+		}
+	}
+	if op == Compact {
+		if !validNativeCompact(out) {
+			return &Error{502, "invalid_compaction_response", 0}
+		}
+		if h.c.CompactionHandoffs != nil && ctx.Value(compactionHandoffKey{}) == nil {
+			if err := h.c.CompactionHandoffs.Clear(ctx, p); err != nil {
+				return err
+			}
 		}
 	}
 	if op == Generate || op == Compact {
