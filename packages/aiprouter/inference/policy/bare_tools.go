@@ -3,6 +3,7 @@ package policy
 
 import (
 	"bufio"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -129,7 +130,7 @@ func repairedText(s string, calls []bareCall) string {
 }
 func callJSON(c bareCall, tools map[string]string, index int) map[string]any {
 	args, _ := json.Marshal(map[string]any{"input": c.input})
-	return map[string]any{"id": fmt.Sprintf("call_mimo_recovered_%d", index), "type": "function", "function": map[string]any{"name": tools[c.name], "arguments": string(args)}}
+	return map[string]any{"id": "call_" + rand.Text(), "type": "function", "function": map[string]any{"name": tools[c.name], "arguments": string(args)}}
 }
 
 // RepairChatResponse repairs only MiMo bare calls when that choice emitted no

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/url"
 	"sort"
 	"strings"
@@ -46,6 +47,10 @@ func decode(raw []byte) (map[string]any, error) {
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.UseNumber()
 	if err := d.Decode(&out); err != nil || out == nil {
+		return nil, ErrConfig
+	}
+	var extra any
+	if d.Decode(&extra) != io.EOF {
 		return nil, ErrConfig
 	}
 	return out, nil
@@ -102,6 +107,11 @@ func Resolve(c Config) (Resolved, error) {
 			matched = true
 		}
 	}
+	for _, choice := range list(r["baseUrlChoices"]) {
+		if endpoint(c.BaseURL) == endpoint(str(obj(choice)["baseUrl"])) && string(c.Wire) == str(r["adapter"]) {
+			matched = true
+		}
+	}
 	f := map[string]any{}
 	if matched {
 		for k, v := range r {
@@ -123,11 +133,29 @@ func Resolve(c Config) (Resolved, error) {
 				}
 			}
 			f[k] = a
-		} else if rm, om := obj(f[k]), obj(v); rm != nil && om != nil {
+		} else if rm, om := obj(f[k]), obj(v); rm != nil && om != nil && (strings.HasPrefix(k, "model") || k == "reasoningEffortMap") {
 			f[k] = mergeMap(rm, om)
 		} else {
 			f[k] = v
 		}
+	}
+
+	if x, ok := o["responsesItemIdRepair"]; ok && obj(x) == nil {
+		return Resolved{}, ErrConfig
+	}
+	if matched && c.Auth == providers.Key && flag(r["allowKeyAuthOverride"]) {
+		for k, v := range obj(r["keyAuthServiceTier"]) {
+			if _, explicit := o[k]; !explicit {
+				if old := obj(f[k]); old != nil && obj(v) != nil {
+					f[k] = mergeMap(old, obj(v))
+				} else {
+					f[k] = v
+				}
+			}
+		}
+	}
+	if o["fastEnabled"] == false || (o["fastEnabled"] == nil && flag(r["fastOptIn"])) {
+		f["supportsServiceTier"] = false
 	}
 	w := c.Wire
 	if matched && generic(w) {
@@ -243,7 +271,16 @@ func mergeMap(a, b map[string]any) map[string]any {
 		}
 	}
 	for k, v := range b {
-		if old := obj(a[k]); old != nil && obj(v) != nil {
+		old := obj(a[k])
+		if old == nil {
+			for key, value := range a {
+				if strings.EqualFold(key, k) {
+					old = obj(value)
+					break
+				}
+			}
+		}
+		if old != nil && obj(v) != nil {
 			out[k] = mergeMap(old, obj(v))
 		} else {
 			out[k] = v

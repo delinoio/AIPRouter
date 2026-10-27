@@ -247,3 +247,155 @@ func TestFreeformDeclarations(t *testing.T) {
 		t.Fatal(m)
 	}
 }
+
+func TestItemIDRepairAndToolIdentity(t *testing.T) {
+	p := preset(t, "deepseek", "deepseek-v4-flash", "", "")
+	p.Wire = providers.Responses
+	rewrite := p.NewResponseRewriter()
+	add, e := rewrite(body(t, `{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"uuid"}}`))
+	if e != nil {
+		t.Fatal(e)
+	}
+	id := str(obj(add["item"])["id"])
+	if !strings.HasPrefix(id, "rs_ocx_") {
+		t.Fatal(add)
+	}
+	delta, e := rewrite(body(t, `{"type":"response.content_part.added","output_index":0,"item_id":"uuid"}`))
+	if e != nil || delta["item_id"] != id {
+		t.Fatal(delta, e)
+	}
+	done, e := rewrite(body(t, `{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning"}}`))
+	if e != nil || obj(done["item"])["id"] != id {
+		t.Fatal(done, e)
+	}
+	tool, e := rewrite(body(t, `{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"uuid","call_id":"original"}}`))
+	if e != nil || obj(tool["item"])["id"] != "uuid" || obj(tool["item"])["call_id"] != "original" {
+		t.Fatal(tool, e)
+	}
+}
+func TestAnthropicEscapeAndRestore(t *testing.T) {
+	p := preset(t, "umans", "claude-test", "", "")
+	out := apply(t, p, `{"tools":[{"name":"Read","input_schema":{"type":"object"}}],"tool_choice":{"type":"tool","name":"Read"},"messages":[{"role":"assistant","content":[{"type":"tool_use","name":"Read","id":"a","input":{}}]}]}`)
+	if obj(list(out["tools"])[0])["name"] != "cx_Read" {
+		t.Fatal(out)
+	}
+	r, e := p.NewResponseRewriter()(body(t, `{"content":[{"type":"tool_use","name":"cx_Read","id":"a","input":{}}]}`))
+	if e != nil || obj(list(r["content"])[0])["name"] != "Read" {
+		t.Fatal(r, e)
+	}
+}
+func TestWebSearchFieldsAndPairing(t *testing.T) {
+	p := preset(t, "xai", "grok-4.7", "", "")
+	p.Wire = providers.Responses
+	out := apply(t, p, `{"tools":[{"type":"web_search","external_web_access":true,"search_context_size":"high","user_location":{"country":"US"}}],"input":[{"type":"function_call","name":"inspect","call_id":"a"}]}`)
+	tool := obj(list(out["tools"])[0])
+	if tool["external_web_access"] != nil || tool["search_context_size"] != nil || tool["user_location"] == nil {
+		t.Fatal(tool)
+	}
+	if len(list(out["input"])) != 2 || !strings.Contains(str(obj(list(out["input"])[1])["output"]), "execution status unknown") {
+		t.Fatal(out)
+	}
+}
+func TestRegistryChoicesAndAuthDefault(t *testing.T) {
+	p, _ := providers.Lookup("moonshot")
+	r, e := Resolve(Config{ProviderID: p.ID, Model: "kimi-k3", BaseURL: "https://api.moonshot.cn/v1", Wire: p.Wire, Registry: p.Metadata})
+	if e != nil || !r.TransportMatchedRegistry {
+		t.Fatal(r, e)
+	}
+	out := apply(t, r, `{"messages":[{"role":"developer","content":"rule"}]}`)
+	if obj(list(out["messages"])[0])["role"] != "system" {
+		t.Fatal(out)
+	}
+}
+func TestEmptyOutputsPreserveMedia(t *testing.T) {
+	p, e := Resolve(Config{BaseURL: "https://example.test", Wire: providers.Responses, Overrides: json.RawMessage(`{"annotateEmptyToolOutputs":true}`)})
+	if e != nil {
+		t.Fatal(e)
+	}
+	out := apply(t, p, `{"input":[{"type":"function_call_output","call_id":"a","output":" "},{"type":"function_call_output","call_id":"b","output":[{"type":"input_image","image_url":"https://example.test/a"}]}]}`)
+	a := list(out["input"])
+	if obj(a[0])["output"] != emptyOutput || len(list(obj(a[1])["output"])) != 1 {
+		t.Fatal(a)
+	}
+}
+
+// Exercise every shipped entry of the implemented classification policies against
+// outbound bodies. This asserts transformations, not registry roster presence.
+func TestShippedClassificationPolicies(t *testing.T) {
+	sampling := map[string][]string{"noTemperatureModels": {"temperature"}, "noTopPModels": {"top_p"}, "noStopModels": {"stop"}, "noPenaltyModels": {"presence_penalty", "frequency_penalty"}}
+	for _, entry := range providers.Catalog() {
+		if entry.Excluded {
+			continue
+		}
+		fields, e := decode(entry.Metadata)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for key, params := range sampling {
+			for _, model := range stringList(fields[key]) {
+				t.Run(entry.ID+"/"+key+"/"+model, func(t *testing.T) {
+					p := preset(t, entry.ID, model, "", "")
+					p.Wire = providers.Chat
+					b := map[string]any{}
+					for _, param := range params {
+						b[param] = 1
+					}
+					out, e := p.TransformRequest(b)
+					if e != nil {
+						t.Fatal(e)
+					}
+					for _, param := range params {
+						if _, ok := out[param]; ok {
+							t.Fatal(param, out)
+						}
+					}
+				})
+			}
+		}
+		for _, model := range stringList(fields["reasoningSplitModels"]) {
+			t.Run(entry.ID+"/split/"+model, func(t *testing.T) {
+				p := preset(t, entry.ID, model, "", "")
+				p.Wire = providers.Chat
+				out := apply(t, p, `{"messages":[]}`)
+				if out["reasoning_split"] != true {
+					t.Fatal(out)
+				}
+			})
+		}
+		for _, model := range stringList(fields["noReasoningModels"]) {
+			t.Run(entry.ID+"/no-reasoning/"+model, func(t *testing.T) {
+				p := preset(t, entry.ID, model, "", "")
+				p.Wire = providers.Chat
+				out := apply(t, p, `{"reasoning":{"effort":"high"},"thinking":{"type":"enabled"},"reasoning_effort":"high"}`)
+				for _, key := range []string{"reasoning", "thinking", "reasoning_effort"} {
+					if out[key] != nil {
+						t.Fatal(out)
+					}
+				}
+			})
+		}
+	}
+}
+func TestItemIDConfigReplacement(t *testing.T) {
+	p := preset(t, "deepseek", "deepseek-v4-flash", "", `{"responsesItemIdRepair":{}}`)
+	p.Wire = providers.Responses
+	r, e := p.NewResponseRewriter()(body(t, `{"output":[{"type":"message","id":"bad"}]}`))
+	if e != nil || obj(list(r["output"])[0])["id"] != "bad" {
+		t.Fatal(r, e)
+	}
+	raw, _ := providers.Lookup("deepseek")
+	_, e = Resolve(Config{BaseURL: raw.BaseURL, Wire: raw.Wire, Registry: raw.Metadata, Overrides: json.RawMessage(`{"responsesItemIdRepair":false}`)})
+	if e == nil {
+		t.Fatal("accepted obsolete bool")
+	}
+}
+func TestModelPolicyLimitsAndAxes(t *testing.T) {
+	p, e := Resolve(Config{BaseURL: "https://example.test", Model: "x", Overrides: json.RawMessage(`{"contextWindow":100,"modelMaxInputTokens":{"x":200},"defaultMaxOutputTokens":30,"modelCapabilities":{"x":{"supportsThinkingToggle":true,"supportsReasoningEffort":false,"defaultThinkingEnabled":true}},"modelReasoningEfforts":{"x":["high"]}}`)})
+	if e != nil {
+		t.Fatal(e)
+	}
+	m := p.ModelPolicy()
+	if m.MaxInputTokens == nil || *m.MaxInputTokens != 100 || m.MaxOutputTokens == nil || *m.MaxOutputTokens != 30 || len(m.ReasoningEfforts) != 0 || m.SupportsReasoning == nil || !*m.SupportsReasoning {
+		t.Fatal(m)
+	}
+}

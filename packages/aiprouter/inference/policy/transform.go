@@ -32,6 +32,9 @@ func (p Resolved) TransformRequest(body map[string]any) (map[string]any, error) 
 		e = p.responses(out)
 	case providers.Anthropic:
 		p.thinking(out)
+		if p.EscapeBuiltinToolNames() {
+			escapeAnthropicNames(out)
+		}
 	}
 	if flag(p.fields["modelSuffixBracketStrip"]) {
 		out["model"] = bracketSuffix.ReplaceAllString(p.Model, "")
@@ -136,7 +139,7 @@ func (p Resolved) sampling(b map[string]any) {
 	}
 }
 func (p Resolved) thinking(b map[string]any) {
-	cap := obj(p.modelValue("modelCapabilities"))
+	cap := p.capabilities()
 	toggle := p.in("thinkingToggleModels", false) || cap["supportsThinkingToggle"] == true
 	if p.in("noReasoningModels", false) || cap["supportsReasoning"] == false {
 		delete(b, "reasoning_effort")
@@ -230,8 +233,34 @@ func (p Resolved) thinking(b map[string]any) {
 	}
 }
 func (p Resolved) responses(b map[string]any) error {
+	if p.fields["supportsOpenAiWebSearchToolFields"] == false {
+		strip := func(tools []any) {
+			for _, x := range tools {
+				m := obj(x)
+				if m["type"] == "web_search" || m["type"] == "web_search_preview" {
+					delete(m, "external_web_access")
+					delete(m, "search_context_size")
+				}
+			}
+		}
+		strip(list(b["tools"]))
+		for _, x := range list(b["input"]) {
+			m := obj(x)
+			if m["type"] == "additional_tools" {
+				strip(list(m["tools"]))
+			}
+		}
+	}
+
 	p.sampling(b)
 	p.thinking(b)
+	if p.in("noStructuredOutputModels", true) {
+		delete(obj(b["text"]), "format")
+	}
+	if p.in("noJsonSchemaModels", true) && obj(obj(b["text"])["format"])["type"] == "json_schema" {
+		obj(b["text"])["format"] = map[string]any{"type": "json_object"}
+	}
+
 	if flag(p.fields["statelessResponses"]) {
 		for _, k := range []string{"previous_response_id", "conversation", "background", "metadata", "prompt"} {
 			delete(b, k)
