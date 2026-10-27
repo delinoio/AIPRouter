@@ -113,7 +113,7 @@ func (a *Auth) completeNative(ctx context.Context, s core.Scope, f Flow, code st
 	if e != nil || !utf8.Valid(plain) || !safeString(string(plain)) || !safeString(id) {
 		return Credential{}, ErrResponse
 	}
-	return Credential{Scope: s, Provider: "zed", AccessToken: string(plain), AccountID: id, Metadata: map[string]string{"systemId": f.Metadata["systemId"]}}, nil
+	return a.PrepareZed(ctx, s, Credential{Scope: s, Provider: "zed", AccountID: id, Zed: &ZedAccount{NativeToken: string(plain), SystemID: f.Metadata["systemId"]}})
 }
 
 var devinToken = regexp.MustCompile(`^[A-Za-z0-9._$~+/=-]+$`)

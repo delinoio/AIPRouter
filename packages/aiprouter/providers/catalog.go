@@ -212,6 +212,12 @@ func ValidateConnection(c Connection) error {
 	if c.Credential != nil && (c.Credential.Provider != c.Provider || !validScope(c.Credential.Scope) || strings.ContainsAny(c.Credential.AccessToken, "\r\n")) {
 		return ErrConnection
 	}
+	if c.Provider == "zed" && (c.Credential == nil || !validZed(*c.Credential)) {
+		return ErrConnection
+	}
+	if c.Provider == "google-antigravity" && (c.Credential == nil || !safeString(c.Credential.ProjectID)) {
+		return ErrConnection
+	}
 	return nil
 }
 func contains[T comparable](list []T, v T) bool {
@@ -236,6 +242,10 @@ func Resolve(c Connection, model string, inbound Inbound) (Route, error) {
 	r := Route{Preset: p, BaseURL: p.BaseURL, Wire: p.Wire, Model: model, Headers: make(http.Header), ResponsesPath: p.ResponsesPath, ChatCompletionsPath: p.ChatCompletionsPath}
 	if c.BaseURL != "" {
 		r.BaseURL = c.BaseURL
+	}
+	// The pinned OpenRouter service-tier evidence applies only to its canonical destination.
+	if p.ID == "openrouter" && strings.TrimRight(r.BaseURL, "/") != "https://openrouter.ai/api/v1" {
+		r.Preset.ModelSupportsServiceTier = nil
 	}
 	if r.Model == "" {
 		r.Model = c.DefaultModel

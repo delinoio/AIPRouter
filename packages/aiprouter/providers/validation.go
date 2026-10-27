@@ -73,6 +73,10 @@ func (a *Auth) ValidateRemote(ctx context.Context, s core.Scope, c Connection) (
 		}
 	}
 	d := data.ModelDiscovery
+	// A changed destination must not send its credential to a catalog-owned absolute URL.
+	if p.BaseURL != "" && strings.TrimRight(r.BaseURL, "/") != strings.TrimRight(p.BaseURL, "/") {
+		d = DiscoverySpec{}
+	}
 	if d.Format != "" {
 		return unknown, nil
 	}
@@ -86,7 +90,11 @@ func (a *Auth) ValidateRemote(ctx context.Context, s core.Scope, c Connection) (
 		}
 	case Google:
 		if strings.Contains(base, "generativelanguage.googleapis.com") {
-			endpoint = base + "/models"
+			if strings.TrimRight(base, "/") == "https://generativelanguage.googleapis.com" {
+				endpoint = base + "/v1beta/models"
+			} else {
+				endpoint = base + "/models"
+			}
 		} else {
 			return unknown, nil
 		}

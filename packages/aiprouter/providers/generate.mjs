@@ -13,6 +13,14 @@ if (
   }).trim() !== revision
 )
   throw Error("wrong revision");
+if (
+  execFileSync(
+    "git",
+    ["-C", root, "status", "--porcelain", "--untracked-files=no"],
+    { encoding: "utf8" },
+  ).trim()
+)
+  throw Error("upstream must be clean");
 registerHooks({
   load(u, c, next) {
     const r = next(u, c);
@@ -44,7 +52,15 @@ writeFileSync(
   resolve(out, "catalog.json"),
   JSON.stringify(
     rows,
-    (k, v) => (typeof v === "function" ? { function: v.name } : v),
+    (k, v) => {
+      if (typeof v !== "function") return v;
+      if (
+        k !== "modelServiceTierCapabilityBaseUrlGuard" ||
+        v.name !== "isCanonicalOpenRouterTarget"
+      )
+        throw Error("unmapped catalog function");
+      return { function: v.name };
+    },
     2,
   ) + "\n",
 );
@@ -52,4 +68,10 @@ writeFileSync(
   resolve(out, "LICENSE-MIT"),
   readFileSync(resolve(root, "LICENSE")),
 );
-console.log(rows.length);
+console.log(
+  JSON.stringify({
+    revision,
+    presets: rows.length,
+    wires: [...new Set(rows.map((row) => row.adapter))].sort(),
+  }),
+);

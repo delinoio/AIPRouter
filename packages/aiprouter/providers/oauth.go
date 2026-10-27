@@ -226,12 +226,26 @@ func (a *Auth) Complete(ctx context.Context, s core.Scope, f Flow, code, state s
 	}
 	return c, e
 }
-func (a *Auth) Refresh(ctx context.Context, s core.Scope, p string, c Credential) (Credential, error) {
+func (a *Auth) Refresh(ctx context.Context, s core.Scope, p string, c Credential) (result Credential, err error) {
+	defer func() {
+		if err == nil {
+			if ctx.Err() != nil {
+				result = Credential{}
+				err = ctx.Err()
+			} else if c.AccountID != "" && result.AccountID != "" && c.AccountID != result.AccountID {
+				result = Credential{}
+				err = ErrReauthenticate
+			}
+		}
+	}()
 	if e := ctx.Err(); e != nil {
 		return Credential{}, e
 	}
 	if !validScope(s) || s != c.Scope || p != c.Provider {
 		return Credential{}, ErrScope
+	}
+	if p == "zed" {
+		return a.PrepareZed(ctx, s, c)
 	}
 	if !safeString(c.RefreshToken) {
 		return Credential{}, ErrReauthenticate

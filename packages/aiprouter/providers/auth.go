@@ -2,7 +2,6 @@
 package providers
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,9 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
-	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -68,6 +65,7 @@ type Credential struct {
 	APIBaseURL   string            `json:"apiBaseUrl,omitempty"`
 	ProjectID    string            `json:"projectId,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
+	Zed          *ZedAccount       `json:"zed,omitempty"`
 }
 type Flow struct {
 	Scope       core.Scope        `json:"scope"`
@@ -166,72 +164,15 @@ func authFailure(status int, m map[string]any) error {
 
 // request never includes untrusted response bodies or transport errors in diagnostics.
 func (a *Auth) request(ctx context.Context, s core.Scope, method, endpoint string, body any, headers http.Header) (map[string]any, int, error) {
-	if !validScope(s) {
-		return nil, 0, ErrScope
-	}
-	if a.executor == nil {
-		return nil, 0, ErrNetwork
-	}
-	if e := ctx.Err(); e != nil {
-		return nil, 0, e
-	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	var data []byte
-	ct := "application/json"
-	switch b := body.(type) {
-	case url.Values:
-		data = []byte(b.Encode())
-		ct = "application/x-www-form-urlencoded"
-	case nil:
-	default:
-		var e error
-		data, e = json.Marshal(body)
-		if e != nil {
-			return nil, 0, ErrResponse
-		}
-	}
-	req, e := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(data))
+	b, status, _, e := a.requestBytes(ctx, s, method, endpoint, body, headers, 256*1024)
 	if e != nil {
-		return nil, 0, ErrResponse
-	}
-	req.Header = headers.Clone()
-	if req.Header == nil {
-		req.Header = make(http.Header)
-	}
-	req.Header.Set("Accept", "application/json")
-	if req.Header.Get("User-Agent") == "" {
-		req.Header.Set("User-Agent", "AIPRouter")
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", ct)
-	}
-	res, e := a.executor.Do(ctx, s, req)
-	if e != nil {
-		if ctx.Err() != nil {
-			return nil, 0, ctx.Err()
-		}
-		return nil, 0, ErrNetwork
-	}
-	if res == nil || res.Body == nil {
-		return nil, 0, ErrResponse
-	}
-	defer res.Body.Close()
-	if res.StatusCode >= 300 && res.StatusCode < 400 {
-		return nil, res.StatusCode, ErrResponse
-	}
-	b, e := io.ReadAll(io.LimitReader(res.Body, 256*1024+1))
-	if ctx.Err() != nil {
-		return nil, res.StatusCode, ctx.Err()
-	}
-	if e != nil || len(b) > 256*1024 {
-		return nil, res.StatusCode, ErrResponse
+		return nil, status, e
 	}
 	m := map[string]any{}
-	if json.Unmarshal(b, &m) != nil && res.StatusCode >= 200 && res.StatusCode < 300 {
-		return nil, res.StatusCode, ErrResponse
+	if json.Unmarshal(b, &m) != nil && status >= 200 && status < 300 {
+		return nil, status, ErrResponse
 	}
-	return m, res.StatusCode, nil
+	return m, status, nil
 }
 func (a *Auth) send(ctx context.Context, s core.Scope, method, endpoint string, body any, h http.Header) (map[string]any, error) {
 	m, status, e := a.request(ctx, s, method, endpoint, body, h)
