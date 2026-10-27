@@ -176,9 +176,29 @@ func parseDocument(b []byte, f Format) (map[string]any, error) {
 	var e error
 	switch f {
 	case JSON, JSON5:
-		e = json5.Unmarshal(b, &doc)
+		var value any
+		e = json5.Unmarshal(b, &value)
+		if e == nil {
+			if m, ok := value.(map[string]any); ok {
+				doc = m
+			} else if rows, ok := value.([]any); ok {
+				doc = map[string]any{"$sequence": rows}
+			} else if value != nil {
+				e = errors.New("invalid JSON root")
+			}
+		}
 	case YAML:
-		e = yaml.Unmarshal(b, &doc)
+		var value any
+		e = yaml.Unmarshal(b, &value)
+		if e == nil {
+			if mapping, ok := value.(map[string]any); ok {
+				doc = mapping
+			} else if sequence, ok := value.([]any); ok {
+				doc = map[string]any{"$sequence": sequence}
+			} else if value != nil {
+				e = errors.New("invalid YAML root")
+			}
+		}
 	case TOML:
 		e = toml.Unmarshal(b, &doc)
 	default:
@@ -326,6 +346,75 @@ func yamlPatch(b []byte, path []string, value any, replace bool) ([]byte, error)
 	n := root.Content[0]
 	offsets := lineOffsets(b)
 	for i, k := range path {
+		if strings.HasPrefix(k, "[") && strings.HasSuffix(k, "]") {
+			if n.Kind != yaml.SequenceNode || (n.Style&yaml.FlowStyle != 0 && len(n.Content) > 0) {
+				return nil, errors.New("managed YAML selector requires a block sequence")
+			}
+			pair := strings.SplitN(k[1:len(k)-1], "=", 2)
+			if len(pair) != 2 {
+				return nil, errors.New("invalid YAML selector")
+			}
+			var found *yaml.Node
+			for _, item := range n.Content {
+				if item.Kind != yaml.MappingNode {
+					return nil, errors.New("invalid YAML sequence entry")
+				}
+				for j := 0; j < len(item.Content); j += 2 {
+					if item.Content[j].Value == pair[0] && item.Content[j+1].Value == pair[1] {
+						if found != nil {
+							return nil, errors.New("ambiguous YAML selector")
+						}
+						found = item
+					}
+				}
+			}
+			if found != nil {
+				if i < len(path)-1 {
+					n = found
+					continue
+				}
+				if !replace {
+					return nil, errors.New("client row already exists without ownership")
+				}
+				return nil, errors.New("restore the owned YAML row before replacement")
+			}
+			var row any = value
+			if i != len(path)-1 {
+				row = wrap(path[i+1:], value)
+				mapping, ok := row.(map[string]any)
+				if !ok {
+					return nil, errors.New("unsupported YAML selector nesting")
+				}
+				mapping[pair[0]] = pair[1]
+			}
+			encoded, e := yaml.Marshal([]any{row})
+			if e != nil {
+				return nil, e
+			}
+			if n.Style&yaml.FlowStyle != 0 {
+				start := offsets[n.Line-1] + n.Column - 1
+				return append(append(append([]byte{}, b[:start]...), encoded...), b[start+2:]...), nil
+			}
+			encoded = indentLines(encoded, n.Column-1)
+			start := offsets[n.Line-1]
+			return append(append(append([]byte{}, b[:start]...), encoded...), b[start:]...), nil
+		}
+		if n.Kind == yaml.MappingNode && n.Style&yaml.FlowStyle != 0 && len(n.Content) == 0 {
+			start := offsets[n.Line-1] + n.Column - 1
+			rowStart := offsets[n.Line-1]
+			indent := 0
+			for rowStart+indent < len(b) && b[rowStart+indent] == ' ' {
+				indent++
+			}
+			encoded, e := yaml.Marshal(wrap(path[i:], value))
+			if e != nil {
+				return nil, e
+			}
+			if start > rowStart+indent {
+				encoded = append([]byte{'\n'}, indentLines(encoded, indent+2)...)
+			}
+			return append(append(append([]byte{}, b[:start]...), encoded...), b[start+2:]...), nil
+		}
 		if n.Kind != yaml.MappingNode || n.Style&yaml.FlowStyle != 0 {
 			return nil, errors.New("managed YAML parent must use a block mapping")
 		}
@@ -424,7 +513,40 @@ func tomlPatch(b []byte, path []string, value any, replace bool) ([]byte, error)
 	if e != nil {
 		return nil, e
 	}
-	out := append(append(append([]byte{}, b...), '\n'), encoded...)
+	var out []byte
+	if len(path) == 1 {
+		if _, isMap := value.(map[string]any); !isMap {
+			out = append(append([]byte{}, encoded...), b...)
+		}
+	}
+	if out == nil {
+		// Marshal emits parent table headers. Existing parent tables must not
+		// be declared twice; retain only newly introduced child headers.
+		lines := strings.Split(string(encoded), "\n")
+		var kept []string
+		for _, line := range lines {
+			skip := false
+			for i := 1; i < len(path); i++ {
+				plain := "[" + strings.Join(path[:i], ".") + "]"
+				if line == plain {
+					var cur any = doc
+					for _, k := range path[:i] {
+						m, ok := cur.(map[string]any)
+						if !ok {
+							cur = nil
+							break
+						}
+						cur = m[k]
+					}
+					skip = cur != nil
+				}
+			}
+			if !skip {
+				kept = append(kept, line)
+			}
+		}
+		out = append(append(append([]byte{}, b...), '\n'), []byte(strings.Join(kept, "\n"))...)
+	}
 	if _, e = parseDocument(out, TOML); e != nil {
 		return nil, fmt.Errorf("TOML source-preserving insertion refused: %w", e)
 	}

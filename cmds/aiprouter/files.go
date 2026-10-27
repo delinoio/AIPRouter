@@ -34,6 +34,8 @@ type Backup struct {
 	Existed       bool
 }
 type Change struct {
+	Check         func() error
+	Locks         []string
 	Path          string
 	Before, After []byte
 	Existed       bool
@@ -82,11 +84,14 @@ func readConfig(path string) ([]byte, bool, error) {
 	if err != nil || !s.Mode().IsRegular() || s.Size() > MaxConfigBytes {
 		return nil, false, errors.New("configuration must be a readable regular file of at most 4 MiB")
 	}
-	f, err := os.Open(path)
+	f, err := openConfig(path)
 	if err != nil {
 		return nil, false, errors.New("cannot open configuration")
 	}
 	defer f.Close()
+	if e := validateLinks(f); e != nil {
+		return nil, false, e
+	}
 	opened, err := f.Stat()
 	if err != nil || !os.SameFile(s, opened) {
 		return nil, false, ErrConflict
@@ -101,7 +106,7 @@ func readConfig(path string) ([]byte, bool, error) {
 	}
 	return b, true, nil
 }
-func (d Disk) write(path string, b []byte) error {
+func (d Disk) write(path string, b []byte, validators ...func() error) error {
 	if len(b) > MaxConfigBytes {
 		return errors.New("configuration exceeds 4 MiB")
 	}
@@ -134,6 +139,11 @@ func (d Disk) write(path string, b []byte) error {
 	}
 	if err = safeParents(path); err != nil {
 		return err
+	}
+	for _, validate := range validators {
+		if e := validate(); e != nil {
+			return e
+		}
 	}
 	return os.Rename(tmp, path)
 }
@@ -180,19 +190,96 @@ func Preview(out io.Writer, changes []Change) {
 		fmt.Fprintf(out, "%s\n  fields: %v\n  before: %s\n  after: %s\n  values: [redacted]\n", c.Path, c.Fields, digest(c.Before), digest(c.After))
 	}
 }
+
+type Pending struct {
+	Record  Record   `json:"record"`
+	Desired State    `json:"desired"`
+	Locks   []string `json:"locks,omitempty"`
+}
+
+func copyState(s State) State {
+	data, _ := json.Marshal(s)
+	var out State
+	_ = json.Unmarshal(data, &out)
+	return out
+}
+func updatedRecord(s State, client, profile string, changes []Change) Record {
+	record := Record{Profile: profile, Client: client}
+	for _, c := range changes {
+		b := Backup{c.Path, c.Before, c.After, c.Existed}
+		if prior, ok := s.Records[client]; ok {
+			for _, old := range prior.Files {
+				if old.Path == b.Path {
+					b.Before = old.Before
+					b.Existed = old.Existed
+				}
+			}
+		}
+		record.Files = append(record.Files, b)
+	}
+	return record
+}
 func (d Disk) Apply(s *State, client, profile string, changes []Change, prompt Prompter) error {
 	if len(changes) == 0 {
 		return errors.New("no configuration changes")
 	}
+	remote := false
 	for _, c := range changes {
-		if c.RemoteKey && !prompt.Confirm("Store the remote API key in this client's protected settings (separate from the OS store)?") {
-			return errors.New("remote-key storage declined")
-		}
+		remote = remote || c.RemoteKey
+	}
+	if remote && !prompt.Confirm("Store the remote API key in this client's protected settings (separate from the OS store)?") {
+		return errors.New("remote-key storage declined")
 	}
 	if !prompt.Confirm("Apply the displayed settings changes and save protected recovery backups?") {
 		return errors.New("settings changes declined")
 	}
+	desired := copyState(*s)
+	desired.Records[client] = updatedRecord(*s, client, profile, changes)
+	desired.Active[client] = profile
+	return d.transaction(s, desired, changes, client, profile)
+}
+func (d Disk) ChangePort(s *State, next Profile, plans map[string][]Change) error {
+	desired := copyState(*s)
+	desired.Profiles[next.Name] = next
+	var all []Change
+	for client, changes := range plans {
+		desired.Records[client] = updatedRecord(*s, client, next.Name, changes)
+		all = append(all, changes...)
+	}
+	if len(all) == 0 {
+		if e := d.Save(desired); e != nil {
+			return e
+		}
+		*s = desired
+		return nil
+	}
+	return d.transaction(s, desired, all, "port-change", next.Name)
+}
+
+// The journal contains the complete intended state and every before/after file.
+// A crash cannot commit a port or profile switch for only some affected clients.
+func (d Disk) transaction(s *State, desired State, changes []Change, client, profile string) error {
+	var lockPaths []string
 	for _, c := range changes {
+		lockPaths = append(lockPaths, c.Locks...)
+	}
+	release, e := d.nativeLocks(lockPaths)
+	if e != nil {
+		return e
+	}
+	defer release()
+	record := Record{Client: client, Profile: profile}
+	seen := map[string]bool{}
+	for _, c := range changes {
+		if c.Check != nil {
+			if e := c.Check(); e != nil {
+				return e
+			}
+		}
+		if seen[c.Path] {
+			return errors.New("transaction contains competing destinations")
+		}
+		seen[c.Path] = true
 		b, exists, e := readConfig(c.Path)
 		if e != nil {
 			return e
@@ -200,17 +287,15 @@ func (d Disk) Apply(s *State, client, profile string, changes []Change, prompt P
 		if exists != c.Existed || !bytes.Equal(b, c.Before) {
 			return ErrConflict
 		}
-	}
-	// Durable pending evidence precedes the first client write. Recovery never
-	// guesses whether a partial multi-file operation committed.
-	record := Record{Profile: profile, Client: client}
-	for _, c := range changes {
 		record.Files = append(record.Files, Backup{c.Path, c.Before, c.After, c.Existed})
 	}
 	pending := filepath.Join(d.Root, "pending.json")
-	b, _ := json.Marshal(record)
-	if err := d.write(pending, b); err != nil {
-		return err
+	if exists(pending) {
+		return errors.New("unfinished transaction requires recovery")
+	}
+	data, _ := json.Marshal(Pending{Record: record, Desired: desired, Locks: lockPaths})
+	if e := d.write(pending, data); e != nil {
+		return e
 	}
 	for _, c := range changes {
 		current, exists, e := readConfig(c.Path)
@@ -220,27 +305,21 @@ func (d Disk) Apply(s *State, client, profile string, changes []Change, prompt P
 		if exists != c.Existed || !bytes.Equal(current, c.Before) {
 			return ErrConflict
 		}
-		if err := d.write(c.Path, c.After); err != nil {
+		if e = d.write(c.Path, c.After, func() error {
+			if c.Check != nil {
+				if e := c.Check(); e != nil {
+					return e
+				}
+			}
+			return compareFile(c.Path, c.Before, c.Existed)()
+		}); e != nil {
 			return errors.New("settings write failed; pending recovery retained")
 		}
 	}
-	// Profile switches retain the original backup, while tracking the newly
-	// applied bytes. This keeps disconnect from resurrecting an obsolete key.
-	if prior, ok := s.Records[client]; ok {
-		for i := range record.Files {
-			for _, old := range prior.Files {
-				if old.Path == record.Files[i].Path {
-					record.Files[i].Before = old.Before
-					record.Files[i].Existed = old.Existed
-				}
-			}
-		}
+	if e := d.Save(desired); e != nil {
+		return e
 	}
-	s.Records[client] = record
-	s.Active[client] = profile
-	if err := d.Save(*s); err != nil {
-		return err
-	}
+	*s = desired
 	return os.Remove(pending)
 }
 func restoreBytes(b Backup, current []byte) ([]byte, error) {
@@ -269,6 +348,15 @@ func (d Disk) Restore(s *State, client string) error {
 	if !ok {
 		return nil
 	}
+	var locks []string
+	for _, b := range r.Files {
+		locks = append(locks, nativeLockPaths(r.Client, b.Path)...)
+	}
+	release, e := d.nativeLocks(locks)
+	if e != nil {
+		return e
+	}
+	defer release()
 	type restored struct {
 		b               Backup
 		current, result []byte
@@ -297,7 +385,7 @@ func (d Disk) Restore(s *State, client string) error {
 			return ErrConflict
 		}
 		if f.b.Existed {
-			if e = d.write(f.b.Path, f.result); e != nil {
+			if e = d.write(f.b.Path, f.result, compareFile(f.b.Path, f.current, true)); e != nil {
 				return e
 			}
 		} else if e = os.Remove(f.b.Path); e != nil {
@@ -307,4 +395,17 @@ func (d Disk) Restore(s *State, client string) error {
 	delete(s.Records, client)
 	delete(s.Active, client)
 	return d.Save(*s)
+}
+
+func compareFile(path string, expected []byte, expectedExists bool) func() error {
+	return func() error {
+		current, exists, e := readConfig(path)
+		if e != nil {
+			return e
+		}
+		if exists != expectedExists || !bytes.Equal(current, expected) {
+			return ErrConflict
+		}
+		return nil
+	}
 }

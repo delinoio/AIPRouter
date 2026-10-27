@@ -232,6 +232,27 @@ func (r Resolver) Resolve(id string) (string, error) {
 		if json.Unmarshal(b, &v) != nil || v.Current == nil || *v.Current < 0 {
 			return "", errors.New("Aside active account is unknown")
 		}
+		var manifest map[string]json.RawMessage
+		_ = json.Unmarshal(b, &manifest)
+		if accounts, ok := manifest["accounts"]; ok {
+			var rows []struct {
+				ID      *int  `json:"id"`
+				Current *bool `json:"current"`
+			}
+			if json.Unmarshal(accounts, &rows) != nil || len(rows) < 1 || len(rows) > 128 {
+				return "", errors.New("invalid Aside account registry")
+			}
+			seen := map[int]bool{}
+			for _, row := range rows {
+				if row.ID == nil || *row.ID < 0 || seen[*row.ID] || (row.Current != nil && *row.Current != (*row.ID == *v.Current)) {
+					return "", errors.New("invalid or duplicate Aside account")
+				}
+				seen[*row.ID] = true
+			}
+			if !seen[*v.Current] {
+				return "", errors.New("Aside current account is not registered")
+			}
+		}
 		root = join(root, "u", fmt.Sprint(*v.Current))
 		file = "models.json"
 	case "raycast":

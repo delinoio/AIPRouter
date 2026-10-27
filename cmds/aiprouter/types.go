@@ -107,7 +107,9 @@ func (RealClock) Wait(ctx context.Context, d time.Duration) error {
 		return nil
 	}
 }
-func credentialID(p Profile) string { return "profile/" + p.Name }
+func credentialID(p Profile) string {
+	return "profile/" + digest([]byte(p.Server))[:16] + "/" + p.Name + "/" + p.KeyID
+}
 func revokeHint(p Profile) string {
 	return fmt.Sprintf("Revoke CLI key %s in %s (API keys for organization %s).", p.KeyID, p.Server, p.Organization)
 }

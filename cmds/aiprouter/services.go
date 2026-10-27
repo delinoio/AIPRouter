@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -62,7 +63,7 @@ func (s UserServices) Install(ctx context.Context, p Profile, executable, stateR
 			quoted[i] = systemdQuote(a)
 		}
 		unit := "[Unit]\nDescription=AIPRouter loopback relay\nAfter=network-online.target\n[Service]\nType=simple\nExecStart=" + strings.Join(quoted, " ") + "\nRestart=on-failure\nRestartSec=5\nUMask=0077\n[Install]\nWantedBy=default.target\n"
-		if e := s.Disk.write(s.path(p), []byte(unit)); e != nil {
+		if e := s.writeService(p, []byte(unit)); e != nil {
 			return e
 		}
 		if _, e := s.Runner.Run(ctx, "systemctl", "--user", "daemon-reload"); e != nil {
@@ -79,7 +80,7 @@ func (s UserServices) Install(ctx context.Context, p Profile, executable, stateR
 		if _, e := strconv.Atoi(s.UID); e != nil {
 			return errors.New("invalid user service UID")
 		}
-		if e := s.Disk.write(s.path(p), []byte(plist)); e != nil {
+		if e := s.writeService(p, []byte(plist)); e != nil {
 			return e
 		}
 		_, e := s.Runner.Run(ctx, "launchctl", "bootstrap", "gui/"+s.UID, s.path(p))
@@ -130,7 +131,23 @@ func (s UserServices) Status(ctx context.Context, p Profile) (string, error) {
 	case "linux":
 		return s.Runner.Run(ctx, "systemctl", "--user", "show", s.name(p)+".service", "--property=ActiveState,SubState")
 	case "darwin":
-		return s.Runner.Run(ctx, "launchctl", "print", "gui/"+s.UID+"/"+s.name(p))
+		output, e := s.Runner.Run(ctx, "launchctl", "print", "gui/"+s.UID+"/"+s.name(p))
+		if e != nil {
+			return "", e
+		}
+		var status []string
+		// launchctl print can include inherited environment variables. Expose
+		// only process state, never the complete native diagnostic document.
+		for _, line := range strings.Split(output, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "state = ") || strings.HasPrefix(line, "pid = ") || strings.HasPrefix(line, "last exit code = ") {
+				status = append(status, line)
+			}
+		}
+		if len(status) == 0 {
+			return "service registered", nil
+		}
+		return strings.Join(status, "\n"), nil
 	case "windows":
 		return s.Runner.Run(ctx, "schtasks.exe", "/Query", "/TN", s.name(p), "/FO", "LIST")
 	}
@@ -162,16 +179,27 @@ func (s UserServices) Remove(ctx context.Context, p Profile) error {
 		_, e := s.Runner.Run(ctx, "systemctl", "--user", "daemon-reload")
 		return e
 	case "darwin":
-		if e := s.Stop(ctx, p); e != nil {
-			return e
+		_ = s.Stop(ctx, p)
+		e := os.Remove(s.path(p))
+		if os.IsNotExist(e) {
+			return nil
 		}
-		return os.Remove(s.path(p))
+		return e
 	case "windows":
-		if e := s.Stop(ctx, p); e != nil {
-			return e
-		}
+		_ = s.Stop(ctx, p)
 		_, e := s.Runner.Run(ctx, "schtasks.exe", "/Delete", "/TN", s.name(p), "/F")
 		return e
 	}
 	return fmt.Errorf("unsupported service OS")
+}
+
+func (s UserServices) writeService(p Profile, content []byte) error {
+	before, exists, e := readConfig(s.path(p))
+	if e != nil {
+		return e
+	}
+	if exists && !bytes.Equal(before, content) {
+		return errors.New("service definition differs from the proposed definition; preserve it and remove the old service explicitly")
+	}
+	return s.Disk.write(s.path(p), content)
 }

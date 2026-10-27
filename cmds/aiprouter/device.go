@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -42,7 +43,7 @@ func (c Connector) Connect(ctx context.Context, p Profile, deviceName string) (P
 	}
 	origin, _ := url.Parse(p.Server)
 	approval, e := url.Parse(d.URL)
-	if e != nil || approval.Scheme != origin.Scheme || approval.Host != origin.Host || approval.User != nil || d.Secret == "" || d.ID == "" || d.Code == "" || !d.Expires.After(started) || d.Expires.After(started.Add(10*time.Minute+time.Second)) {
+	if e != nil || approval.Scheme != origin.Scheme || approval.Host != origin.Host || approval.User != nil || strings.Contains(d.URL, d.Secret) || strings.ContainsAny(d.Code, "\r\n\x1b") || len(d.Code) > 128 || d.Secret == "" || d.ID == "" || d.Code == "" || !d.Expires.After(started) || d.Expires.After(started.Add(10*time.Minute+time.Second)) {
 		return p, errors.New("server returned an invalid device authorization")
 	}
 	fmt.Fprintf(c.Output, "Open %s\nApproval code: %s\n", d.URL, d.Code)

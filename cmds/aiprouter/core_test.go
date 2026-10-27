@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -75,7 +76,7 @@ func (a *mockAPI) Poll(context.Context, Device) (Grant, error) {
 	return Grant{DeviceApproved, "key-id", "REMOTE_SECRET", "org"}, nil
 }
 func (a *mockAPI) Confirm(context.Context, Device) error {
-	if a.store.values["profile/test"] != "REMOTE_SECRET" {
+	if a.store.values[credentialID(Profile{Name: "test", Server: "https://router.test", KeyID: "key-id"})] != "REMOTE_SECRET" {
 		return errors.New("not stored")
 	}
 	a.confirmed = true
@@ -224,7 +225,7 @@ type roundTrip func(*http.Request) (*http.Response, error)
 
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 func TestRelayBoundaryAndCredentialReplacement(t *testing.T) {
-	store := &memoryStore{values: map[string]string{"profile/test": "REMOTE_SECRET"}}
+	store := &memoryStore{values: map[string]string{credentialID(testProfile()): "REMOTE_SECRET"}}
 	calls := 0
 	transport := roundTrip(func(r *http.Request) (*http.Response, error) {
 		calls++
@@ -266,4 +267,33 @@ func realTemp(t *testing.T) string {
 		t.Fatal(e)
 	}
 	return p
+}
+func TestFixedPortConflictDoesNotChooseAnotherPort(t *testing.T) {
+	listener, e := net.Listen("tcp4", "127.0.0.1:0")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer listener.Close()
+	p := testProfile()
+	p.Port = listener.Addr().(*net.TCPAddr).Port
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	e = RunRelay(ctx, p, &memoryStore{})
+	if e == nil || !strings.Contains(e.Error(), "fixed loopback port") {
+		t.Fatal("port conflict did not fail clearly")
+	}
+}
+func TestCredentialIdentitySeparatesServerAndIssuedKey(t *testing.T) {
+	p := testProfile()
+	p.KeyID = "key-one"
+	other := p
+	other.KeyID = "key-two"
+	if credentialID(p) == credentialID(other) {
+		t.Fatal("keys collide")
+	}
+	other = p
+	other.Server = "https://other.test"
+	if credentialID(p) == credentialID(other) {
+		t.Fatal("servers collide")
+	}
 }

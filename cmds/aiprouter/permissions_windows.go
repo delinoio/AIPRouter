@@ -3,7 +3,7 @@ package main
 
 import (
 	"errors"
-	"os/exec"
+	"golang.org/x/sys/windows"
 	"os/user"
 )
 
@@ -12,12 +12,21 @@ func (NativeProtector) Protect(path string, dir bool) error {
 	if e != nil {
 		return errors.New("cannot resolve Windows owner for ACL")
 	}
-	grant := "*" + u.Uid + ":F"
+	inheritance := ""
 	if dir {
-		grant = "*" + u.Uid + ":(OI)(CI)F"
+		inheritance = "OICI"
 	}
-	// Protect the empty temporary file before writing any secret-bearing bytes.
-	if exec.Command("icacls.exe", path, "/inheritance:r", "/grant:r", grant).Run() != nil {
+	// Replace the complete DACL, including pre-existing explicit grants. An
+	// inheritance-only edit would leave another user's explicit access intact.
+	sd, e := windows.SecurityDescriptorFromString("D:P(A;" + inheritance + ";FA;;;" + u.Uid + ")")
+	if e != nil {
+		return errors.New("cannot construct owner-only Windows ACL")
+	}
+	acl, _, e := sd.DACL()
+	if e != nil {
+		return errors.New("cannot inspect owner-only Windows ACL")
+	}
+	if e = windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil); e != nil {
 		return errors.New("cannot apply owner-only Windows ACL")
 	}
 	return nil
