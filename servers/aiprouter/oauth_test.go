@@ -613,6 +613,21 @@ func TestProviderConfigurationDrivesComposedResponsesSend(t *testing.T) {
 	if recorder.Code != 200 || sent.Load() != 1 {
 		t.Fatalf("composed send status=%d sends=%d body=%s", recorder.Code, sent.Load(), recorder.Body.String())
 	}
+	// A model-specific wire must also replace the custom provider's legacy Chat
+	// default while retaining the independently configured endpoint and headers.
+	_, err = m.UpdateProviderConnection(ctx, connect.NewRequest(&v1.UpdateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ConnectionId: created.Msg.Connection.Id, Configuration: &v1.ProviderConfiguration{ModelWires: map[string]v1.ProviderWire{"model": v1.ProviderWire_PROVIDER_WIRE_RESPONSES}, ResponsesPath: ptr("/custom/responses")}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"model","messages":[{"role":"user","content":"hello"}]}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+key)
+	recorder = httptest.NewRecorder()
+	srv.serveInference(recorder, req)
+	if recorder.Code != 200 || sent.Load() != 2 {
+		t.Fatalf("per-model composed send status=%d sends=%d body=%s", recorder.Code, sent.Load(), recorder.Body.String())
+	}
+
 }
 
 func TestProviderJEVConfigurationPersistsAndClears(t *testing.T) {
@@ -665,5 +680,66 @@ func TestProviderExaConnectionUsesPersonalFixedDestination(t *testing.T) {
 	_, err = m.UpdateProviderConnection(ctx, connect.NewRequest(&v1.UpdateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ConnectionId: created.Msg.Connection.Id, BaseUrl: ptr("https://other.example")}))
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("Exa credential redirected: %v", err)
+	}
+}
+
+func TestProviderConfigurationExplicitFalseOverridesPresetAtRuntime(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	created, err := m.CreateProviderConnection(ctx, connect.NewRequest(&v1.CreateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ProviderId: "volcengine-coding-plan", Name: "reasoning policy", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, ApiKey: ptr("private-key")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{"model": "model", "input": []any{map[string]any{"type": "reasoning", "summary": []any{}}, map[string]any{"role": "user", "content": "hello"}}}
+	for _, explicitFalse := range []bool{false, true} {
+		if explicitFalse {
+			_, err = m.UpdateProviderConnection(ctx, connect.NewRequest(&v1.UpdateProviderConnectionRequest{OrganizationId: sc.OrganizationID, ConnectionId: created.Msg.Connection.Id, Configuration: &v1.ProviderConfiguration{Policy: &v1.ProviderPolicyOverrides{DropResponsesReasoningItems: ptr(false)}}}))
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		var saved providerData
+		if err = m.get(ctx, sc, providerKind, created.Msg.Connection.Id, &saved); err != nil {
+			t.Fatal(err)
+		}
+		target, err := targetFor(saved, "model")
+		if err != nil || target.Policy == nil {
+			t.Fatalf("policy projection: %v", err)
+		}
+		output, err := target.Policy.TransformRequest(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := len(output["input"].([]any))
+		want := 1
+		if explicitFalse {
+			want = 2
+		}
+		if count != want {
+			t.Fatalf("explicit false=%v input items=%d want=%d", explicitFalse, count, want)
+		}
+	}
+}
+
+func TestProviderConfigurationStructuredItemRepairPresence(t *testing.T) {
+	for _, repair := range []*v1.ResponsesItemIdRepair{{}, {Message: []string{"legacy-message"}, RepairInvalidIds: ptr(false)}} {
+		d := providerData{Metadata: &v1.ProviderConnection{ProviderId: "custom", Configuration: &v1.ProviderConfiguration{Policy: &v1.ProviderPolicyOverrides{ResponsesItemIdRepair: repair}}}}
+		if err := validateProviderConfiguration("custom", d.Metadata.Configuration); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := providerPolicyOverrides(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if json.Unmarshal(raw, &fields) != nil {
+			t.Fatal("invalid policy JSON")
+		}
+		nested, ok := fields["responsesItemIdRepair"].(map[string]any)
+		if !ok {
+			t.Fatal("structured repair was flattened or omitted")
+		}
+		if repair.RepairInvalidIds != nil && nested["repairInvalidIds"] != false {
+			t.Fatal("nested explicit false lost")
+		}
 	}
 }

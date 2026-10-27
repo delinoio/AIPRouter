@@ -230,6 +230,20 @@ func validateProviderConfiguration(provider string, config *v1.ProviderConfigura
 			return invalid("invalid provider endpoint path")
 		}
 	}
+	if repair := config.GetPolicy().GetResponsesItemIdRepair(); repair != nil {
+		for _, ids := range [][]string{repair.Message, repair.Reasoning} {
+			if len(ids) > 2000 {
+				return invalid("too many response item repair identifiers")
+			}
+			seen := map[string]bool{}
+			for _, id := range ids {
+				if !validConfiguredModel(id) || seen[id] {
+					return invalid("invalid response item repair identifier")
+				}
+				seen[id] = true
+			}
+		}
+	}
 	if config.MinMaxOutputTokens != nil && (provider != "azure-openai" || *config.MinMaxOutputTokens <= 0 || *config.MinMaxOutputTokens > 2147483647) {
 		return invalid("output budget floor requires Azure and a positive bounded value")
 	}
