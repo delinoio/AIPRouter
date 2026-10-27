@@ -126,7 +126,7 @@ func resolvedProviderRoute(ctx context.Context, d providerData, model string) (p
 	return r, &resolved, nil
 }
 func sameCredentialLane(a, b inference.Target) bool {
-	return a.BaseURL == b.BaseURL && a.Model == b.Model && a.Wire == b.Wire && a.Auth == b.Auth && a.Endpoint == b.Endpoint && policyIdentity(a) == policyIdentity(b) && a.ForceMessagesTranslation == b.ForceMessagesTranslation && a.Fast == b.Fast && selectionVersion(a.FastPolicy) == selectionVersion(b.FastPolicy)
+	return a.BaseURL == b.BaseURL && a.Model == b.Model && a.Wire == b.Wire && a.Auth == b.Auth && a.Endpoint == b.Endpoint && policyIdentity(a) == policyIdentity(b) && selectionVersion(a.ReasoningRetention) == selectionVersion(b.ReasoningRetention) && a.ForceMessagesTranslation == b.ForceMessagesTranslation && a.Fast == b.Fast && selectionVersion(a.FastPolicy) == selectionVersion(b.FastPolicy)
 }
 
 func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, model string, op inference.Operation) (inference.Route, error) {
@@ -195,6 +195,9 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 			if e != nil {
 				return out, e
 			}
+			if err := applyReasoningRetention(chosen.ReasoningRetention, &t); err != nil {
+				return out, err
+			}
 			if syntheticFast {
 				if e = applyFastTarget(ctx, d, upstream, &t); e != nil {
 					return out, e
@@ -250,6 +253,7 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 	a.connections = connections
 	a.attempted = map[string]map[string]bool{}
 	a.native = map[string]nativeSelectionState{}
+	a.compactionHandoff = nil
 	a.mu.Unlock()
 	out, e = a.selectJEVRoute(ctx, p, chosen, out, selections)
 	if e != nil {
@@ -580,6 +584,7 @@ func (a *inferenceAdapter) captureCredential(ctx context.Context, p inference.Pr
 	a.versions[id] = version
 	a.connections[id] = d
 	a.activeTarget = t
+	a.compactionHandoff = nil
 	a.activeAccount = id
 	a.activeVersion = version
 	a.mu.Unlock()
@@ -652,7 +657,7 @@ func providerInbound(ctx context.Context) providers.Inbound {
 const cursorPhysicalExchangeBudget = 2 + 256
 
 func selectionKey(t inference.Target) string {
-	return selectionVersion([]string{t.Provider, t.BaseURL, t.Model, string(t.Wire), string(t.Auth), t.Endpoint, policyIdentity(t), selectionVersion(t.Fast), selectionVersion(t.FastPolicy), selectionVersion(t.ForceMessagesTranslation)})
+	return selectionVersion([]string{t.Provider, t.BaseURL, t.Model, string(t.Wire), string(t.Auth), t.Endpoint, policyIdentity(t), selectionVersion(t.Fast), selectionVersion(t.FastPolicy), selectionVersion(t.ForceMessagesTranslation), selectionVersion(t.ReasoningRetention)})
 }
 
 func genericAffinityEnabled(pool *v1.Pool, auth inference.AuthMode, provider string) bool {
@@ -677,6 +682,7 @@ func selectedTargetForContext(ctx context.Context, d providerData, t inference.T
 	current, err := targetForContext(ctx, d, t.Model)
 	// This flag belongs to the captured pool policy, not the account credential.
 	current.ForceMessagesTranslation = t.ForceMessagesTranslation
+	current.ReasoningRetention = t.ReasoningRetention
 	if err == nil && fastTargetRequested(t) {
 		err = applyFastTarget(ctx, d, t.Model, &current)
 	}

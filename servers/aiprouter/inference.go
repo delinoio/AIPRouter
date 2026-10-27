@@ -18,6 +18,7 @@ import (
 // An adapter is allocated per HTTP request or WebSocket. It never caches authorization.
 // WebSocket execution admits one active turn at a time; each turn replaces its lease.
 type inferenceAdapter struct {
+	compactionHandoff            *compactionHandoffDispatch
 	native                       map[string]nativeSelectionState
 	jev                          *jevRequestPin
 	s                            *store.Store
@@ -133,6 +134,9 @@ func (a *inferenceAdapter) Dispatch(ctx context.Context, p inference.Principal, 
 	a.mu.Lock()
 	account, version := a.activeAccount, a.activeVersion
 	a.mu.Unlock()
+	if handled, err := a.dispatchCompactionHandoff(ctx, p, start); handled {
+		return err
+	}
 	if handled, err := a.dispatchNativeHealth(ctx, p, start); handled {
 		return err
 	}

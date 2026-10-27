@@ -191,6 +191,8 @@ func (a *inferenceAdapter) withJEVModelInvocation(invoke func(context.Context, s
 		}
 		account, version, target, pin := a.activeAccount, a.activeVersion, a.activeTarget, a.jev
 		native := maps.Clone(a.native)
+		handoff := a.compactionHandoff
+		a.compactionHandoff = nil
 		a.native = nil
 		a.jev = nil
 		a.mu.Unlock()
@@ -205,6 +207,7 @@ func (a *inferenceAdapter) withJEVModelInvocation(invoke func(context.Context, s
 			a.activeTarget = target
 			a.jev = pin
 			a.native = native
+			a.compactionHandoff = handoff
 			a.mu.Unlock()
 		}()
 		return invoke(ctx, model, raw)
