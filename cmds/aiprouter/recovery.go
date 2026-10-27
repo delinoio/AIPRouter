@@ -27,6 +27,12 @@ func (a *Application) Recover(s *State) error {
 		return e
 	}
 	defer release()
+	if pending.Kind == TransactionRestore {
+		return a.finishRestore(s, pending, path)
+	}
+	if pending.Kind != "" && pending.Kind != TransactionApply {
+		return errors.New("unknown transaction kind; preserve journal")
+	}
 	record := pending.Record
 	actual, _ := json.Marshal(s)
 	intended, _ := json.Marshal(pending.Desired)
@@ -67,7 +73,7 @@ func (a *Application) Recover(s *State) error {
 			return ErrConflict
 		}
 		if b.Existed {
-			e = a.Disk.write(b.Path, b.Before)
+			e = a.Disk.write(b.Path, b.Before, compareFile(b.Path, b.After, true))
 		} else {
 			e = os.Remove(b.Path)
 		}
@@ -76,4 +82,68 @@ func (a *Application) Recover(s *State) error {
 		}
 	}
 	return os.Remove(path)
+}
+
+// Restore recovery moves forward. Rolling backward could resurrect a revoked
+// remote key in client settings after disconnect has already completed cleanup.
+func (a *Application) finishRestore(s *State, p Pending, journal string) error {
+	seen := map[string]bool{}
+	for _, b := range p.Record.Files {
+		if !filepath.IsAbs(b.Path) || seen[b.Path] || !b.Existed {
+			return errors.New("invalid restore journal")
+		}
+		seen[b.Path] = true
+		current, exists, e := readConfig(b.Path)
+		if e != nil {
+			return e
+		}
+		before := exists && bytes.Equal(current, b.Before)
+		after := (!p.Absent[b.Path] && exists && bytes.Equal(current, b.After)) || (p.Absent[b.Path] && !exists)
+		if !before && !after {
+			return ErrConflict
+		}
+	}
+	for path := range p.Absent {
+		if !seen[path] {
+			return errors.New("invalid restore removal target")
+		}
+	}
+	if !a.Prompt.Confirm("Complete the interrupted restoration? Unchanged pending files will be restored and completed files kept.") {
+		return errors.New("recovery declined")
+	}
+	for _, b := range p.Record.Files {
+		current, exists, e := readConfig(b.Path)
+		if e != nil {
+			return e
+		}
+		if p.Absent[b.Path] && !exists {
+			continue
+		}
+		if !p.Absent[b.Path] && exists && bytes.Equal(current, b.After) {
+			continue
+		}
+		if !exists || !bytes.Equal(current, b.Before) {
+			return ErrConflict
+		}
+		if p.Absent[b.Path] {
+			if e = compareFile(b.Path, b.Before, true)(); e == nil {
+				e = os.Remove(b.Path)
+			}
+		} else {
+			e = a.Disk.write(b.Path, b.After, compareFile(b.Path, b.Before, true))
+		}
+		if e != nil {
+			return e
+		}
+	}
+	// Disconnect may already have removed credentials/profile metadata while
+	// this journal was pending. Merge only restoration ownership cleanup.
+	desired := copyState(*s)
+	delete(desired.Records, p.Record.Client)
+	delete(desired.Active, p.Record.Client)
+	if e := a.Disk.Save(desired); e != nil {
+		return e
+	}
+	*s = desired
+	return os.Remove(journal)
 }

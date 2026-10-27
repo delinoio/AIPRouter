@@ -34,6 +34,7 @@ type Backup struct {
 	Existed       bool
 }
 type Change struct {
+	Remove        bool
 	Check         func() error
 	Locks         []string
 	Path          string
@@ -175,11 +176,21 @@ func (d Disk) Lock() (func(), error) {
 	if err := d.init(); err != nil {
 		return nil, err
 	}
-	p := filepath.Join(d.Root, "write.lock")
-	if err := os.Mkdir(p, 0700); err != nil {
-		return nil, errors.New("another CLI operation is active; if it crashed, inspect recovery state before removing write.lock")
+	path := filepath.Join(d.Root, "write.lock")
+	if e := safeParents(path); e != nil {
+		return nil, e
 	}
-	return func() { _ = os.Remove(p) }, nil
+	lock, e := acquireProcessLock(path)
+	if e != nil {
+		return nil, errors.New("another CLI operation is active or the process lock is unavailable")
+	}
+	if e = d.Protection.Protect(path, false); e != nil {
+		lock.Close()
+		return nil, e
+	}
+	// The OS releases this advisory lock when the process exits, including a
+	// crash. Keep its directory entry stable so competing openers share it.
+	return func() { _ = lock.Close() }, nil
 }
 func digest(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 
@@ -191,10 +202,19 @@ func Preview(out io.Writer, changes []Change) {
 	}
 }
 
+type TransactionKind string
+
+const (
+	TransactionApply   TransactionKind = "apply"
+	TransactionRestore TransactionKind = "restore"
+)
+
 type Pending struct {
-	Record  Record   `json:"record"`
-	Desired State    `json:"desired"`
-	Locks   []string `json:"locks,omitempty"`
+	Kind    TransactionKind `json:"kind,omitempty"`
+	Absent  map[string]bool `json:"absent,omitempty"`
+	Record  Record          `json:"record"`
+	Desired State           `json:"desired"`
+	Locks   []string        `json:"locks,omitempty"`
 }
 
 func copyState(s State) State {
@@ -259,6 +279,9 @@ func (d Disk) ChangePort(s *State, next Profile, plans map[string][]Change) erro
 // The journal contains the complete intended state and every before/after file.
 // A crash cannot commit a port or profile switch for only some affected clients.
 func (d Disk) transaction(s *State, desired State, changes []Change, client, profile string) error {
+	return d.transact(s, desired, changes, client, profile, TransactionApply)
+}
+func (d Disk) transact(s *State, desired State, changes []Change, client, profile string, kind TransactionKind) error {
 	var lockPaths []string
 	for _, c := range changes {
 		lockPaths = append(lockPaths, c.Locks...)
@@ -293,7 +316,13 @@ func (d Disk) transaction(s *State, desired State, changes []Change, client, pro
 	if exists(pending) {
 		return errors.New("unfinished transaction requires recovery")
 	}
-	data, _ := json.Marshal(Pending{Record: record, Desired: desired, Locks: lockPaths})
+	absent := map[string]bool{}
+	for _, c := range changes {
+		if c.Remove {
+			absent[c.Path] = true
+		}
+	}
+	data, _ := json.Marshal(Pending{Kind: kind, Absent: absent, Record: record, Desired: desired, Locks: lockPaths})
 	if e := d.write(pending, data); e != nil {
 		return e
 	}
@@ -305,16 +334,25 @@ func (d Disk) transaction(s *State, desired State, changes []Change, client, pro
 		if exists != c.Existed || !bytes.Equal(current, c.Before) {
 			return ErrConflict
 		}
-		if e = d.write(c.Path, c.After, func() error {
+		validate := func() error {
 			if c.Check != nil {
 				if e := c.Check(); e != nil {
 					return e
 				}
 			}
 			return compareFile(c.Path, c.Before, c.Existed)()
-		}); e != nil {
-			return errors.New("settings write failed; pending recovery retained")
 		}
+		if c.Remove {
+			if e = validate(); e == nil {
+				e = os.Remove(c.Path)
+			}
+		} else {
+			e = d.write(c.Path, c.After, validate)
+		}
+		if e != nil {
+			return errors.New("settings transaction interrupted; run recover with its protected journal")
+		}
+
 	}
 	if e := d.Save(desired); e != nil {
 		return e
@@ -348,20 +386,7 @@ func (d Disk) Restore(s *State, client string) error {
 	if !ok {
 		return nil
 	}
-	var locks []string
-	for _, b := range r.Files {
-		locks = append(locks, nativeLockPaths(r.Client, b.Path)...)
-	}
-	release, e := d.nativeLocks(locks)
-	if e != nil {
-		return e
-	}
-	defer release()
-	type restored struct {
-		b               Backup
-		current, result []byte
-	}
-	var files []restored
+	var changes []Change
 	for _, b := range r.Files {
 		current, exists, e := readConfig(b.Path)
 		if e != nil {
@@ -377,24 +402,12 @@ func (d Disk) Restore(s *State, client string) error {
 		if !b.Existed && !bytes.Equal(current, b.After) {
 			return ErrConflict
 		}
-		files = append(files, restored{b, current, result})
+		changes = append(changes, Change{Path: b.Path, Before: current, After: result, Existed: true, Remove: !b.Existed, Locks: nativeLockPaths(r.Client, b.Path)})
 	}
-	for _, f := range files {
-		current, _, e := readConfig(f.b.Path)
-		if e != nil || !bytes.Equal(current, f.current) {
-			return ErrConflict
-		}
-		if f.b.Existed {
-			if e = d.write(f.b.Path, f.result, compareFile(f.b.Path, f.current, true)); e != nil {
-				return e
-			}
-		} else if e = os.Remove(f.b.Path); e != nil {
-			return e
-		}
-	}
-	delete(s.Records, client)
-	delete(s.Active, client)
-	return d.Save(*s)
+	desired := copyState(*s)
+	delete(desired.Records, client)
+	delete(desired.Active, client)
+	return d.transact(s, desired, changes, client, r.Profile, TransactionRestore)
 }
 
 func compareFile(path string, expected []byte, expectedExists bool) func() error {
