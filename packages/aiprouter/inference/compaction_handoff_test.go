@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -90,5 +91,32 @@ func TestCompaction404NeverLooksUpHandoff(t *testing.T) {
 	out := call(h, "/v1/responses/compact", `{"model":"m","input":"task"}`)
 	if out.Code != 200 || len(handoff.lookups) != 0 || len(handoff.captured) != 1 {
 		t.Fatalf("%d %s %+v", out.Code, out.Body, handoff)
+	}
+}
+
+func TestCompactionHandoffPublicationFailureIsTerminal(t *testing.T) {
+	for _, wire := range []Wire{Chat, Responses} {
+		h, _, _, _, u := harness(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, fixture(wire)) }, wire)
+		handoff := &handoffFixture{failure: ErrUnavailable}
+		h.c.CompactionHandoffs = handoff
+		out := call(h, "/v1/responses/compact", `{"model":"m","input":"task"}`)
+		if out.Code != 503 || u.records[0].Sends != 1 || strings.Contains(out.Body.String(), "hello") {
+			t.Fatalf("published despite state failure: %d %s", out.Code, out.Body)
+		}
+	}
+}
+
+func TestCanceledCompactionCannotCaptureHandoff(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h, _, _, _, _ := harness(t, func(w http.ResponseWriter, r *http.Request) { cancel(); io.WriteString(w, fixture(Chat)) }, Chat)
+	handoff := &handoffFixture{}
+	h.c.CompactionHandoffs = handoff
+	request := httptest.NewRequest("POST", "/v1/responses/compact", strings.NewReader(`{"model":"m","input":"task"}`)).WithContext(ctx)
+	request.Header.Set("Authorization", "Bearer client-secret")
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, request)
+	if len(handoff.captured) != 0 || handoff.cleared != 0 || response.Code == 200 {
+		t.Fatalf("canceled publication: %d %+v", response.Code, handoff)
 	}
 }
