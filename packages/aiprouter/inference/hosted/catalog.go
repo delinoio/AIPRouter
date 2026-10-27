@@ -54,9 +54,12 @@ func synthetic(k Kind, wire inference.Wire) object {
 	}
 	if k == Image {
 		p["properties"].(object)["n"] = object{"type": "integer", "minimum": 1, "maximum": 4}
+		p["properties"].(object)["aspect_ratio"] = object{"type": "string", "enum": []any{"1:1", "16:9", "9:16", "4:3", "3:4", "auto"}}
 	}
 	if k == Video {
 		p["properties"].(object)["duration"] = object{"type": "integer", "minimum": 1, "maximum": 15}
+		p["properties"].(object)["resolution"] = object{"type": "string", "enum": []any{"480p", "720p"}}
+		p["properties"].(object)["aspect_ratio"] = object{"type": "string", "enum": []any{"16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"}}
 	}
 	fn := object{"name": name(k), "description": desc, "parameters": p}
 	switch wire {

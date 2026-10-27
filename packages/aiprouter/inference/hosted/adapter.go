@@ -126,6 +126,7 @@ type turn struct {
 	failedQueries map[string]bool
 	callIDs       map[string]bool
 	outputs       []any
+	retained      int64
 }
 
 func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e inference.AdapterExecutor, s inference.AdapterStateStore) (*http.Response, inference.Wire, error) {
@@ -233,6 +234,12 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 				hostedCalls++
 			}
 		}
+		if hostedCalls > 0 && (choice["finish_reason"] == "length" || choice["finish_reason"] == "content_filter") {
+			if x, ok := e.(inference.AttemptUsage); ok {
+				x.RecordUsage(readUsage(obj(result["usage"])))
+			}
+			return nil, "", fault(502, "hosted_incomplete_tool_call")
+		}
 		if hostedCalls == 0 {
 			result["hosted_outputs"] = append(arr(result["hosted_outputs"]), t.outputs...)
 			if b, _ := json.Marshal(result); int64(len(b)) > a.config.MaxBytes {
@@ -296,6 +303,9 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 				continue
 			}
 			id := str(call["id"])
+			if len(str(fn["arguments"])) > 1<<20 {
+				return nil, "", fault(502, "hosted_arguments_limit")
+			}
 			args, parseErr := decode([]byte(str(fn["arguments"])))
 			if parseErr != nil {
 				return nil, "", fault(502, "hosted_invalid_arguments")
@@ -309,6 +319,9 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 			}
 			data, _ := json.Marshal(output)
 			messages = append(messages, object{"role": "tool", "tool_call_id": id, "content": string(data)})
+			if b, _ := json.Marshal(messages); int64(len(b)) > a.config.MaxBytes {
+				return nil, "", fault(502, "hosted_buffer_limit")
+			}
 		}
 		if hostedCalls != len(calls) {
 			clientCalls := []any{}
@@ -470,7 +483,8 @@ func (t *turn) execute(ctx context.Context, tool tool, id string, args object) (
 		return OperationResult{}, err
 	}
 	encoded, _ := json.Marshal(result)
-	if int64(len(encoded)) > t.a.config.MaxBytes {
+	t.retained += int64(len(encoded))
+	if t.retained > t.a.config.MaxBytes {
 		return OperationResult{}, fault(502, "hosted_result_limit")
 	}
 	for _, a := range result.Artifacts {

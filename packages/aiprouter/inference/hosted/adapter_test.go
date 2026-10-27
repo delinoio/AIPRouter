@@ -466,3 +466,58 @@ func TestProviderRepairUsesSameExecutor(t *testing.T) {
 		t.Fatal(p.repairs, *sends)
 	}
 }
+
+type recoveryPolicy struct{}
+
+func (recoveryPolicy) RecoverHTTP(_ context.Context, _ inference.AdapterInput, f inference.HTTPFailure) (inference.RecoveryDecision, error) {
+	if f.Header.Get("X-Fixture-Expired") == "true" {
+		return inference.RecoveryDecision{Action: inference.RecoveryRefresh}, nil
+	}
+	return inference.RecoveryDecision{Action: inference.RecoveryDefault}, nil
+}
+
+type recoveryExecutor struct {
+	executor
+	expireAt int
+}
+
+func (e *recoveryExecutor) Do(ctx context.Context, r inference.AdapterRequest) (*http.Response, error) {
+	out, err := e.executor.Do(ctx, r)
+	if err == nil && e.sends == e.expireAt {
+		out.Header.Set("X-Fixture-Expired", "true")
+	}
+	return out, err
+}
+func TestRecoveryBeforeAndAfterHelper(t *testing.T) {
+	for _, expireAt := range []int{1, 2} {
+		t.Run(fmt.Sprint(expireAt), func(t *testing.T) {
+			ctx, _ := budget(4)
+			seen := []OperationRequest{}
+			a, _ := New(provider{}, Config{Resolver: service(t, &seen), RecoveryPolicy: recoveryPolicy{}})
+			e := &recoveryExecutor{executor: executor{replies: []string{call("web_search", `{"query":"a"}`), answer}}, expireAt: expireAt}
+			r, _, err := a.Execute(ctx, input(), e, nil)
+			if expireAt == 1 {
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer r.Body.Close()
+				if r.Header.Get("X-Fixture-Expired") != "true" || len(seen) != 0 {
+					t.Fatal("refresh hidden or helper started")
+				}
+			} else if err == nil || r != nil || len(seen) != 1 {
+				t.Fatal("paid helper exposed to outer retry")
+			}
+		})
+	}
+}
+func TestIncompleteToolNeverExecutes(t *testing.T) {
+	ctx, sends := budget(3)
+	seen := []OperationRequest{}
+	a, _ := New(provider{}, Config{Resolver: service(t, &seen)})
+	reply := strings.Replace(call("web_search", `{"query":"a"}`), `"finish_reason":"tool_calls"`, `"finish_reason":"length"`, 1)
+	e := &executor{replies: []string{reply}}
+	_, _, err := a.Execute(ctx, input(), e, nil)
+	if err == nil || *sends != 1 || len(seen) != 0 {
+		t.Fatal(err, *sends, len(seen))
+	}
+}
