@@ -50,6 +50,7 @@ type tool struct {
 }
 type historyMessage struct {
 	Role, Text, CallID string
+	Thinking           string
 	Calls              []historyCall
 	IsError            bool
 }
@@ -226,6 +227,13 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 		s.blobBytes += len(b)
 		state = append(state, pb(1, id[:])...)
 	}
+	if saved == nil && nativeModel(model) {
+		turns, err := s.nativeReplay(history, active, tools)
+		if err != nil {
+			return inference.AdapterRequest{}, nil, err
+		}
+		state = append(state, turns...)
+	}
 	// Structured output is prompt guidance in Cursor, not constrained decoding.
 	format := body["response_format"]
 	if tf, ok := body["text"].(map[string]any); ok && tf["format"] != nil {
@@ -250,8 +258,11 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 	if err != nil {
 		return inference.AdapterRequest{}, nil, err
 	}
-	user := join(ps(1, text), ps(2, messageID), pv(4, 1))
+	user := join(ps(1, text), ps(2, messageID), pb(3, nil), pv(4, 1))
 	action := pb(1, join(pb(1, user), pb(2, s.requestContext)))
+	if active < 0 && !externalToolContinuation(model) {
+		action = pb(2, pb(2, s.requestContext))
+	}
 	run := join(pb(1, state), pb(2, action), pb(4, catalog), ps(5, s.conversationID))
 	effort := str(body["reasoning_effort"])
 	if reasoning := object(body["reasoning"]); str(reasoning["effort"]) != "" {
@@ -366,6 +377,12 @@ func readHistory(body map[string]any, wire inference.Wire) ([]historyMessage, er
 		for _, v := range array(body["input"]) {
 			m := object(v)
 			switch str(m["type"]) {
+			case "reasoning":
+				var thinking strings.Builder
+				for _, part := range array(m["summary"]) {
+					thinking.WriteString(str(object(part)["text"]))
+				}
+				out = append(out, historyMessage{Role: "assistant", Thinking: thinking.String()})
 			case "function_call":
 				out = append(out, historyMessage{Role: "assistant", Calls: []historyCall{{ID: str(m["call_id"]), Name: str(m["name"]), Arguments: str(m["arguments"])}}})
 			case "function_call_output":
@@ -396,6 +413,10 @@ func readHistory(body map[string]any, wire inference.Wire) ([]historyMessage, er
 					for _, p := range parts {
 						part := object(p)
 						switch str(part["type"]) {
+						case "thinking":
+							out = append(out, historyMessage{Role: "assistant", Thinking: str(part["thinking"])})
+						case "redacted_thinking":
+							return nil, &inference.Error{Status: 501, Code: "cursor_unsupported_encrypted_reasoning"}
 						case "tool_use":
 							args, _ := json.Marshal(part["input"])
 							out = append(out, historyMessage{Role: "assistant", Calls: []historyCall{{ID: str(part["id"]), Name: str(part["name"]), Arguments: string(args)}}})
@@ -421,7 +442,7 @@ func readHistory(body map[string]any, wire inference.Wire) ([]historyMessage, er
 			if e != nil {
 				return nil, e
 			}
-			h := historyMessage{Role: role, Text: s, CallID: str(m["tool_call_id"])}
+			h := historyMessage{Role: role, Text: s, CallID: str(m["tool_call_id"]), Thinking: str(m["reasoning_content"])}
 			for _, c := range array(m["tool_calls"]) {
 				cm := object(c)
 				f := object(cm["function"])

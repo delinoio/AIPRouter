@@ -262,7 +262,7 @@ func cursorEndpoint(runURL, path string) string {
 }
 func nativeModel(model string) bool {
 	m := strings.TrimPrefix(strings.ToLower(model), "cursor/")
-	return strings.HasPrefix(m, "composer-") || m == "auto" || m == "default"
+	return strings.HasPrefix(m, "composer-") || m == "auto" || m == "default" || m == "auto-cost" || m == "auto-balance" || m == "auto-intelligence"
 }
 
 func (a *Adapter) checkRunResponse(ctx context.Context, r *http.Response) error {
