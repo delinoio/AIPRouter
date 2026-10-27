@@ -84,8 +84,79 @@ func (ProviderWire) EnumDescriptor() ([]byte, []int) {
 	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{0}
 }
 
+// Exact message/reasoning item IDs to repair; empty and absent lists both select none.
+// Presence of this object replaces the preset repair policy as a whole, including
+// an empty object. Omission inherits the destination-matched preset policy.
+type ResponsesItemIdRepair struct {
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	Message                  []string               `protobuf:"bytes,1,rep,name=message,proto3" json:"message,omitempty"`
+	Reasoning                []string               `protobuf:"bytes,2,rep,name=reasoning,proto3" json:"reasoning,omitempty"`
+	RepairInvalidIds         *bool                  `protobuf:"varint,3,opt,name=repair_invalid_ids,json=repairInvalidIds,proto3,oneof" json:"repair_invalid_ids,omitempty"`
+	RepairMissingTerminalIds *bool                  `protobuf:"varint,4,opt,name=repair_missing_terminal_ids,json=repairMissingTerminalIds,proto3,oneof" json:"repair_missing_terminal_ids,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *ResponsesItemIdRepair) Reset() {
+	*x = ResponsesItemIdRepair{}
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResponsesItemIdRepair) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResponsesItemIdRepair) ProtoMessage() {}
+
+func (x *ResponsesItemIdRepair) ProtoReflect() protoreflect.Message {
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResponsesItemIdRepair.ProtoReflect.Descriptor instead.
+func (*ResponsesItemIdRepair) Descriptor() ([]byte, []int) {
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ResponsesItemIdRepair) GetMessage() []string {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
+func (x *ResponsesItemIdRepair) GetReasoning() []string {
+	if x != nil {
+		return x.Reasoning
+	}
+	return nil
+}
+
+func (x *ResponsesItemIdRepair) GetRepairInvalidIds() bool {
+	if x != nil && x.RepairInvalidIds != nil {
+		return *x.RepairInvalidIds
+	}
+	return false
+}
+
+func (x *ResponsesItemIdRepair) GetRepairMissingTerminalIds() bool {
+	if x != nil && x.RepairMissingTerminalIds != nil {
+		return *x.RepairMissingTerminalIds
+	}
+	return false
+}
+
 // Each absent field inherits the destination-matched preset policy. Explicit false
-// disables that policy. Do not serialize with defaults or collapse pointer presence.
+// disables a boolean policy. Do not collapse pointer presence.
 type ProviderPolicyOverrides struct {
 	state                                protoimpl.MessageState `protogen:"open.v1"`
 	FoldDeveloperRoleToSystem            *bool                  `protobuf:"varint,1,opt,name=fold_developer_role_to_system,json=foldDeveloperRoleToSystem,proto3,oneof" json:"fold_developer_role_to_system,omitempty"`
@@ -102,16 +173,16 @@ type ProviderPolicyOverrides struct {
 	SupportsVerbosity                    *bool                  `protobuf:"varint,12,opt,name=supports_verbosity,json=supportsVerbosity,proto3,oneof" json:"supports_verbosity,omitempty"`
 	SupportsResponsesCustomTools         *bool                  `protobuf:"varint,13,opt,name=supports_responses_custom_tools,json=supportsResponsesCustomTools,proto3,oneof" json:"supports_responses_custom_tools,omitempty"`
 	SupportsOpenAiWebSearchToolFields    *bool                  `protobuf:"varint,14,opt,name=supports_open_ai_web_search_tool_fields,json=supportsOpenAiWebSearchToolFields,proto3,oneof" json:"supports_open_ai_web_search_tool_fields,omitempty"`
-	ResponsesItemIdRepair                *bool                  `protobuf:"varint,15,opt,name=responses_item_id_repair,json=responsesItemIdRepair,proto3,oneof" json:"responses_item_id_repair,omitempty"`
 	ShowThinkingSummary                  *bool                  `protobuf:"varint,16,opt,name=show_thinking_summary,json=showThinkingSummary,proto3,oneof" json:"show_thinking_summary,omitempty"`
 	EscapeBuiltinToolNames               *bool                  `protobuf:"varint,17,opt,name=escape_builtin_tool_names,json=escapeBuiltinToolNames,proto3,oneof" json:"escape_builtin_tool_names,omitempty"`
+	ResponsesItemIdRepair                *ResponsesItemIdRepair `protobuf:"bytes,18,opt,name=responses_item_id_repair,json=responsesItemIdRepair,proto3" json:"responses_item_id_repair,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
 
 func (x *ProviderPolicyOverrides) Reset() {
 	*x = ProviderPolicyOverrides{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[0]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -123,7 +194,7 @@ func (x *ProviderPolicyOverrides) String() string {
 func (*ProviderPolicyOverrides) ProtoMessage() {}
 
 func (x *ProviderPolicyOverrides) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[0]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -136,7 +207,7 @@ func (x *ProviderPolicyOverrides) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderPolicyOverrides.ProtoReflect.Descriptor instead.
 func (*ProviderPolicyOverrides) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{0}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *ProviderPolicyOverrides) GetFoldDeveloperRoleToSystem() bool {
@@ -237,13 +308,6 @@ func (x *ProviderPolicyOverrides) GetSupportsOpenAiWebSearchToolFields() bool {
 	return false
 }
 
-func (x *ProviderPolicyOverrides) GetResponsesItemIdRepair() bool {
-	if x != nil && x.ResponsesItemIdRepair != nil {
-		return *x.ResponsesItemIdRepair
-	}
-	return false
-}
-
 func (x *ProviderPolicyOverrides) GetShowThinkingSummary() bool {
 	if x != nil && x.ShowThinkingSummary != nil {
 		return *x.ShowThinkingSummary
@@ -256,6 +320,13 @@ func (x *ProviderPolicyOverrides) GetEscapeBuiltinToolNames() bool {
 		return *x.EscapeBuiltinToolNames
 	}
 	return false
+}
+
+func (x *ProviderPolicyOverrides) GetResponsesItemIdRepair() *ResponsesItemIdRepair {
+	if x != nil {
+		return x.ResponsesItemIdRepair
+	}
+	return nil
 }
 
 // Safe read metadata. Header secret values are deliberately not part of this message.
@@ -279,7 +350,7 @@ type ProviderConfiguration struct {
 
 func (x *ProviderConfiguration) Reset() {
 	*x = ProviderConfiguration{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[1]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -291,7 +362,7 @@ func (x *ProviderConfiguration) String() string {
 func (*ProviderConfiguration) ProtoMessage() {}
 
 func (x *ProviderConfiguration) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[1]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -304,7 +375,7 @@ func (x *ProviderConfiguration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderConfiguration.ProtoReflect.Descriptor instead.
 func (*ProviderConfiguration) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{1}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ProviderConfiguration) GetWire() ProviderWire {
@@ -361,7 +432,7 @@ type ProviderCustomHeaders struct {
 
 func (x *ProviderCustomHeaders) Reset() {
 	*x = ProviderCustomHeaders{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[2]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -373,7 +444,7 @@ func (x *ProviderCustomHeaders) String() string {
 func (*ProviderCustomHeaders) ProtoMessage() {}
 
 func (x *ProviderCustomHeaders) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[2]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -386,7 +457,7 @@ func (x *ProviderCustomHeaders) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderCustomHeaders.ProtoReflect.Descriptor instead.
 func (*ProviderCustomHeaders) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{2}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ProviderCustomHeaders) GetValues() map[string]string {
@@ -413,7 +484,7 @@ type ProviderDefinition struct {
 
 func (x *ProviderDefinition) Reset() {
 	*x = ProviderDefinition{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[3]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -425,7 +496,7 @@ func (x *ProviderDefinition) String() string {
 func (*ProviderDefinition) ProtoMessage() {}
 
 func (x *ProviderDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[3]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -438,7 +509,7 @@ func (x *ProviderDefinition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderDefinition.ProtoReflect.Descriptor instead.
 func (*ProviderDefinition) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{3}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ProviderDefinition) GetId() string {
@@ -498,7 +569,7 @@ type ProviderConnection struct {
 
 func (x *ProviderConnection) Reset() {
 	*x = ProviderConnection{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[4]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -510,7 +581,7 @@ func (x *ProviderConnection) String() string {
 func (*ProviderConnection) ProtoMessage() {}
 
 func (x *ProviderConnection) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[4]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -523,7 +594,7 @@ func (x *ProviderConnection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderConnection.ProtoReflect.Descriptor instead.
 func (*ProviderConnection) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{4}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ProviderConnection) GetId() string {
@@ -627,7 +698,7 @@ type ProviderOAuth struct {
 
 func (x *ProviderOAuth) Reset() {
 	*x = ProviderOAuth{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[5]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -639,7 +710,7 @@ func (x *ProviderOAuth) String() string {
 func (*ProviderOAuth) ProtoMessage() {}
 
 func (x *ProviderOAuth) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[5]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -652,7 +723,7 @@ func (x *ProviderOAuth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderOAuth.ProtoReflect.Descriptor instead.
 func (*ProviderOAuth) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{5}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ProviderOAuth) GetId() string {
@@ -722,7 +793,7 @@ type PoolMember struct {
 
 func (x *PoolMember) Reset() {
 	*x = PoolMember{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[6]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -734,7 +805,7 @@ func (x *PoolMember) String() string {
 func (*PoolMember) ProtoMessage() {}
 
 func (x *PoolMember) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[6]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -747,7 +818,7 @@ func (x *PoolMember) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolMember.ProtoReflect.Descriptor instead.
 func (*PoolMember) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{6}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *PoolMember) GetConnectionId() string {
@@ -787,7 +858,7 @@ type Pool struct {
 
 func (x *Pool) Reset() {
 	*x = Pool{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[7]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -799,7 +870,7 @@ func (x *Pool) String() string {
 func (*Pool) ProtoMessage() {}
 
 func (x *Pool) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[7]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -812,7 +883,7 @@ func (x *Pool) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Pool.ProtoReflect.Descriptor instead.
 func (*Pool) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{7}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Pool) GetId() string {
@@ -881,7 +952,7 @@ type JevDecisionConfig struct {
 
 func (x *JevDecisionConfig) Reset() {
 	*x = JevDecisionConfig{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[8]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -893,7 +964,7 @@ func (x *JevDecisionConfig) String() string {
 func (*JevDecisionConfig) ProtoMessage() {}
 
 func (x *JevDecisionConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[8]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -906,7 +977,7 @@ func (x *JevDecisionConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JevDecisionConfig.ProtoReflect.Descriptor instead.
 func (*JevDecisionConfig) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{8}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *JevDecisionConfig) GetDecisionConnectionId() string {
@@ -964,7 +1035,7 @@ type RouteTarget struct {
 
 func (x *RouteTarget) Reset() {
 	*x = RouteTarget{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[9]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -976,7 +1047,7 @@ func (x *RouteTarget) String() string {
 func (*RouteTarget) ProtoMessage() {}
 
 func (x *RouteTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[9]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -989,7 +1060,7 @@ func (x *RouteTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteTarget.ProtoReflect.Descriptor instead.
 func (*RouteTarget) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{9}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RouteTarget) GetTarget() isRouteTarget_Target {
@@ -1084,7 +1155,7 @@ type Route struct {
 
 func (x *Route) Reset() {
 	*x = Route{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[10]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1096,7 +1167,7 @@ func (x *Route) String() string {
 func (*Route) ProtoMessage() {}
 
 func (x *Route) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[10]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1109,7 +1180,7 @@ func (x *Route) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Route.ProtoReflect.Descriptor instead.
 func (*Route) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{10}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Route) GetId() string {
@@ -1169,7 +1240,7 @@ type ListProviderCatalogRequest struct {
 
 func (x *ListProviderCatalogRequest) Reset() {
 	*x = ListProviderCatalogRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[11]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1181,7 +1252,7 @@ func (x *ListProviderCatalogRequest) String() string {
 func (*ListProviderCatalogRequest) ProtoMessage() {}
 
 func (x *ListProviderCatalogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[11]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1194,7 +1265,7 @@ func (x *ListProviderCatalogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProviderCatalogRequest.ProtoReflect.Descriptor instead.
 func (*ListProviderCatalogRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{11}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{12}
 }
 
 type ListProviderCatalogResponse struct {
@@ -1206,7 +1277,7 @@ type ListProviderCatalogResponse struct {
 
 func (x *ListProviderCatalogResponse) Reset() {
 	*x = ListProviderCatalogResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[12]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1218,7 +1289,7 @@ func (x *ListProviderCatalogResponse) String() string {
 func (*ListProviderCatalogResponse) ProtoMessage() {}
 
 func (x *ListProviderCatalogResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[12]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1231,7 +1302,7 @@ func (x *ListProviderCatalogResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProviderCatalogResponse.ProtoReflect.Descriptor instead.
 func (*ListProviderCatalogResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{12}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListProviderCatalogResponse) GetProviders() []*ProviderDefinition {
@@ -1251,7 +1322,7 @@ type ListProviderConnectionsRequest struct {
 
 func (x *ListProviderConnectionsRequest) Reset() {
 	*x = ListProviderConnectionsRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[13]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1263,7 +1334,7 @@ func (x *ListProviderConnectionsRequest) String() string {
 func (*ListProviderConnectionsRequest) ProtoMessage() {}
 
 func (x *ListProviderConnectionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[13]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1276,7 +1347,7 @@ func (x *ListProviderConnectionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProviderConnectionsRequest.ProtoReflect.Descriptor instead.
 func (*ListProviderConnectionsRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{13}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ListProviderConnectionsRequest) GetOrganizationId() string {
@@ -1303,7 +1374,7 @@ type ListProviderConnectionsResponse struct {
 
 func (x *ListProviderConnectionsResponse) Reset() {
 	*x = ListProviderConnectionsResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[14]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1315,7 +1386,7 @@ func (x *ListProviderConnectionsResponse) String() string {
 func (*ListProviderConnectionsResponse) ProtoMessage() {}
 
 func (x *ListProviderConnectionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[14]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1328,7 +1399,7 @@ func (x *ListProviderConnectionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProviderConnectionsResponse.ProtoReflect.Descriptor instead.
 func (*ListProviderConnectionsResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{14}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListProviderConnectionsResponse) GetConnections() []*ProviderConnection {
@@ -1362,7 +1433,7 @@ type CreateProviderConnectionRequest struct {
 
 func (x *CreateProviderConnectionRequest) Reset() {
 	*x = CreateProviderConnectionRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[15]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1374,7 +1445,7 @@ func (x *CreateProviderConnectionRequest) String() string {
 func (*CreateProviderConnectionRequest) ProtoMessage() {}
 
 func (x *CreateProviderConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[15]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1387,7 +1458,7 @@ func (x *CreateProviderConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateProviderConnectionRequest.ProtoReflect.Descriptor instead.
 func (*CreateProviderConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{15}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CreateProviderConnectionRequest) GetOrganizationId() string {
@@ -1462,7 +1533,7 @@ type CreateProviderConnectionResponse struct {
 
 func (x *CreateProviderConnectionResponse) Reset() {
 	*x = CreateProviderConnectionResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[16]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1474,7 +1545,7 @@ func (x *CreateProviderConnectionResponse) String() string {
 func (*CreateProviderConnectionResponse) ProtoMessage() {}
 
 func (x *CreateProviderConnectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[16]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1487,7 +1558,7 @@ func (x *CreateProviderConnectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateProviderConnectionResponse.ProtoReflect.Descriptor instead.
 func (*CreateProviderConnectionResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{16}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CreateProviderConnectionResponse) GetConnection() *ProviderConnection {
@@ -1521,7 +1592,7 @@ type UpdateProviderConnectionRequest struct {
 
 func (x *UpdateProviderConnectionRequest) Reset() {
 	*x = UpdateProviderConnectionRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[17]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1533,7 +1604,7 @@ func (x *UpdateProviderConnectionRequest) String() string {
 func (*UpdateProviderConnectionRequest) ProtoMessage() {}
 
 func (x *UpdateProviderConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[17]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1546,7 +1617,7 @@ func (x *UpdateProviderConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateProviderConnectionRequest.ProtoReflect.Descriptor instead.
 func (*UpdateProviderConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{17}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *UpdateProviderConnectionRequest) GetOrganizationId() string {
@@ -1635,7 +1706,7 @@ type UpdateProviderConnectionResponse struct {
 
 func (x *UpdateProviderConnectionResponse) Reset() {
 	*x = UpdateProviderConnectionResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[18]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1647,7 +1718,7 @@ func (x *UpdateProviderConnectionResponse) String() string {
 func (*UpdateProviderConnectionResponse) ProtoMessage() {}
 
 func (x *UpdateProviderConnectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[18]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1660,7 +1731,7 @@ func (x *UpdateProviderConnectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateProviderConnectionResponse.ProtoReflect.Descriptor instead.
 func (*UpdateProviderConnectionResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{18}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *UpdateProviderConnectionResponse) GetConnection() *ProviderConnection {
@@ -1680,7 +1751,7 @@ type DeleteProviderConnectionRequest struct {
 
 func (x *DeleteProviderConnectionRequest) Reset() {
 	*x = DeleteProviderConnectionRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[19]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1692,7 +1763,7 @@ func (x *DeleteProviderConnectionRequest) String() string {
 func (*DeleteProviderConnectionRequest) ProtoMessage() {}
 
 func (x *DeleteProviderConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[19]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1705,7 +1776,7 @@ func (x *DeleteProviderConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteProviderConnectionRequest.ProtoReflect.Descriptor instead.
 func (*DeleteProviderConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{19}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DeleteProviderConnectionRequest) GetOrganizationId() string {
@@ -1730,7 +1801,7 @@ type DeleteProviderConnectionResponse struct {
 
 func (x *DeleteProviderConnectionResponse) Reset() {
 	*x = DeleteProviderConnectionResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[20]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1742,7 +1813,7 @@ func (x *DeleteProviderConnectionResponse) String() string {
 func (*DeleteProviderConnectionResponse) ProtoMessage() {}
 
 func (x *DeleteProviderConnectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[20]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1755,7 +1826,7 @@ func (x *DeleteProviderConnectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteProviderConnectionResponse.ProtoReflect.Descriptor instead.
 func (*DeleteProviderConnectionResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{20}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{21}
 }
 
 type BeginProviderOAuthRequest struct {
@@ -1783,7 +1854,7 @@ type BeginProviderOAuthRequest struct {
 
 func (x *BeginProviderOAuthRequest) Reset() {
 	*x = BeginProviderOAuthRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[21]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1795,7 +1866,7 @@ func (x *BeginProviderOAuthRequest) String() string {
 func (*BeginProviderOAuthRequest) ProtoMessage() {}
 
 func (x *BeginProviderOAuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[21]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1808,7 +1879,7 @@ func (x *BeginProviderOAuthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginProviderOAuthRequest.ProtoReflect.Descriptor instead.
 func (*BeginProviderOAuthRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{21}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *BeginProviderOAuthRequest) GetOrganizationId() string {
@@ -1925,7 +1996,7 @@ type BeginProviderOAuthResponse struct {
 
 func (x *BeginProviderOAuthResponse) Reset() {
 	*x = BeginProviderOAuthResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[22]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1937,7 +2008,7 @@ func (x *BeginProviderOAuthResponse) String() string {
 func (*BeginProviderOAuthResponse) ProtoMessage() {}
 
 func (x *BeginProviderOAuthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[22]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1950,7 +2021,7 @@ func (x *BeginProviderOAuthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginProviderOAuthResponse.ProtoReflect.Descriptor instead.
 func (*BeginProviderOAuthResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{22}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *BeginProviderOAuthResponse) GetAuthorization() *ProviderOAuth {
@@ -1970,7 +2041,7 @@ type GetProviderOAuthRequest struct {
 
 func (x *GetProviderOAuthRequest) Reset() {
 	*x = GetProviderOAuthRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[23]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1982,7 +2053,7 @@ func (x *GetProviderOAuthRequest) String() string {
 func (*GetProviderOAuthRequest) ProtoMessage() {}
 
 func (x *GetProviderOAuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[23]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1995,7 +2066,7 @@ func (x *GetProviderOAuthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProviderOAuthRequest.ProtoReflect.Descriptor instead.
 func (*GetProviderOAuthRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{23}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetProviderOAuthRequest) GetOrganizationId() string {
@@ -2021,7 +2092,7 @@ type GetProviderOAuthResponse struct {
 
 func (x *GetProviderOAuthResponse) Reset() {
 	*x = GetProviderOAuthResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[24]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2033,7 +2104,7 @@ func (x *GetProviderOAuthResponse) String() string {
 func (*GetProviderOAuthResponse) ProtoMessage() {}
 
 func (x *GetProviderOAuthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[24]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2046,7 +2117,7 @@ func (x *GetProviderOAuthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProviderOAuthResponse.ProtoReflect.Descriptor instead.
 func (*GetProviderOAuthResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{24}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *GetProviderOAuthResponse) GetAuthorization() *ProviderOAuth {
@@ -2068,7 +2139,7 @@ type CompleteProviderOAuthRequest struct {
 
 func (x *CompleteProviderOAuthRequest) Reset() {
 	*x = CompleteProviderOAuthRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[25]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2080,7 +2151,7 @@ func (x *CompleteProviderOAuthRequest) String() string {
 func (*CompleteProviderOAuthRequest) ProtoMessage() {}
 
 func (x *CompleteProviderOAuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[25]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2093,7 +2164,7 @@ func (x *CompleteProviderOAuthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteProviderOAuthRequest.ProtoReflect.Descriptor instead.
 func (*CompleteProviderOAuthRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{25}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *CompleteProviderOAuthRequest) GetOrganizationId() string {
@@ -2133,7 +2204,7 @@ type CompleteProviderOAuthResponse struct {
 
 func (x *CompleteProviderOAuthResponse) Reset() {
 	*x = CompleteProviderOAuthResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[26]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2145,7 +2216,7 @@ func (x *CompleteProviderOAuthResponse) String() string {
 func (*CompleteProviderOAuthResponse) ProtoMessage() {}
 
 func (x *CompleteProviderOAuthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[26]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2158,7 +2229,7 @@ func (x *CompleteProviderOAuthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteProviderOAuthResponse.ProtoReflect.Descriptor instead.
 func (*CompleteProviderOAuthResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{26}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *CompleteProviderOAuthResponse) GetConnection() *ProviderConnection {
@@ -2178,7 +2249,7 @@ type CancelProviderOAuthRequest struct {
 
 func (x *CancelProviderOAuthRequest) Reset() {
 	*x = CancelProviderOAuthRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[27]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2190,7 +2261,7 @@ func (x *CancelProviderOAuthRequest) String() string {
 func (*CancelProviderOAuthRequest) ProtoMessage() {}
 
 func (x *CancelProviderOAuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[27]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2203,7 +2274,7 @@ func (x *CancelProviderOAuthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelProviderOAuthRequest.ProtoReflect.Descriptor instead.
 func (*CancelProviderOAuthRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{27}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *CancelProviderOAuthRequest) GetOrganizationId() string {
@@ -2228,7 +2299,7 @@ type CancelProviderOAuthResponse struct {
 
 func (x *CancelProviderOAuthResponse) Reset() {
 	*x = CancelProviderOAuthResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[28]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2240,7 +2311,7 @@ func (x *CancelProviderOAuthResponse) String() string {
 func (*CancelProviderOAuthResponse) ProtoMessage() {}
 
 func (x *CancelProviderOAuthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[28]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2253,7 +2324,7 @@ func (x *CancelProviderOAuthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelProviderOAuthResponse.ProtoReflect.Descriptor instead.
 func (*CancelProviderOAuthResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{28}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{29}
 }
 
 type ListProviderModelsRequest struct {
@@ -2266,7 +2337,7 @@ type ListProviderModelsRequest struct {
 
 func (x *ListProviderModelsRequest) Reset() {
 	*x = ListProviderModelsRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[29]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2278,7 +2349,7 @@ func (x *ListProviderModelsRequest) String() string {
 func (*ListProviderModelsRequest) ProtoMessage() {}
 
 func (x *ListProviderModelsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[29]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2291,7 +2362,7 @@ func (x *ListProviderModelsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProviderModelsRequest.ProtoReflect.Descriptor instead.
 func (*ListProviderModelsRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{29}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ListProviderModelsRequest) GetOrganizationId() string {
@@ -2317,7 +2388,7 @@ type ListProviderModelsResponse struct {
 
 func (x *ListProviderModelsResponse) Reset() {
 	*x = ListProviderModelsResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[30]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2329,7 +2400,7 @@ func (x *ListProviderModelsResponse) String() string {
 func (*ListProviderModelsResponse) ProtoMessage() {}
 
 func (x *ListProviderModelsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[30]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2342,7 +2413,7 @@ func (x *ListProviderModelsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProviderModelsResponse.ProtoReflect.Descriptor instead.
 func (*ListProviderModelsResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{30}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ListProviderModelsResponse) GetModels() []*Model {
@@ -2362,7 +2433,7 @@ type ListPoolsRequest struct {
 
 func (x *ListPoolsRequest) Reset() {
 	*x = ListPoolsRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[31]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2374,7 +2445,7 @@ func (x *ListPoolsRequest) String() string {
 func (*ListPoolsRequest) ProtoMessage() {}
 
 func (x *ListPoolsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[31]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2387,7 +2458,7 @@ func (x *ListPoolsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPoolsRequest.ProtoReflect.Descriptor instead.
 func (*ListPoolsRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{31}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ListPoolsRequest) GetOrganizationId() string {
@@ -2414,7 +2485,7 @@ type ListPoolsResponse struct {
 
 func (x *ListPoolsResponse) Reset() {
 	*x = ListPoolsResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[32]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2426,7 +2497,7 @@ func (x *ListPoolsResponse) String() string {
 func (*ListPoolsResponse) ProtoMessage() {}
 
 func (x *ListPoolsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[32]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2439,7 +2510,7 @@ func (x *ListPoolsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPoolsResponse.ProtoReflect.Descriptor instead.
 func (*ListPoolsResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{32}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ListPoolsResponse) GetPools() []*Pool {
@@ -2471,7 +2542,7 @@ type CreatePoolRequest struct {
 
 func (x *CreatePoolRequest) Reset() {
 	*x = CreatePoolRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[33]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2483,7 +2554,7 @@ func (x *CreatePoolRequest) String() string {
 func (*CreatePoolRequest) ProtoMessage() {}
 
 func (x *CreatePoolRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[33]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2496,7 +2567,7 @@ func (x *CreatePoolRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePoolRequest.ProtoReflect.Descriptor instead.
 func (*CreatePoolRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{33}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *CreatePoolRequest) GetOrganizationId() string {
@@ -2543,7 +2614,7 @@ type CreatePoolResponse struct {
 
 func (x *CreatePoolResponse) Reset() {
 	*x = CreatePoolResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[34]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2555,7 +2626,7 @@ func (x *CreatePoolResponse) String() string {
 func (*CreatePoolResponse) ProtoMessage() {}
 
 func (x *CreatePoolResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[34]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2568,7 +2639,7 @@ func (x *CreatePoolResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePoolResponse.ProtoReflect.Descriptor instead.
 func (*CreatePoolResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{34}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *CreatePoolResponse) GetPool() *Pool {
@@ -2594,7 +2665,7 @@ type UpdatePoolRequest struct {
 
 func (x *UpdatePoolRequest) Reset() {
 	*x = UpdatePoolRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[35]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2606,7 +2677,7 @@ func (x *UpdatePoolRequest) String() string {
 func (*UpdatePoolRequest) ProtoMessage() {}
 
 func (x *UpdatePoolRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[35]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2619,7 +2690,7 @@ func (x *UpdatePoolRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePoolRequest.ProtoReflect.Descriptor instead.
 func (*UpdatePoolRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{35}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *UpdatePoolRequest) GetOrganizationId() string {
@@ -2673,7 +2744,7 @@ type UpdatePoolResponse struct {
 
 func (x *UpdatePoolResponse) Reset() {
 	*x = UpdatePoolResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[36]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2685,7 +2756,7 @@ func (x *UpdatePoolResponse) String() string {
 func (*UpdatePoolResponse) ProtoMessage() {}
 
 func (x *UpdatePoolResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[36]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2698,7 +2769,7 @@ func (x *UpdatePoolResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePoolResponse.ProtoReflect.Descriptor instead.
 func (*UpdatePoolResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{36}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *UpdatePoolResponse) GetPool() *Pool {
@@ -2718,7 +2789,7 @@ type DeletePoolRequest struct {
 
 func (x *DeletePoolRequest) Reset() {
 	*x = DeletePoolRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[37]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2730,7 +2801,7 @@ func (x *DeletePoolRequest) String() string {
 func (*DeletePoolRequest) ProtoMessage() {}
 
 func (x *DeletePoolRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[37]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2743,7 +2814,7 @@ func (x *DeletePoolRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePoolRequest.ProtoReflect.Descriptor instead.
 func (*DeletePoolRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{37}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *DeletePoolRequest) GetOrganizationId() string {
@@ -2768,7 +2839,7 @@ type DeletePoolResponse struct {
 
 func (x *DeletePoolResponse) Reset() {
 	*x = DeletePoolResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[38]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2780,7 +2851,7 @@ func (x *DeletePoolResponse) String() string {
 func (*DeletePoolResponse) ProtoMessage() {}
 
 func (x *DeletePoolResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[38]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2793,7 +2864,7 @@ func (x *DeletePoolResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePoolResponse.ProtoReflect.Descriptor instead.
 func (*DeletePoolResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{38}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{39}
 }
 
 type ListRoutesRequest struct {
@@ -2806,7 +2877,7 @@ type ListRoutesRequest struct {
 
 func (x *ListRoutesRequest) Reset() {
 	*x = ListRoutesRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[39]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2818,7 +2889,7 @@ func (x *ListRoutesRequest) String() string {
 func (*ListRoutesRequest) ProtoMessage() {}
 
 func (x *ListRoutesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[39]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2831,7 +2902,7 @@ func (x *ListRoutesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRoutesRequest.ProtoReflect.Descriptor instead.
 func (*ListRoutesRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{39}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ListRoutesRequest) GetOrganizationId() string {
@@ -2858,7 +2929,7 @@ type ListRoutesResponse struct {
 
 func (x *ListRoutesResponse) Reset() {
 	*x = ListRoutesResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[40]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2870,7 +2941,7 @@ func (x *ListRoutesResponse) String() string {
 func (*ListRoutesResponse) ProtoMessage() {}
 
 func (x *ListRoutesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[40]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2883,7 +2954,7 @@ func (x *ListRoutesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRoutesResponse.ProtoReflect.Descriptor instead.
 func (*ListRoutesResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{40}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ListRoutesResponse) GetRoutes() []*Route {
@@ -2915,7 +2986,7 @@ type CreateRouteRequest struct {
 
 func (x *CreateRouteRequest) Reset() {
 	*x = CreateRouteRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[41]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2927,7 +2998,7 @@ func (x *CreateRouteRequest) String() string {
 func (*CreateRouteRequest) ProtoMessage() {}
 
 func (x *CreateRouteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[41]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2940,7 +3011,7 @@ func (x *CreateRouteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRouteRequest.ProtoReflect.Descriptor instead.
 func (*CreateRouteRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{41}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *CreateRouteRequest) GetOrganizationId() string {
@@ -2994,7 +3065,7 @@ type CreateRouteResponse struct {
 
 func (x *CreateRouteResponse) Reset() {
 	*x = CreateRouteResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[42]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3006,7 +3077,7 @@ func (x *CreateRouteResponse) String() string {
 func (*CreateRouteResponse) ProtoMessage() {}
 
 func (x *CreateRouteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[42]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3019,7 +3090,7 @@ func (x *CreateRouteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRouteResponse.ProtoReflect.Descriptor instead.
 func (*CreateRouteResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{42}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *CreateRouteResponse) GetRoute() *Route {
@@ -3046,7 +3117,7 @@ type UpdateRouteRequest struct {
 
 func (x *UpdateRouteRequest) Reset() {
 	*x = UpdateRouteRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[43]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3058,7 +3129,7 @@ func (x *UpdateRouteRequest) String() string {
 func (*UpdateRouteRequest) ProtoMessage() {}
 
 func (x *UpdateRouteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[43]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3071,7 +3142,7 @@ func (x *UpdateRouteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRouteRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRouteRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{43}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *UpdateRouteRequest) GetOrganizationId() string {
@@ -3132,7 +3203,7 @@ type UpdateRouteResponse struct {
 
 func (x *UpdateRouteResponse) Reset() {
 	*x = UpdateRouteResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[44]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3144,7 +3215,7 @@ func (x *UpdateRouteResponse) String() string {
 func (*UpdateRouteResponse) ProtoMessage() {}
 
 func (x *UpdateRouteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[44]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3157,7 +3228,7 @@ func (x *UpdateRouteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRouteResponse.ProtoReflect.Descriptor instead.
 func (*UpdateRouteResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{44}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *UpdateRouteResponse) GetRoute() *Route {
@@ -3177,7 +3248,7 @@ type DeleteRouteRequest struct {
 
 func (x *DeleteRouteRequest) Reset() {
 	*x = DeleteRouteRequest{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[45]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3189,7 +3260,7 @@ func (x *DeleteRouteRequest) String() string {
 func (*DeleteRouteRequest) ProtoMessage() {}
 
 func (x *DeleteRouteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[45]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3202,7 +3273,7 @@ func (x *DeleteRouteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRouteRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRouteRequest) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{45}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *DeleteRouteRequest) GetOrganizationId() string {
@@ -3227,7 +3298,7 @@ type DeleteRouteResponse struct {
 
 func (x *DeleteRouteResponse) Reset() {
 	*x = DeleteRouteResponse{}
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[46]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3239,7 +3310,7 @@ func (x *DeleteRouteResponse) String() string {
 func (*DeleteRouteResponse) ProtoMessage() {}
 
 func (x *DeleteRouteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aiprouter_v1_provider_proto_msgTypes[46]
+	mi := &file_aiprouter_v1_provider_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3252,14 +3323,21 @@ func (x *DeleteRouteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRouteResponse.ProtoReflect.Descriptor instead.
 func (*DeleteRouteResponse) Descriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{46}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{47}
 }
 
 var File_aiprouter_v1_provider_proto protoreflect.FileDescriptor
 
 const file_aiprouter_v1_provider_proto_rawDesc = "" +
 	"\n" +
-	"\x1baiprouter/v1/provider.proto\x12\faiprouter.v1\x1a\x19aiprouter/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa5\r\n" +
+	"\x1baiprouter/v1/provider.proto\x12\faiprouter.v1\x1a\x19aiprouter/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfd\x01\n" +
+	"\x15ResponsesItemIdRepair\x12\x18\n" +
+	"\amessage\x18\x01 \x03(\tR\amessage\x12\x1c\n" +
+	"\treasoning\x18\x02 \x03(\tR\treasoning\x121\n" +
+	"\x12repair_invalid_ids\x18\x03 \x01(\bH\x00R\x10repairInvalidIds\x88\x01\x01\x12B\n" +
+	"\x1brepair_missing_terminal_ids\x18\x04 \x01(\bH\x01R\x18repairMissingTerminalIds\x88\x01\x01B\x15\n" +
+	"\x13_repair_invalid_idsB\x1e\n" +
+	"\x1c_repair_missing_terminal_ids\"\xae\r\n" +
 	"\x17ProviderPolicyOverrides\x12E\n" +
 	"\x1dfold_developer_role_to_system\x18\x01 \x01(\bH\x00R\x19foldDeveloperRoleToSystem\x88\x01\x01\x12H\n" +
 	"\x1edrop_responses_reasoning_items\x18\x02 \x01(\bH\x01R\x1bdropResponsesReasoningItems\x88\x01\x01\x12T\n" +
@@ -3276,10 +3354,10 @@ const file_aiprouter_v1_provider_proto_rawDesc = "" +
 	"R\x13supportsServiceTier\x88\x01\x01\x122\n" +
 	"\x12supports_verbosity\x18\f \x01(\bH\vR\x11supportsVerbosity\x88\x01\x01\x12J\n" +
 	"\x1fsupports_responses_custom_tools\x18\r \x01(\bH\fR\x1csupportsResponsesCustomTools\x88\x01\x01\x12W\n" +
-	"'supports_open_ai_web_search_tool_fields\x18\x0e \x01(\bH\rR!supportsOpenAiWebSearchToolFields\x88\x01\x01\x12<\n" +
-	"\x18responses_item_id_repair\x18\x0f \x01(\bH\x0eR\x15responsesItemIdRepair\x88\x01\x01\x127\n" +
-	"\x15show_thinking_summary\x18\x10 \x01(\bH\x0fR\x13showThinkingSummary\x88\x01\x01\x12>\n" +
-	"\x19escape_builtin_tool_names\x18\x11 \x01(\bH\x10R\x16escapeBuiltinToolNames\x88\x01\x01B \n" +
+	"'supports_open_ai_web_search_tool_fields\x18\x0e \x01(\bH\rR!supportsOpenAiWebSearchToolFields\x88\x01\x01\x127\n" +
+	"\x15show_thinking_summary\x18\x10 \x01(\bH\x0eR\x13showThinkingSummary\x88\x01\x01\x12>\n" +
+	"\x19escape_builtin_tool_names\x18\x11 \x01(\bH\x0fR\x16escapeBuiltinToolNames\x88\x01\x01\x12\\\n" +
+	"\x18responses_item_id_repair\x18\x12 \x01(\v2#.aiprouter.v1.ResponsesItemIdRepairR\x15responsesItemIdRepairB \n" +
 	"\x1e_fold_developer_role_to_systemB!\n" +
 	"\x1f_drop_responses_reasoning_itemsB'\n" +
 	"%_preserve_responses_reasoning_contentB+\n" +
@@ -3293,10 +3371,9 @@ const file_aiprouter_v1_provider_proto_rawDesc = "" +
 	"\x16_supports_service_tierB\x15\n" +
 	"\x13_supports_verbosityB\"\n" +
 	" _supports_responses_custom_toolsB*\n" +
-	"(_supports_open_ai_web_search_tool_fieldsB\x1b\n" +
-	"\x19_responses_item_id_repairB\x18\n" +
+	"(_supports_open_ai_web_search_tool_fieldsB\x18\n" +
 	"\x16_show_thinking_summaryB\x1c\n" +
-	"\x1a_escape_builtin_tool_names\"\xa9\x04\n" +
+	"\x1a_escape_builtin_tool_namesJ\x04\b\x0f\x10\x10\"\xa9\x04\n" +
 	"\x15ProviderConfiguration\x123\n" +
 	"\x04wire\x18\x01 \x01(\x0e2\x1a.aiprouter.v1.ProviderWireH\x00R\x04wire\x88\x01\x01\x12T\n" +
 	"\vmodel_wires\x18\x02 \x03(\v23.aiprouter.v1.ProviderConfiguration.ModelWiresEntryR\n" +
@@ -3609,168 +3686,170 @@ func file_aiprouter_v1_provider_proto_rawDescGZIP() []byte {
 }
 
 var file_aiprouter_v1_provider_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_aiprouter_v1_provider_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
+var file_aiprouter_v1_provider_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
 var file_aiprouter_v1_provider_proto_goTypes = []any{
 	(ProviderWire)(0),                        // 0: aiprouter.v1.ProviderWire
-	(*ProviderPolicyOverrides)(nil),          // 1: aiprouter.v1.ProviderPolicyOverrides
-	(*ProviderConfiguration)(nil),            // 2: aiprouter.v1.ProviderConfiguration
-	(*ProviderCustomHeaders)(nil),            // 3: aiprouter.v1.ProviderCustomHeaders
-	(*ProviderDefinition)(nil),               // 4: aiprouter.v1.ProviderDefinition
-	(*ProviderConnection)(nil),               // 5: aiprouter.v1.ProviderConnection
-	(*ProviderOAuth)(nil),                    // 6: aiprouter.v1.ProviderOAuth
-	(*PoolMember)(nil),                       // 7: aiprouter.v1.PoolMember
-	(*Pool)(nil),                             // 8: aiprouter.v1.Pool
-	(*JevDecisionConfig)(nil),                // 9: aiprouter.v1.JevDecisionConfig
-	(*RouteTarget)(nil),                      // 10: aiprouter.v1.RouteTarget
-	(*Route)(nil),                            // 11: aiprouter.v1.Route
-	(*ListProviderCatalogRequest)(nil),       // 12: aiprouter.v1.ListProviderCatalogRequest
-	(*ListProviderCatalogResponse)(nil),      // 13: aiprouter.v1.ListProviderCatalogResponse
-	(*ListProviderConnectionsRequest)(nil),   // 14: aiprouter.v1.ListProviderConnectionsRequest
-	(*ListProviderConnectionsResponse)(nil),  // 15: aiprouter.v1.ListProviderConnectionsResponse
-	(*CreateProviderConnectionRequest)(nil),  // 16: aiprouter.v1.CreateProviderConnectionRequest
-	(*CreateProviderConnectionResponse)(nil), // 17: aiprouter.v1.CreateProviderConnectionResponse
-	(*UpdateProviderConnectionRequest)(nil),  // 18: aiprouter.v1.UpdateProviderConnectionRequest
-	(*UpdateProviderConnectionResponse)(nil), // 19: aiprouter.v1.UpdateProviderConnectionResponse
-	(*DeleteProviderConnectionRequest)(nil),  // 20: aiprouter.v1.DeleteProviderConnectionRequest
-	(*DeleteProviderConnectionResponse)(nil), // 21: aiprouter.v1.DeleteProviderConnectionResponse
-	(*BeginProviderOAuthRequest)(nil),        // 22: aiprouter.v1.BeginProviderOAuthRequest
-	(*BeginProviderOAuthResponse)(nil),       // 23: aiprouter.v1.BeginProviderOAuthResponse
-	(*GetProviderOAuthRequest)(nil),          // 24: aiprouter.v1.GetProviderOAuthRequest
-	(*GetProviderOAuthResponse)(nil),         // 25: aiprouter.v1.GetProviderOAuthResponse
-	(*CompleteProviderOAuthRequest)(nil),     // 26: aiprouter.v1.CompleteProviderOAuthRequest
-	(*CompleteProviderOAuthResponse)(nil),    // 27: aiprouter.v1.CompleteProviderOAuthResponse
-	(*CancelProviderOAuthRequest)(nil),       // 28: aiprouter.v1.CancelProviderOAuthRequest
-	(*CancelProviderOAuthResponse)(nil),      // 29: aiprouter.v1.CancelProviderOAuthResponse
-	(*ListProviderModelsRequest)(nil),        // 30: aiprouter.v1.ListProviderModelsRequest
-	(*ListProviderModelsResponse)(nil),       // 31: aiprouter.v1.ListProviderModelsResponse
-	(*ListPoolsRequest)(nil),                 // 32: aiprouter.v1.ListPoolsRequest
-	(*ListPoolsResponse)(nil),                // 33: aiprouter.v1.ListPoolsResponse
-	(*CreatePoolRequest)(nil),                // 34: aiprouter.v1.CreatePoolRequest
-	(*CreatePoolResponse)(nil),               // 35: aiprouter.v1.CreatePoolResponse
-	(*UpdatePoolRequest)(nil),                // 36: aiprouter.v1.UpdatePoolRequest
-	(*UpdatePoolResponse)(nil),               // 37: aiprouter.v1.UpdatePoolResponse
-	(*DeletePoolRequest)(nil),                // 38: aiprouter.v1.DeletePoolRequest
-	(*DeletePoolResponse)(nil),               // 39: aiprouter.v1.DeletePoolResponse
-	(*ListRoutesRequest)(nil),                // 40: aiprouter.v1.ListRoutesRequest
-	(*ListRoutesResponse)(nil),               // 41: aiprouter.v1.ListRoutesResponse
-	(*CreateRouteRequest)(nil),               // 42: aiprouter.v1.CreateRouteRequest
-	(*CreateRouteResponse)(nil),              // 43: aiprouter.v1.CreateRouteResponse
-	(*UpdateRouteRequest)(nil),               // 44: aiprouter.v1.UpdateRouteRequest
-	(*UpdateRouteResponse)(nil),              // 45: aiprouter.v1.UpdateRouteResponse
-	(*DeleteRouteRequest)(nil),               // 46: aiprouter.v1.DeleteRouteRequest
-	(*DeleteRouteResponse)(nil),              // 47: aiprouter.v1.DeleteRouteResponse
-	nil,                                      // 48: aiprouter.v1.ProviderConfiguration.ModelWiresEntry
-	nil,                                      // 49: aiprouter.v1.ProviderCustomHeaders.ValuesEntry
-	(ProviderAuthKind)(0),                    // 50: aiprouter.v1.ProviderAuthKind
-	(ApiShape)(0),                            // 51: aiprouter.v1.ApiShape
-	(ProviderOAuthMethod)(0),                 // 52: aiprouter.v1.ProviderOAuthMethod
-	(ConnectionState)(0),                     // 53: aiprouter.v1.ConnectionState
-	(*timestamppb.Timestamp)(nil),            // 54: google.protobuf.Timestamp
-	(OAuthState)(0),                          // 55: aiprouter.v1.OAuthState
-	(PoolStrategy)(0),                        // 56: aiprouter.v1.PoolStrategy
-	(RoutingStrategy)(0),                     // 57: aiprouter.v1.RoutingStrategy
-	(*PageRequest)(nil),                      // 58: aiprouter.v1.PageRequest
-	(*PageResponse)(nil),                     // 59: aiprouter.v1.PageResponse
-	(*Model)(nil),                            // 60: aiprouter.v1.Model
+	(*ResponsesItemIdRepair)(nil),            // 1: aiprouter.v1.ResponsesItemIdRepair
+	(*ProviderPolicyOverrides)(nil),          // 2: aiprouter.v1.ProviderPolicyOverrides
+	(*ProviderConfiguration)(nil),            // 3: aiprouter.v1.ProviderConfiguration
+	(*ProviderCustomHeaders)(nil),            // 4: aiprouter.v1.ProviderCustomHeaders
+	(*ProviderDefinition)(nil),               // 5: aiprouter.v1.ProviderDefinition
+	(*ProviderConnection)(nil),               // 6: aiprouter.v1.ProviderConnection
+	(*ProviderOAuth)(nil),                    // 7: aiprouter.v1.ProviderOAuth
+	(*PoolMember)(nil),                       // 8: aiprouter.v1.PoolMember
+	(*Pool)(nil),                             // 9: aiprouter.v1.Pool
+	(*JevDecisionConfig)(nil),                // 10: aiprouter.v1.JevDecisionConfig
+	(*RouteTarget)(nil),                      // 11: aiprouter.v1.RouteTarget
+	(*Route)(nil),                            // 12: aiprouter.v1.Route
+	(*ListProviderCatalogRequest)(nil),       // 13: aiprouter.v1.ListProviderCatalogRequest
+	(*ListProviderCatalogResponse)(nil),      // 14: aiprouter.v1.ListProviderCatalogResponse
+	(*ListProviderConnectionsRequest)(nil),   // 15: aiprouter.v1.ListProviderConnectionsRequest
+	(*ListProviderConnectionsResponse)(nil),  // 16: aiprouter.v1.ListProviderConnectionsResponse
+	(*CreateProviderConnectionRequest)(nil),  // 17: aiprouter.v1.CreateProviderConnectionRequest
+	(*CreateProviderConnectionResponse)(nil), // 18: aiprouter.v1.CreateProviderConnectionResponse
+	(*UpdateProviderConnectionRequest)(nil),  // 19: aiprouter.v1.UpdateProviderConnectionRequest
+	(*UpdateProviderConnectionResponse)(nil), // 20: aiprouter.v1.UpdateProviderConnectionResponse
+	(*DeleteProviderConnectionRequest)(nil),  // 21: aiprouter.v1.DeleteProviderConnectionRequest
+	(*DeleteProviderConnectionResponse)(nil), // 22: aiprouter.v1.DeleteProviderConnectionResponse
+	(*BeginProviderOAuthRequest)(nil),        // 23: aiprouter.v1.BeginProviderOAuthRequest
+	(*BeginProviderOAuthResponse)(nil),       // 24: aiprouter.v1.BeginProviderOAuthResponse
+	(*GetProviderOAuthRequest)(nil),          // 25: aiprouter.v1.GetProviderOAuthRequest
+	(*GetProviderOAuthResponse)(nil),         // 26: aiprouter.v1.GetProviderOAuthResponse
+	(*CompleteProviderOAuthRequest)(nil),     // 27: aiprouter.v1.CompleteProviderOAuthRequest
+	(*CompleteProviderOAuthResponse)(nil),    // 28: aiprouter.v1.CompleteProviderOAuthResponse
+	(*CancelProviderOAuthRequest)(nil),       // 29: aiprouter.v1.CancelProviderOAuthRequest
+	(*CancelProviderOAuthResponse)(nil),      // 30: aiprouter.v1.CancelProviderOAuthResponse
+	(*ListProviderModelsRequest)(nil),        // 31: aiprouter.v1.ListProviderModelsRequest
+	(*ListProviderModelsResponse)(nil),       // 32: aiprouter.v1.ListProviderModelsResponse
+	(*ListPoolsRequest)(nil),                 // 33: aiprouter.v1.ListPoolsRequest
+	(*ListPoolsResponse)(nil),                // 34: aiprouter.v1.ListPoolsResponse
+	(*CreatePoolRequest)(nil),                // 35: aiprouter.v1.CreatePoolRequest
+	(*CreatePoolResponse)(nil),               // 36: aiprouter.v1.CreatePoolResponse
+	(*UpdatePoolRequest)(nil),                // 37: aiprouter.v1.UpdatePoolRequest
+	(*UpdatePoolResponse)(nil),               // 38: aiprouter.v1.UpdatePoolResponse
+	(*DeletePoolRequest)(nil),                // 39: aiprouter.v1.DeletePoolRequest
+	(*DeletePoolResponse)(nil),               // 40: aiprouter.v1.DeletePoolResponse
+	(*ListRoutesRequest)(nil),                // 41: aiprouter.v1.ListRoutesRequest
+	(*ListRoutesResponse)(nil),               // 42: aiprouter.v1.ListRoutesResponse
+	(*CreateRouteRequest)(nil),               // 43: aiprouter.v1.CreateRouteRequest
+	(*CreateRouteResponse)(nil),              // 44: aiprouter.v1.CreateRouteResponse
+	(*UpdateRouteRequest)(nil),               // 45: aiprouter.v1.UpdateRouteRequest
+	(*UpdateRouteResponse)(nil),              // 46: aiprouter.v1.UpdateRouteResponse
+	(*DeleteRouteRequest)(nil),               // 47: aiprouter.v1.DeleteRouteRequest
+	(*DeleteRouteResponse)(nil),              // 48: aiprouter.v1.DeleteRouteResponse
+	nil,                                      // 49: aiprouter.v1.ProviderConfiguration.ModelWiresEntry
+	nil,                                      // 50: aiprouter.v1.ProviderCustomHeaders.ValuesEntry
+	(ProviderAuthKind)(0),                    // 51: aiprouter.v1.ProviderAuthKind
+	(ApiShape)(0),                            // 52: aiprouter.v1.ApiShape
+	(ProviderOAuthMethod)(0),                 // 53: aiprouter.v1.ProviderOAuthMethod
+	(ConnectionState)(0),                     // 54: aiprouter.v1.ConnectionState
+	(*timestamppb.Timestamp)(nil),            // 55: google.protobuf.Timestamp
+	(OAuthState)(0),                          // 56: aiprouter.v1.OAuthState
+	(PoolStrategy)(0),                        // 57: aiprouter.v1.PoolStrategy
+	(RoutingStrategy)(0),                     // 58: aiprouter.v1.RoutingStrategy
+	(*PageRequest)(nil),                      // 59: aiprouter.v1.PageRequest
+	(*PageResponse)(nil),                     // 60: aiprouter.v1.PageResponse
+	(*Model)(nil),                            // 61: aiprouter.v1.Model
 }
 var file_aiprouter_v1_provider_proto_depIdxs = []int32{
-	0,  // 0: aiprouter.v1.ProviderConfiguration.wire:type_name -> aiprouter.v1.ProviderWire
-	48, // 1: aiprouter.v1.ProviderConfiguration.model_wires:type_name -> aiprouter.v1.ProviderConfiguration.ModelWiresEntry
-	1,  // 2: aiprouter.v1.ProviderConfiguration.policy:type_name -> aiprouter.v1.ProviderPolicyOverrides
-	49, // 3: aiprouter.v1.ProviderCustomHeaders.values:type_name -> aiprouter.v1.ProviderCustomHeaders.ValuesEntry
-	50, // 4: aiprouter.v1.ProviderDefinition.auth_kinds:type_name -> aiprouter.v1.ProviderAuthKind
-	51, // 5: aiprouter.v1.ProviderDefinition.api_shapes:type_name -> aiprouter.v1.ApiShape
-	52, // 6: aiprouter.v1.ProviderDefinition.oauth_methods:type_name -> aiprouter.v1.ProviderOAuthMethod
-	50, // 7: aiprouter.v1.ProviderConnection.auth_kind:type_name -> aiprouter.v1.ProviderAuthKind
-	53, // 8: aiprouter.v1.ProviderConnection.state:type_name -> aiprouter.v1.ConnectionState
-	54, // 9: aiprouter.v1.ProviderConnection.created_at:type_name -> google.protobuf.Timestamp
-	54, // 10: aiprouter.v1.ProviderConnection.cooldown_until:type_name -> google.protobuf.Timestamp
-	2,  // 11: aiprouter.v1.ProviderConnection.configuration:type_name -> aiprouter.v1.ProviderConfiguration
-	55, // 12: aiprouter.v1.ProviderOAuth.state:type_name -> aiprouter.v1.OAuthState
-	54, // 13: aiprouter.v1.ProviderOAuth.expires_at:type_name -> google.protobuf.Timestamp
-	56, // 14: aiprouter.v1.Pool.strategy:type_name -> aiprouter.v1.PoolStrategy
-	7,  // 15: aiprouter.v1.Pool.members:type_name -> aiprouter.v1.PoolMember
-	57, // 16: aiprouter.v1.Route.strategy:type_name -> aiprouter.v1.RoutingStrategy
-	10, // 17: aiprouter.v1.Route.targets:type_name -> aiprouter.v1.RouteTarget
-	9,  // 18: aiprouter.v1.Route.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
-	4,  // 19: aiprouter.v1.ListProviderCatalogResponse.providers:type_name -> aiprouter.v1.ProviderDefinition
-	58, // 20: aiprouter.v1.ListProviderConnectionsRequest.page:type_name -> aiprouter.v1.PageRequest
-	5,  // 21: aiprouter.v1.ListProviderConnectionsResponse.connections:type_name -> aiprouter.v1.ProviderConnection
-	59, // 22: aiprouter.v1.ListProviderConnectionsResponse.page:type_name -> aiprouter.v1.PageResponse
-	50, // 23: aiprouter.v1.CreateProviderConnectionRequest.auth_kind:type_name -> aiprouter.v1.ProviderAuthKind
-	2,  // 24: aiprouter.v1.CreateProviderConnectionRequest.configuration:type_name -> aiprouter.v1.ProviderConfiguration
-	3,  // 25: aiprouter.v1.CreateProviderConnectionRequest.custom_headers:type_name -> aiprouter.v1.ProviderCustomHeaders
-	5,  // 26: aiprouter.v1.CreateProviderConnectionResponse.connection:type_name -> aiprouter.v1.ProviderConnection
-	2,  // 27: aiprouter.v1.UpdateProviderConnectionRequest.configuration:type_name -> aiprouter.v1.ProviderConfiguration
-	3,  // 28: aiprouter.v1.UpdateProviderConnectionRequest.custom_headers:type_name -> aiprouter.v1.ProviderCustomHeaders
-	5,  // 29: aiprouter.v1.UpdateProviderConnectionResponse.connection:type_name -> aiprouter.v1.ProviderConnection
-	52, // 30: aiprouter.v1.BeginProviderOAuthRequest.method:type_name -> aiprouter.v1.ProviderOAuthMethod
-	6,  // 31: aiprouter.v1.BeginProviderOAuthResponse.authorization:type_name -> aiprouter.v1.ProviderOAuth
-	6,  // 32: aiprouter.v1.GetProviderOAuthResponse.authorization:type_name -> aiprouter.v1.ProviderOAuth
-	5,  // 33: aiprouter.v1.CompleteProviderOAuthResponse.connection:type_name -> aiprouter.v1.ProviderConnection
-	60, // 34: aiprouter.v1.ListProviderModelsResponse.models:type_name -> aiprouter.v1.Model
-	58, // 35: aiprouter.v1.ListPoolsRequest.page:type_name -> aiprouter.v1.PageRequest
-	8,  // 36: aiprouter.v1.ListPoolsResponse.pools:type_name -> aiprouter.v1.Pool
-	59, // 37: aiprouter.v1.ListPoolsResponse.page:type_name -> aiprouter.v1.PageResponse
-	56, // 38: aiprouter.v1.CreatePoolRequest.strategy:type_name -> aiprouter.v1.PoolStrategy
-	7,  // 39: aiprouter.v1.CreatePoolRequest.members:type_name -> aiprouter.v1.PoolMember
-	8,  // 40: aiprouter.v1.CreatePoolResponse.pool:type_name -> aiprouter.v1.Pool
-	56, // 41: aiprouter.v1.UpdatePoolRequest.strategy:type_name -> aiprouter.v1.PoolStrategy
-	7,  // 42: aiprouter.v1.UpdatePoolRequest.members:type_name -> aiprouter.v1.PoolMember
-	8,  // 43: aiprouter.v1.UpdatePoolResponse.pool:type_name -> aiprouter.v1.Pool
-	58, // 44: aiprouter.v1.ListRoutesRequest.page:type_name -> aiprouter.v1.PageRequest
-	11, // 45: aiprouter.v1.ListRoutesResponse.routes:type_name -> aiprouter.v1.Route
-	59, // 46: aiprouter.v1.ListRoutesResponse.page:type_name -> aiprouter.v1.PageResponse
-	57, // 47: aiprouter.v1.CreateRouteRequest.strategy:type_name -> aiprouter.v1.RoutingStrategy
-	10, // 48: aiprouter.v1.CreateRouteRequest.targets:type_name -> aiprouter.v1.RouteTarget
-	9,  // 49: aiprouter.v1.CreateRouteRequest.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
-	11, // 50: aiprouter.v1.CreateRouteResponse.route:type_name -> aiprouter.v1.Route
-	57, // 51: aiprouter.v1.UpdateRouteRequest.strategy:type_name -> aiprouter.v1.RoutingStrategy
-	10, // 52: aiprouter.v1.UpdateRouteRequest.targets:type_name -> aiprouter.v1.RouteTarget
-	9,  // 53: aiprouter.v1.UpdateRouteRequest.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
-	11, // 54: aiprouter.v1.UpdateRouteResponse.route:type_name -> aiprouter.v1.Route
-	0,  // 55: aiprouter.v1.ProviderConfiguration.ModelWiresEntry.value:type_name -> aiprouter.v1.ProviderWire
-	12, // 56: aiprouter.v1.ProviderService.ListProviderCatalog:input_type -> aiprouter.v1.ListProviderCatalogRequest
-	14, // 57: aiprouter.v1.ProviderService.ListProviderConnections:input_type -> aiprouter.v1.ListProviderConnectionsRequest
-	16, // 58: aiprouter.v1.ProviderService.CreateProviderConnection:input_type -> aiprouter.v1.CreateProviderConnectionRequest
-	18, // 59: aiprouter.v1.ProviderService.UpdateProviderConnection:input_type -> aiprouter.v1.UpdateProviderConnectionRequest
-	20, // 60: aiprouter.v1.ProviderService.DeleteProviderConnection:input_type -> aiprouter.v1.DeleteProviderConnectionRequest
-	22, // 61: aiprouter.v1.ProviderService.BeginProviderOAuth:input_type -> aiprouter.v1.BeginProviderOAuthRequest
-	24, // 62: aiprouter.v1.ProviderService.GetProviderOAuth:input_type -> aiprouter.v1.GetProviderOAuthRequest
-	26, // 63: aiprouter.v1.ProviderService.CompleteProviderOAuth:input_type -> aiprouter.v1.CompleteProviderOAuthRequest
-	28, // 64: aiprouter.v1.ProviderService.CancelProviderOAuth:input_type -> aiprouter.v1.CancelProviderOAuthRequest
-	30, // 65: aiprouter.v1.ProviderService.ListProviderModels:input_type -> aiprouter.v1.ListProviderModelsRequest
-	32, // 66: aiprouter.v1.PoolService.ListPools:input_type -> aiprouter.v1.ListPoolsRequest
-	34, // 67: aiprouter.v1.PoolService.CreatePool:input_type -> aiprouter.v1.CreatePoolRequest
-	36, // 68: aiprouter.v1.PoolService.UpdatePool:input_type -> aiprouter.v1.UpdatePoolRequest
-	38, // 69: aiprouter.v1.PoolService.DeletePool:input_type -> aiprouter.v1.DeletePoolRequest
-	40, // 70: aiprouter.v1.RoutingService.ListRoutes:input_type -> aiprouter.v1.ListRoutesRequest
-	42, // 71: aiprouter.v1.RoutingService.CreateRoute:input_type -> aiprouter.v1.CreateRouteRequest
-	44, // 72: aiprouter.v1.RoutingService.UpdateRoute:input_type -> aiprouter.v1.UpdateRouteRequest
-	46, // 73: aiprouter.v1.RoutingService.DeleteRoute:input_type -> aiprouter.v1.DeleteRouteRequest
-	13, // 74: aiprouter.v1.ProviderService.ListProviderCatalog:output_type -> aiprouter.v1.ListProviderCatalogResponse
-	15, // 75: aiprouter.v1.ProviderService.ListProviderConnections:output_type -> aiprouter.v1.ListProviderConnectionsResponse
-	17, // 76: aiprouter.v1.ProviderService.CreateProviderConnection:output_type -> aiprouter.v1.CreateProviderConnectionResponse
-	19, // 77: aiprouter.v1.ProviderService.UpdateProviderConnection:output_type -> aiprouter.v1.UpdateProviderConnectionResponse
-	21, // 78: aiprouter.v1.ProviderService.DeleteProviderConnection:output_type -> aiprouter.v1.DeleteProviderConnectionResponse
-	23, // 79: aiprouter.v1.ProviderService.BeginProviderOAuth:output_type -> aiprouter.v1.BeginProviderOAuthResponse
-	25, // 80: aiprouter.v1.ProviderService.GetProviderOAuth:output_type -> aiprouter.v1.GetProviderOAuthResponse
-	27, // 81: aiprouter.v1.ProviderService.CompleteProviderOAuth:output_type -> aiprouter.v1.CompleteProviderOAuthResponse
-	29, // 82: aiprouter.v1.ProviderService.CancelProviderOAuth:output_type -> aiprouter.v1.CancelProviderOAuthResponse
-	31, // 83: aiprouter.v1.ProviderService.ListProviderModels:output_type -> aiprouter.v1.ListProviderModelsResponse
-	33, // 84: aiprouter.v1.PoolService.ListPools:output_type -> aiprouter.v1.ListPoolsResponse
-	35, // 85: aiprouter.v1.PoolService.CreatePool:output_type -> aiprouter.v1.CreatePoolResponse
-	37, // 86: aiprouter.v1.PoolService.UpdatePool:output_type -> aiprouter.v1.UpdatePoolResponse
-	39, // 87: aiprouter.v1.PoolService.DeletePool:output_type -> aiprouter.v1.DeletePoolResponse
-	41, // 88: aiprouter.v1.RoutingService.ListRoutes:output_type -> aiprouter.v1.ListRoutesResponse
-	43, // 89: aiprouter.v1.RoutingService.CreateRoute:output_type -> aiprouter.v1.CreateRouteResponse
-	45, // 90: aiprouter.v1.RoutingService.UpdateRoute:output_type -> aiprouter.v1.UpdateRouteResponse
-	47, // 91: aiprouter.v1.RoutingService.DeleteRoute:output_type -> aiprouter.v1.DeleteRouteResponse
-	74, // [74:92] is the sub-list for method output_type
-	56, // [56:74] is the sub-list for method input_type
-	56, // [56:56] is the sub-list for extension type_name
-	56, // [56:56] is the sub-list for extension extendee
-	0,  // [0:56] is the sub-list for field type_name
+	1,  // 0: aiprouter.v1.ProviderPolicyOverrides.responses_item_id_repair:type_name -> aiprouter.v1.ResponsesItemIdRepair
+	0,  // 1: aiprouter.v1.ProviderConfiguration.wire:type_name -> aiprouter.v1.ProviderWire
+	49, // 2: aiprouter.v1.ProviderConfiguration.model_wires:type_name -> aiprouter.v1.ProviderConfiguration.ModelWiresEntry
+	2,  // 3: aiprouter.v1.ProviderConfiguration.policy:type_name -> aiprouter.v1.ProviderPolicyOverrides
+	50, // 4: aiprouter.v1.ProviderCustomHeaders.values:type_name -> aiprouter.v1.ProviderCustomHeaders.ValuesEntry
+	51, // 5: aiprouter.v1.ProviderDefinition.auth_kinds:type_name -> aiprouter.v1.ProviderAuthKind
+	52, // 6: aiprouter.v1.ProviderDefinition.api_shapes:type_name -> aiprouter.v1.ApiShape
+	53, // 7: aiprouter.v1.ProviderDefinition.oauth_methods:type_name -> aiprouter.v1.ProviderOAuthMethod
+	51, // 8: aiprouter.v1.ProviderConnection.auth_kind:type_name -> aiprouter.v1.ProviderAuthKind
+	54, // 9: aiprouter.v1.ProviderConnection.state:type_name -> aiprouter.v1.ConnectionState
+	55, // 10: aiprouter.v1.ProviderConnection.created_at:type_name -> google.protobuf.Timestamp
+	55, // 11: aiprouter.v1.ProviderConnection.cooldown_until:type_name -> google.protobuf.Timestamp
+	3,  // 12: aiprouter.v1.ProviderConnection.configuration:type_name -> aiprouter.v1.ProviderConfiguration
+	56, // 13: aiprouter.v1.ProviderOAuth.state:type_name -> aiprouter.v1.OAuthState
+	55, // 14: aiprouter.v1.ProviderOAuth.expires_at:type_name -> google.protobuf.Timestamp
+	57, // 15: aiprouter.v1.Pool.strategy:type_name -> aiprouter.v1.PoolStrategy
+	8,  // 16: aiprouter.v1.Pool.members:type_name -> aiprouter.v1.PoolMember
+	58, // 17: aiprouter.v1.Route.strategy:type_name -> aiprouter.v1.RoutingStrategy
+	11, // 18: aiprouter.v1.Route.targets:type_name -> aiprouter.v1.RouteTarget
+	10, // 19: aiprouter.v1.Route.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
+	5,  // 20: aiprouter.v1.ListProviderCatalogResponse.providers:type_name -> aiprouter.v1.ProviderDefinition
+	59, // 21: aiprouter.v1.ListProviderConnectionsRequest.page:type_name -> aiprouter.v1.PageRequest
+	6,  // 22: aiprouter.v1.ListProviderConnectionsResponse.connections:type_name -> aiprouter.v1.ProviderConnection
+	60, // 23: aiprouter.v1.ListProviderConnectionsResponse.page:type_name -> aiprouter.v1.PageResponse
+	51, // 24: aiprouter.v1.CreateProviderConnectionRequest.auth_kind:type_name -> aiprouter.v1.ProviderAuthKind
+	3,  // 25: aiprouter.v1.CreateProviderConnectionRequest.configuration:type_name -> aiprouter.v1.ProviderConfiguration
+	4,  // 26: aiprouter.v1.CreateProviderConnectionRequest.custom_headers:type_name -> aiprouter.v1.ProviderCustomHeaders
+	6,  // 27: aiprouter.v1.CreateProviderConnectionResponse.connection:type_name -> aiprouter.v1.ProviderConnection
+	3,  // 28: aiprouter.v1.UpdateProviderConnectionRequest.configuration:type_name -> aiprouter.v1.ProviderConfiguration
+	4,  // 29: aiprouter.v1.UpdateProviderConnectionRequest.custom_headers:type_name -> aiprouter.v1.ProviderCustomHeaders
+	6,  // 30: aiprouter.v1.UpdateProviderConnectionResponse.connection:type_name -> aiprouter.v1.ProviderConnection
+	53, // 31: aiprouter.v1.BeginProviderOAuthRequest.method:type_name -> aiprouter.v1.ProviderOAuthMethod
+	7,  // 32: aiprouter.v1.BeginProviderOAuthResponse.authorization:type_name -> aiprouter.v1.ProviderOAuth
+	7,  // 33: aiprouter.v1.GetProviderOAuthResponse.authorization:type_name -> aiprouter.v1.ProviderOAuth
+	6,  // 34: aiprouter.v1.CompleteProviderOAuthResponse.connection:type_name -> aiprouter.v1.ProviderConnection
+	61, // 35: aiprouter.v1.ListProviderModelsResponse.models:type_name -> aiprouter.v1.Model
+	59, // 36: aiprouter.v1.ListPoolsRequest.page:type_name -> aiprouter.v1.PageRequest
+	9,  // 37: aiprouter.v1.ListPoolsResponse.pools:type_name -> aiprouter.v1.Pool
+	60, // 38: aiprouter.v1.ListPoolsResponse.page:type_name -> aiprouter.v1.PageResponse
+	57, // 39: aiprouter.v1.CreatePoolRequest.strategy:type_name -> aiprouter.v1.PoolStrategy
+	8,  // 40: aiprouter.v1.CreatePoolRequest.members:type_name -> aiprouter.v1.PoolMember
+	9,  // 41: aiprouter.v1.CreatePoolResponse.pool:type_name -> aiprouter.v1.Pool
+	57, // 42: aiprouter.v1.UpdatePoolRequest.strategy:type_name -> aiprouter.v1.PoolStrategy
+	8,  // 43: aiprouter.v1.UpdatePoolRequest.members:type_name -> aiprouter.v1.PoolMember
+	9,  // 44: aiprouter.v1.UpdatePoolResponse.pool:type_name -> aiprouter.v1.Pool
+	59, // 45: aiprouter.v1.ListRoutesRequest.page:type_name -> aiprouter.v1.PageRequest
+	12, // 46: aiprouter.v1.ListRoutesResponse.routes:type_name -> aiprouter.v1.Route
+	60, // 47: aiprouter.v1.ListRoutesResponse.page:type_name -> aiprouter.v1.PageResponse
+	58, // 48: aiprouter.v1.CreateRouteRequest.strategy:type_name -> aiprouter.v1.RoutingStrategy
+	11, // 49: aiprouter.v1.CreateRouteRequest.targets:type_name -> aiprouter.v1.RouteTarget
+	10, // 50: aiprouter.v1.CreateRouteRequest.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
+	12, // 51: aiprouter.v1.CreateRouteResponse.route:type_name -> aiprouter.v1.Route
+	58, // 52: aiprouter.v1.UpdateRouteRequest.strategy:type_name -> aiprouter.v1.RoutingStrategy
+	11, // 53: aiprouter.v1.UpdateRouteRequest.targets:type_name -> aiprouter.v1.RouteTarget
+	10, // 54: aiprouter.v1.UpdateRouteRequest.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
+	12, // 55: aiprouter.v1.UpdateRouteResponse.route:type_name -> aiprouter.v1.Route
+	0,  // 56: aiprouter.v1.ProviderConfiguration.ModelWiresEntry.value:type_name -> aiprouter.v1.ProviderWire
+	13, // 57: aiprouter.v1.ProviderService.ListProviderCatalog:input_type -> aiprouter.v1.ListProviderCatalogRequest
+	15, // 58: aiprouter.v1.ProviderService.ListProviderConnections:input_type -> aiprouter.v1.ListProviderConnectionsRequest
+	17, // 59: aiprouter.v1.ProviderService.CreateProviderConnection:input_type -> aiprouter.v1.CreateProviderConnectionRequest
+	19, // 60: aiprouter.v1.ProviderService.UpdateProviderConnection:input_type -> aiprouter.v1.UpdateProviderConnectionRequest
+	21, // 61: aiprouter.v1.ProviderService.DeleteProviderConnection:input_type -> aiprouter.v1.DeleteProviderConnectionRequest
+	23, // 62: aiprouter.v1.ProviderService.BeginProviderOAuth:input_type -> aiprouter.v1.BeginProviderOAuthRequest
+	25, // 63: aiprouter.v1.ProviderService.GetProviderOAuth:input_type -> aiprouter.v1.GetProviderOAuthRequest
+	27, // 64: aiprouter.v1.ProviderService.CompleteProviderOAuth:input_type -> aiprouter.v1.CompleteProviderOAuthRequest
+	29, // 65: aiprouter.v1.ProviderService.CancelProviderOAuth:input_type -> aiprouter.v1.CancelProviderOAuthRequest
+	31, // 66: aiprouter.v1.ProviderService.ListProviderModels:input_type -> aiprouter.v1.ListProviderModelsRequest
+	33, // 67: aiprouter.v1.PoolService.ListPools:input_type -> aiprouter.v1.ListPoolsRequest
+	35, // 68: aiprouter.v1.PoolService.CreatePool:input_type -> aiprouter.v1.CreatePoolRequest
+	37, // 69: aiprouter.v1.PoolService.UpdatePool:input_type -> aiprouter.v1.UpdatePoolRequest
+	39, // 70: aiprouter.v1.PoolService.DeletePool:input_type -> aiprouter.v1.DeletePoolRequest
+	41, // 71: aiprouter.v1.RoutingService.ListRoutes:input_type -> aiprouter.v1.ListRoutesRequest
+	43, // 72: aiprouter.v1.RoutingService.CreateRoute:input_type -> aiprouter.v1.CreateRouteRequest
+	45, // 73: aiprouter.v1.RoutingService.UpdateRoute:input_type -> aiprouter.v1.UpdateRouteRequest
+	47, // 74: aiprouter.v1.RoutingService.DeleteRoute:input_type -> aiprouter.v1.DeleteRouteRequest
+	14, // 75: aiprouter.v1.ProviderService.ListProviderCatalog:output_type -> aiprouter.v1.ListProviderCatalogResponse
+	16, // 76: aiprouter.v1.ProviderService.ListProviderConnections:output_type -> aiprouter.v1.ListProviderConnectionsResponse
+	18, // 77: aiprouter.v1.ProviderService.CreateProviderConnection:output_type -> aiprouter.v1.CreateProviderConnectionResponse
+	20, // 78: aiprouter.v1.ProviderService.UpdateProviderConnection:output_type -> aiprouter.v1.UpdateProviderConnectionResponse
+	22, // 79: aiprouter.v1.ProviderService.DeleteProviderConnection:output_type -> aiprouter.v1.DeleteProviderConnectionResponse
+	24, // 80: aiprouter.v1.ProviderService.BeginProviderOAuth:output_type -> aiprouter.v1.BeginProviderOAuthResponse
+	26, // 81: aiprouter.v1.ProviderService.GetProviderOAuth:output_type -> aiprouter.v1.GetProviderOAuthResponse
+	28, // 82: aiprouter.v1.ProviderService.CompleteProviderOAuth:output_type -> aiprouter.v1.CompleteProviderOAuthResponse
+	30, // 83: aiprouter.v1.ProviderService.CancelProviderOAuth:output_type -> aiprouter.v1.CancelProviderOAuthResponse
+	32, // 84: aiprouter.v1.ProviderService.ListProviderModels:output_type -> aiprouter.v1.ListProviderModelsResponse
+	34, // 85: aiprouter.v1.PoolService.ListPools:output_type -> aiprouter.v1.ListPoolsResponse
+	36, // 86: aiprouter.v1.PoolService.CreatePool:output_type -> aiprouter.v1.CreatePoolResponse
+	38, // 87: aiprouter.v1.PoolService.UpdatePool:output_type -> aiprouter.v1.UpdatePoolResponse
+	40, // 88: aiprouter.v1.PoolService.DeletePool:output_type -> aiprouter.v1.DeletePoolResponse
+	42, // 89: aiprouter.v1.RoutingService.ListRoutes:output_type -> aiprouter.v1.ListRoutesResponse
+	44, // 90: aiprouter.v1.RoutingService.CreateRoute:output_type -> aiprouter.v1.CreateRouteResponse
+	46, // 91: aiprouter.v1.RoutingService.UpdateRoute:output_type -> aiprouter.v1.UpdateRouteResponse
+	48, // 92: aiprouter.v1.RoutingService.DeleteRoute:output_type -> aiprouter.v1.DeleteRouteResponse
+	75, // [75:93] is the sub-list for method output_type
+	57, // [57:75] is the sub-list for method input_type
+	57, // [57:57] is the sub-list for extension type_name
+	57, // [57:57] is the sub-list for extension extendee
+	0,  // [0:57] is the sub-list for field type_name
 }
 
 func init() { file_aiprouter_v1_provider_proto_init() }
@@ -3781,22 +3860,23 @@ func file_aiprouter_v1_provider_proto_init() {
 	file_aiprouter_v1_common_proto_init()
 	file_aiprouter_v1_provider_proto_msgTypes[0].OneofWrappers = []any{}
 	file_aiprouter_v1_provider_proto_msgTypes[1].OneofWrappers = []any{}
-	file_aiprouter_v1_provider_proto_msgTypes[4].OneofWrappers = []any{}
+	file_aiprouter_v1_provider_proto_msgTypes[2].OneofWrappers = []any{}
 	file_aiprouter_v1_provider_proto_msgTypes[5].OneofWrappers = []any{}
-	file_aiprouter_v1_provider_proto_msgTypes[9].OneofWrappers = []any{
+	file_aiprouter_v1_provider_proto_msgTypes[6].OneofWrappers = []any{}
+	file_aiprouter_v1_provider_proto_msgTypes[10].OneofWrappers = []any{
 		(*RouteTarget_ConnectionId)(nil),
 		(*RouteTarget_PoolId)(nil),
 	}
-	file_aiprouter_v1_provider_proto_msgTypes[15].OneofWrappers = []any{}
-	file_aiprouter_v1_provider_proto_msgTypes[17].OneofWrappers = []any{}
-	file_aiprouter_v1_provider_proto_msgTypes[21].OneofWrappers = []any{}
+	file_aiprouter_v1_provider_proto_msgTypes[16].OneofWrappers = []any{}
+	file_aiprouter_v1_provider_proto_msgTypes[18].OneofWrappers = []any{}
+	file_aiprouter_v1_provider_proto_msgTypes[22].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aiprouter_v1_provider_proto_rawDesc), len(file_aiprouter_v1_provider_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   49,
+			NumMessages:   50,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

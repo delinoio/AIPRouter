@@ -369,3 +369,30 @@ test("model export metadata distinguishes unknown, negative evidence, and empty 
     false,
   );
 });
+
+test("Responses item ID repair is an optional object with tri-state controls", async () => {
+  const { ProviderPolicyOverridesSchema } = await import("../src/index.js");
+  for (const responsesItemIdRepair of [
+    undefined,
+    {},
+    {
+      message: ["message-id"],
+      reasoning: ["reasoning-id"],
+      repairInvalidIds: false,
+      repairMissingTerminalIds: true,
+    },
+  ]) {
+    const value = create(ProviderPolicyOverridesSchema, {
+      responsesItemIdRepair,
+    });
+    const decoded = fromBinary(
+      ProviderPolicyOverridesSchema,
+      toBinary(ProviderPolicyOverridesSchema, value),
+    );
+    assert.deepEqual(decoded, value);
+    assert.deepEqual(
+      toJson(ProviderPolicyOverridesSchema, decoded),
+      responsesItemIdRepair === undefined ? {} : { responsesItemIdRepair },
+    );
+  }
+});

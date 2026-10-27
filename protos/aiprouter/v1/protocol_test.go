@@ -267,6 +267,12 @@ func TestProviderPolicyPresenceAndWriteOnlyHeaders(t *testing.T) {
 	}
 	for i := 0; i < fields.Len(); i++ {
 		field := fields.Get(i)
+		if field.Name() == "responses_item_id_repair" {
+			if field.Number() != 18 || field.Kind() != protoreflect.MessageKind || !field.HasPresence() {
+				t.Fatal("repair policy must be a present message on new field 18")
+			}
+			continue
+		}
 		if !field.HasPresence() || field.Kind() != protoreflect.BoolKind {
 			t.Fatalf("policy must be tri-state: %s", field.Name())
 		}
@@ -368,5 +374,26 @@ func TestModelExportMetadataPresence(t *testing.T) {
 	}
 	if values[0].FastRowAvailable != nil || values[0].ReasoningEffortsKnown != nil || values[0].MaxInputTokens != nil {
 		t.Fatal("unknown metadata must remain absent")
+	}
+}
+
+func TestResponsesItemIdRepairPolicyPresence(t *testing.T) {
+	descriptor := (&v1.ProviderPolicyOverrides{}).ProtoReflect().Descriptor()
+	if !descriptor.ReservedRanges().Has(15) {
+		t.Fatal("retired scalar number must stay reserved")
+	}
+	for _, repair := range []*v1.ResponsesItemIdRepair{nil, {}, {Message: []string{"message-id"}, Reasoning: []string{"reasoning-id"}, RepairInvalidIds: proto.Bool(false), RepairMissingTerminalIds: proto.Bool(true)}} {
+		value := &v1.ProviderPolicyOverrides{ResponsesItemIdRepair: repair}
+		wire, err := proto.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := &v1.ProviderPolicyOverrides{}
+		if err := proto.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(value, decoded) {
+			t.Fatalf("repair presence lost: %v", decoded)
+		}
 	}
 }

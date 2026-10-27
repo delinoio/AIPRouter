@@ -18,8 +18,18 @@ enum ProviderWire {
   PROVIDER_WIRE_JEV_DECISION = 5;
 }
 
+// Exact message/reasoning item IDs to repair; empty and absent lists both select none.
+// Presence of this object replaces the preset repair policy as a whole, including
+// an empty object. Omission inherits the destination-matched preset policy.
+message ResponsesItemIdRepair {
+  repeated string message = 1;
+  repeated string reasoning = 2;
+  optional bool repair_invalid_ids = 3;
+  optional bool repair_missing_terminal_ids = 4;
+}
+
 // Each absent field inherits the destination-matched preset policy. Explicit false
-// disables that policy. Do not serialize with defaults or collapse pointer presence.
+// disables a boolean policy. Do not collapse pointer presence.
 message ProviderPolicyOverrides {
   optional bool fold_developer_role_to_system = 1;
   optional bool drop_responses_reasoning_items = 2;
@@ -35,9 +45,11 @@ message ProviderPolicyOverrides {
   optional bool supports_verbosity = 12;
   optional bool supports_responses_custom_tools = 13;
   optional bool supports_open_ai_web_search_tool_fields = 14;
-  optional bool responses_item_id_repair = 15;
+  // Retired incorrect scalar repair field. Never reuse its wire number.
+  reserved 15;
   optional bool show_thinking_summary = 16;
   optional bool escape_builtin_tool_names = 17;
+  ResponsesItemIdRepair responses_item_id_repair = 18;
 }
 
 // Safe read metadata. Header secret values are deliberately not part of this message.
