@@ -24,6 +24,8 @@ docker compose -f compose.yml -f compose.fixture.yml up -d --build
 
 Fixtures must remain local. Use `scripts/aiprouter/compose-smoke.py` from the root for an isolated disposable installation/recovery test. It refuses an existing `.env` and removes only its own Compose project. It requires free loopback ports 8080 and 18090 and a working Docker daemon.
 
+The server image builds the console with Node.js 24 and the root-pinned pnpm version using the frozen workspace lockfile. It copies the Rsbuild `dist` output to `/app/console` and sets `AIPROUTER_CONSOLE_DIR` to that path. The server owns static routing and serves the console from the same origin as the API. Node.js and build dependencies remain in the build stage. Dockerfile-specific context filters exclude host dependency directories, generated outputs, and environment files; no host dependency mounts are used. Keep the console manifest and root lockfile synchronized before building the image. The image includes Go and console dependency license notices.
+
 ## Maintenance interface
 
 Run `python3 scripts/aiprouter/maintenance.py` from the repository root with:
