@@ -32,6 +32,18 @@ Provider configuration carries typed custom wires, model overrides, endpoint pat
 
 `ProviderPolicyOverrides.responses_item_id_repair` is an optional object, not a boolean. Its `message` and `reasoning` arrays contain exact identifiers; `repair_invalid_ids` and `repair_missing_terminal_ids` retain optional boolean presence. Omitting the object inherits the preset. A present empty object overrides the preset with no repair. Preserve this distinction through generated clients, settings persistence, UI editing, and request-policy resolution.
 
+### Routing and native pool option presence
+
+JEV decisions retain the selected personal decision connection or ordinary route, timeout, and optional session pin lifetime. Route updates replace the complete configuration; omitting the decision configuration clears it, and non-JEV routes must not retain it. Quota signals are opt-in advisory data, not authorization or a replacement for current eligibility checks. Thresholds measure used quota in percent and must be finite within 0–100. The effective limited and nearly-exhausted defaults are 70 and 90; require limited < nearly exhausted. Moderate is optional and, when present, must be less than limited. An absent moderate threshold differs from explicit zero. Validate configured thresholds even when quota signals are disabled. Missing quota remains unknown.
+
+Fast policy retains optional `fast_enabled` and case-preserving `model_supports_service_tier` entries, including explicit false values. Reject duplicate model keys that differ only by case. An omitted override inherits policy; configuration alone must not advertise unsupported fast capability. Model discovery and execution must agree on the authorized fast selector.
+
+Native pool options apply to homogeneous personal OAuth pools for `openai`, `anthropic`, or `anthropic2`; keep the two Anthropic families independent. Explicit native pool creation materializes `enabled=true` when absent and honors explicit false. Imported configuration with absent enablement remains disabled. Generic resolution must not infer enablement from absence. Pool updates use full replacement: omitted native options clear them, and omitted enablement does not reuse the creation default.
+
+Preserve optional native pool and member values through generated clients, persistence, and console editing. Native strategies are quota, round-robin, fill-first, and Codex-only reset-first. An unspecified strategy resolves to quota. Sticky limits default to 1 and accept 1–100; pool switching thresholds default to 80 and accept 0–100, with zero disabling voluntary quota switching. A member threshold overrides the pool; use-remaining-quota makes the effective threshold zero. Codex cache affinity defaults to true, plan exclusions remain case-insensitive, and member credit use defaults to false. Anthropic quota windows distinguish five-hour, weekly, and maximum utilization; an unspecified window resolves to five-hour. Native Messages defaults to true; explicit false selects legacy translation.
+
+Native member priority is signed, ranges from −100 to 100, and sorts higher first. It does not change the existing smaller-first pool priority. Ordered Anthropic model routes retain unique safe names and glob patterns, personal connection allowlists, and explicit fallback. The first matching route wins; absent fallback must not widen the account roster. The generated schema owns field bounds and allowed characters, and runtime validation must enforce them.
+
 ## Storage
 
 Schemas describe lifecycle and ownership; bindings do not own persisted state.
