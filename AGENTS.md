@@ -155,6 +155,8 @@
 
 ## Formatting Rules
 
+- Define workspace build, development, lint, typecheck and test commands in the owning package and run them through root Turborepo scripts. Keep repository-wide formatting and Git hook setup as direct commands; use the root `test:tooling` task for shared formatter and hook fixtures. Follow `docs/repository-workflow-contract.md` for task configuration and cache boundaries.
+- Root `pnpm dev` must start all workspace development servers. Each package that owns a development server must expose a `dev` script; do not restrict the root command with package or affected filters.
 - Use the pinned Rstack CLI through root `pnpm format` and `pnpm format:check` for changed JS/TS, CSS, JSON, YAML and Markdown files. Keep shared options and exclusions in `rstack.config.ts`.
 - The Lefthook pre-commit hook must automatically format staged Rstack-supported files and stage the fixes in the same commit while preserving unstaged edits. Use the shared formatter's local `--staged --write` mode; keep CI checks on the exact planner comparison.
 - CI must check the exact planner comparison without rewriting sources or expanding to a repository-wide formatting migration. Add the owning Rust, Go and Protobuf checks when those source domains are introduced. Follow `docs/repository-workflow-contract.md`.
