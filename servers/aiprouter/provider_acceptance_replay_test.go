@@ -18,7 +18,7 @@ const providerAcceptanceReplayNext = `{"model":"fixture","messages":[{"role":"us
 const providerAcceptanceRawThought = "raw fixture thought"
 
 func TestProviderAcceptanceReasoningReplay(t *testing.T) {
-	for _, mode := range []string{"restore", "expire", "revoke", "thread", "organization", "user", "account", "model"} {
+	for _, mode := range []string{"restore", "expire", "revoke", "thread", "organization", "user", "account", "model", "generation", "deleted", "destination", "key"} {
 		t.Run(mode, func(t *testing.T) {
 			var calls atomic.Int32
 			f := newProviderAcceptance(t, "custom", "deepseek-v3.2-pro", func(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +101,18 @@ func TestProviderAcceptanceReasoningReplay(t *testing.T) {
 				f.data.Metadata.Id = "other-fixture-account"
 				f.save()
 				f.replayRoute("deepseek-v3.2-pro")
+			case "generation":
+				f.data.Secret = "replacement-" + f.secret
+				f.secret = f.data.Secret
+				f.save()
+			case "deleted":
+				acceptanceOK(t, f.s.DeletePrivate(context.Background(), f.scope, string(providerKind), f.data.Metadata.Id))
+			case "destination":
+				f.data.Metadata.BaseUrl = "https://provider.example/other-v1"
+				f.save()
+			case "key":
+				_, f.key, e = f.s.IssueKey(context.Background(), f.scope, "other replay key", nil)
+				acceptanceOK(t, e)
 			case "model":
 				f.replayRoute("deepseek-v3.2-pro-new")
 			}
@@ -114,7 +126,7 @@ func TestProviderAcceptanceReasoningReplay(t *testing.T) {
 				if w.Code < 400 || calls.Load() != 1 {
 					t.Fatal("unavailable/cross-scope reasoning was sent upstream")
 				}
-				if mode != "revoke" && !strings.Contains(w.Body.String(), "continuation") {
+				if mode != "revoke" && mode != "deleted" && !strings.Contains(w.Body.String(), "continuation") {
 					t.Error("missing reasoning did not return explicit continuation error")
 				}
 			}

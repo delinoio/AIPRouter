@@ -112,7 +112,7 @@ func newProviderAcceptance(t *testing.T, provider, model string, upstream http.H
 	}
 	f.data = providerData{Metadata: &v1.ProviderConnection{Id: core.ID(), OrganizationId: org.ID, ProviderId: provider, BaseUrl: p.BaseURL, AuthKind: auth, State: v1.ConnectionState_CONNECTION_STATE_READY}, Secret: f.secret}
 	if auth == v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH {
-		f.data.Credential = &providers.Credential{Scope: f.scope, Provider: provider, AccessToken: f.secret, AccountID: "fixture-account", Metadata: map[string]string{"uid": "fixture-user", "domain": "fixture-domain", "teamId": "fixture-team"}}
+		f.data.Credential = &providers.Credential{Scope: f.scope, Provider: provider, AccessToken: f.secret, AccountID: "fixture-account", Metadata: map[string]string{"uid": "fixture-user", "domain": "fixture-domain", "enterpriseId": "fixture-team"}}
 	}
 	if provider == "azure-openai" {
 		f.data.Metadata.BaseUrl = "https://fixture.openai.azure.com/openai/v1"

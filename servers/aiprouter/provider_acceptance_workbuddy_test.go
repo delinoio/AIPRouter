@@ -22,6 +22,9 @@ func TestProviderAcceptanceWorkBuddyIdentityAndSSE(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer "+f.secret || r.Header.Get("X-User-Id") != f.data.Credential.Metadata["uid"] || r.Header.Get("X-Domain") != "fixture-domain" {
 			t.Error("WorkBuddy selected credential identity mismatch")
 		}
+		if r.Header.Get("X-Enterprise-Id") != f.data.Credential.Metadata["enterpriseId"] || r.Header.Get("X-Tenant-Id") != f.data.Credential.Metadata["enterpriseId"] {
+			t.Error("WorkBuddy team identity mismatch")
+		}
 		if r.Header.Get("X-Api-Key") != "" || r.Header.Get("Api-Key") != "" {
 			t.Error("WorkBuddy secondary credential leaked")
 		}
