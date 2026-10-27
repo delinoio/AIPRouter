@@ -487,6 +487,9 @@ func (m *management) getRoute(ctx context.Context, sc core.Scope, id string) (*v
 	return p, e
 }
 func (m *management) validateRoute(ctx context.Context, sc core.Scope, p *v1.Route) error {
+	if err := validateReasoningRetention(p.ReasoningRetention); err != nil {
+		return err
+	}
 	if strings.TrimSpace(p.ModelId) == "" || len(p.ModelId) > 512 || len(p.Targets) == 0 || len(p.Targets) > 100 {
 		return invalid("model and 1 to 100 targets required")
 	}
@@ -569,7 +572,7 @@ func (m *management) CreateRoute(ctx context.Context, r *connect.Request[v1.Crea
 	if e != nil {
 		return nil, e
 	}
-	p := &v1.Route{Id: core.ID(), OrganizationId: sc.OrganizationID, ModelId: r.Msg.ModelId, Strategy: r.Msg.Strategy, Targets: r.Msg.Targets, Enabled: r.Msg.Enabled, JevDecision: r.Msg.JevDecision}
+	p := &v1.Route{Id: core.ID(), OrganizationId: sc.OrganizationID, ModelId: r.Msg.ModelId, Strategy: r.Msg.Strategy, Targets: r.Msg.Targets, Enabled: r.Msg.Enabled, JevDecision: r.Msg.JevDecision, ReasoningRetention: r.Msg.ReasoningRetention}
 	if e = m.validateRoute(ctx, sc, p); e != nil {
 		return nil, e
 	}
@@ -593,6 +596,7 @@ func (m *management) UpdateRoute(ctx context.Context, r *connect.Request[v1.Upda
 	p.Targets = r.Msg.Targets
 	p.Enabled = r.Msg.Enabled
 	p.JevDecision = r.Msg.JevDecision
+	p.ReasoningRetention = r.Msg.ReasoningRetention
 	if e = m.validateRoute(ctx, sc, p); e != nil {
 		return nil, e
 	}

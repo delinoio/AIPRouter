@@ -989,3 +989,41 @@ func TestProviderConfigurationVertexProjectLocation(t *testing.T) {
 		t.Fatalf("non-Vertex field accepted: %v", err)
 	}
 }
+
+func TestProviderRouteReasoningRetentionPersistsAndClears(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	d := oauthSavedProvider(t, m, ctx, sc)
+	targets := []*v1.RouteTarget{{Target: &v1.RouteTarget_ConnectionId{ConnectionId: d.Metadata.Id}, ModelId: "model"}}
+	config := &v1.ReasoningRetentionConfig{Enabled: true, MaxContextPercent: ptr(float64(0)), MaxTokens: ptr(uint32(0))}
+	created, err := m.CreateRoute(ctx, connect.NewRequest(&v1.CreateRouteRequest{OrganizationId: sc.OrganizationID, ModelId: "retained", Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT, Targets: targets, Enabled: true, ReasoningRetention: config}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := m.getRoute(ctx, sc, created.Msg.Route.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.ReasoningRetention == nil || !saved.ReasoningRetention.Enabled || saved.ReasoningRetention.MaxContextPercent == nil || *saved.ReasoningRetention.MaxContextPercent != 0 || saved.ReasoningRetention.MaxTokens == nil || *saved.ReasoningRetention.MaxTokens != 0 {
+		t.Fatal("explicit retention defaults not persisted")
+	}
+	_, err = m.UpdateRoute(ctx, connect.NewRequest(&v1.UpdateRouteRequest{OrganizationId: sc.OrganizationID, RouteId: saved.Id, ModelId: saved.ModelId, Strategy: saved.Strategy, Targets: targets, Enabled: true, ReasoningRetention: &v1.ReasoningRetentionConfig{Enabled: false, MaxContextPercent: ptr(float64(101))}}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("invalid retention accepted: %v", err)
+	}
+	_, err = m.UpdateRoute(ctx, connect.NewRequest(&v1.UpdateRouteRequest{OrganizationId: sc.OrganizationID, RouteId: saved.Id, ModelId: saved.ModelId, Strategy: saved.Strategy, Targets: targets, Enabled: true, ReasoningRetention: &v1.ReasoningRetentionConfig{Enabled: false, MaxContextPercent: ptr(float64(25)), MaxTokens: ptr(uint32(25000))}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err = m.getRoute(ctx, sc, saved.Id)
+	if err != nil || saved.ReasoningRetention == nil || saved.ReasoningRetention.Enabled || saved.ReasoningRetention.GetMaxTokens() != 25000 {
+		t.Fatalf("retention replacement failed: %v", err)
+	}
+	_, err = m.UpdateRoute(ctx, connect.NewRequest(&v1.UpdateRouteRequest{OrganizationId: sc.OrganizationID, RouteId: saved.Id, ModelId: saved.ModelId, Strategy: saved.Strategy, Targets: targets, Enabled: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err = m.getRoute(ctx, sc, saved.Id)
+	if err != nil || saved.ReasoningRetention != nil {
+		t.Fatalf("retention omission did not clear: %v", err)
+	}
+}
