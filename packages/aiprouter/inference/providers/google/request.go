@@ -259,7 +259,7 @@ func parseMessages(root object, wire inference.Wire) ([]message, error) {
 				return nil, invalid()
 			}
 			role := text(m["role"])
-			if m["reasoning_content"] != nil {
+			if m["reasoning_content"] != nil && obj(obj(m["extra_content"])["google"])["parts"] == nil {
 				return nil, unsupported()
 			}
 			if role != "user" && role != "assistant" && role != "system" && role != "developer" && !(role == "tool" && wire == inference.Chat) {

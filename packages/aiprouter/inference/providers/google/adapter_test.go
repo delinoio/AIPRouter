@@ -502,3 +502,16 @@ func TestCloseReleasesUnreadStream(t *testing.T) {
 		t.Fatal("body not closed")
 	}
 }
+
+func TestBufferedSignatureAndSummaryRoundTrip(t *testing.T) {
+	a := NewAPI(Options{ShowThinkingSummaries: true})
+	response := decoded(t, a, `{"candidates":[{"content":{"parts":[{"thought":true,"text":"summary","thoughtSignature":"sig-beta-opaque-value"},{"functionCall":{"id":"a","name":"f","args":{}},"thoughtSignature":"sig-alpha-opaque-value"}]},"finishReason":"STOP"}]}`)
+	msg := obj(obj(array(response["choices"])[0])["message"])
+	body, _ := json.Marshal(object{"messages": []any{msg, object{"role": "tool", "tool_call_id": "a", "content": "done"}}})
+	in := input(string(body))
+	request := requestBody(t, a, in)
+	parts := array(obj(array(request["contents"])[1])["parts"])
+	if len(parts) != 2 || signature(obj(parts[0])) != signatureB || signature(obj(parts[1])) != signatureA {
+		t.Fatal("opaque state lost on actual output replay")
+	}
+}
