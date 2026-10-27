@@ -95,7 +95,11 @@ const operatorSections = [
 ] as const;
 type OperatorSection = (typeof operatorSections)[number][0];
 export function OperatorPage({ session }: { session: GetSessionResponse }) {
-  return <OperatorBoundary key={session.userId} />;
+  return (
+    <div className="admin-operator-frame">
+      <OperatorBoundary key={session.userId} />
+    </div>
+  );
 }
 function OperatorBoundary() {
   const [section, setSection] = useState<OperatorSection>("health");

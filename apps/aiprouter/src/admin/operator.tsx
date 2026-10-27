@@ -24,6 +24,7 @@ import {
   useAction,
 } from "./common";
 import { Summary, timeRange } from "./reporting";
+import { usePriceRevision, type PriceSnapshot } from "./price-revision";
 
 export function Health() {
   const health = useQuery(
@@ -83,8 +84,11 @@ export function Health() {
               : "Unknown"}
           </p>
           <p>
-            Usage recording health: Unknown. Recording failures can leave
-            request totals incomplete.
+            Usage recording health:{" "}
+            {health.data?.health?.usageRecording
+              ? label(HealthState[health.data.health.usageRecording])
+              : "Unknown"}
+            . Recording failures can leave request totals incomplete.
           </p>
           <button onClick={() => void health.refetch()}>Refresh health</button>
         </Card>
@@ -469,20 +473,32 @@ const rateFields = [
 ] as const;
 export function Prices() {
   const [token, setToken] = useState("");
-  const [editing, setEditing] = useState<PriceOverride | "new">();
-  const [deleting, setDeleting] = useState<PriceOverride>();
+  const [editing, setEditing] = useState<PriceSnapshot>();
+  const [deleting, setDeleting] = useState<PriceSnapshot>();
   const action = useAction(true);
   const query = useQuery(OperatorService.method.listPriceOverrides, {
     page: { pageSize: 100, pageToken: token },
   });
-  const remove = useMutation(OperatorService.method.deletePriceOverride);
+
   return (
     <>
       <PageHeader
         title="Price overrides"
         description="Common prices in currency units per million tokens. Applies to new requests only."
         action={
-          <button className="admin-primary" onClick={() => setEditing("new")}>
+          <button
+            className="admin-primary"
+            disabled={
+              !query.data?.revision ||
+              !!query.error ||
+              query.isFetching ||
+              action.pending
+            }
+            onClick={() => {
+              action.clearError();
+              setEditing({ revision: query.data!.revision });
+            }}
+          >
             Add price override
           </button>
         }
@@ -491,7 +507,13 @@ export function Prices() {
       {query.isPending ? (
         <Loading />
       ) : query.error ? (
-        <ErrorNotice error={query.error} retry={() => void query.refetch()} />
+        <ErrorNotice
+          error={query.error}
+          retry={() => {
+            if (token) setToken("");
+            else void query.refetch();
+          }}
+        />
       ) : (
         <Card>
           {!query.data?.overrides.length && (
@@ -521,10 +543,22 @@ export function Prices() {
                   ))}
                 </div>
                 <div className="admin-actions">
-                  <button onClick={() => setEditing(price)}>
+                  <button
+                    disabled={!query.data?.revision || action.pending}
+                    onClick={() => {
+                      action.clearError();
+                      setEditing({ price, revision: query.data!.revision });
+                    }}
+                  >
                     Edit override
                   </button>
-                  <button onClick={() => setDeleting(price)}>
+                  <button
+                    disabled={!query.data?.revision || action.pending}
+                    onClick={() => {
+                      action.clearError();
+                      setDeleting({ price, revision: query.data!.revision });
+                    }}
+                  >
                     Delete override
                   </button>
                 </div>
@@ -540,41 +574,32 @@ export function Prices() {
       )}
       {editing && (
         <PriceEditor
-          price={editing === "new" ? undefined : editing}
+          price={editing.price}
+          revision={editing.revision}
+          action={action}
           onClose={() => setEditing(undefined)}
         />
       )}
-      {deleting && (
-        <Confirm
-          title="Delete price override"
-          name={deleting.modelId}
-          pending={action.pending}
+      {deleting?.price && (
+        <PriceDeletion
+          price={deleting.price}
+          revision={deleting.revision}
+          action={action}
           onClose={() => setDeleting(undefined)}
-          action={() =>
-            void action.run(
-              () => remove.mutateAsync({ overrideId: deleting.id }),
-              {
-                done: () => setDeleting(undefined),
-                success: "Price override deleted.",
-              },
-            )
-          }
-        >
-          <p>
-            Future requests use the bundled price where available; otherwise
-            cost is unknown. Historical estimates remain unchanged.
-          </p>
-          <ErrorNotice error={action.error} />
-        </Confirm>
+        />
       )}
     </>
   );
 }
 function PriceEditor({
   price,
+  revision,
+  action,
   onClose,
 }: {
   price?: PriceOverride;
+  revision: string;
+  action: ReturnType<typeof useAction>;
   onClose: () => void;
 }) {
   const [provider, setProvider] = useState(price?.providerId ?? "");
@@ -586,7 +611,11 @@ function PriceEditor({
       rateFields.map(([field]) => [field, price?.rates?.[field] ?? ""]),
     ),
   );
-  const action = useAction(true);
+  const snapshot = usePriceRevision(
+    revision,
+    { providerId: provider, modelId: model, serviceTier: tier },
+    action,
+  );
   const save = useMutation(OperatorService.method.setPriceOverride);
   const dirty = useDirtyForm();
   useEffect(() => {
@@ -601,9 +630,11 @@ function PriceEditor({
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          if (snapshot.blocked) return;
           void action.run(
             () =>
               save.mutateAsync({
+                expectedRevision: snapshot.revision,
                 providerId: provider,
                 modelId: model,
                 serviceTier: tier,
@@ -677,15 +708,60 @@ function PriceEditor({
           ))}
         </div>
         <ErrorNotice error={action.error} />
+        {snapshot.controls}
         <div className="admin-actions">
           <button type="button" data-cancel onClick={onClose}>
             Cancel
           </button>
-          <button className="admin-primary" disabled={action.pending}>
+          <button
+            className="admin-primary"
+            disabled={action.pending || snapshot.blocked}
+          >
             Save override
           </button>
         </div>
       </form>
     </Dialog>
+  );
+}
+
+function PriceDeletion({
+  price,
+  revision,
+  action,
+  onClose,
+}: {
+  price: PriceOverride;
+  revision: string;
+  action: ReturnType<typeof useAction>;
+  onClose: () => void;
+}) {
+  const snapshot = usePriceRevision(revision, price, action);
+  const remove = useMutation(OperatorService.method.deletePriceOverride);
+  return (
+    <Confirm
+      title="Delete price override"
+      name={price.modelId}
+      pending={action.pending || snapshot.blocked}
+      onClose={onClose}
+      action={() => {
+        if (snapshot.blocked) return;
+        void action.run(
+          () =>
+            remove.mutateAsync({
+              overrideId: price.id,
+              expectedRevision: snapshot.revision,
+            }),
+          { done: onClose, success: "Price override deleted." },
+        );
+      }}
+    >
+      <p>
+        Future requests use the bundled price where available; otherwise cost is
+        unknown. Historical estimates remain unchanged.
+      </p>
+      <ErrorNotice error={action.error} />
+      {snapshot.controls}
+    </Confirm>
   );
 }

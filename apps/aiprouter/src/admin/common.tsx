@@ -208,6 +208,7 @@ export function useAction(operator = false) {
   }
   return {
     run,
+    clearError: () => setError(undefined),
     pending,
     error,
     feedback: (
