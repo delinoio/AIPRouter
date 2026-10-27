@@ -25,6 +25,7 @@ type State struct {
 	Records  map[string]Record  `json:"records"`
 }
 type Record struct {
+	RuntimeMode     NativeCompatibilityMode `json:"runtimeMode,omitempty"`
 	Profile, Client string
 	Files           []Backup
 	Originals       map[string]Backup `json:"originals,omitempty"`
@@ -36,6 +37,7 @@ type Backup struct {
 	Existed       bool
 }
 type Change struct {
+	RuntimeMode   NativeCompatibilityMode
 	Remove        bool
 	Check         func() error
 	Locks         []string
@@ -238,6 +240,12 @@ func updatedRecord(s State, client, profile string, changes []Change) (Record, e
 		}
 	}
 	for _, c := range changes {
+		if c.RuntimeMode != "" {
+			if record.RuntimeMode != "" && record.RuntimeMode != c.RuntimeMode {
+				return Record{}, errors.New("conflicting runtime modes")
+			}
+			record.RuntimeMode = c.RuntimeMode
+		}
 		b := Backup{Path: c.Path, Before: c.Before, After: c.After, Existed: c.Existed, Removed: c.Remove}
 		if _, ok := record.Originals[c.Path]; !ok {
 			record.Originals[c.Path] = b

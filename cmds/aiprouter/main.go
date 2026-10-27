@@ -32,6 +32,7 @@ func (t Terminal) Confirm(message string) bool {
 }
 
 type Application struct {
+	Native     NativeRuntimeController
 	Disk       Disk
 	Store      Credentials
 	Services   Services
@@ -101,7 +102,7 @@ func openBrowser(url string) error {
 }
 func (a *Application) Run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		fmt.Fprintln(a.Out, "aiprouter connect|profiles|configure|disconnect|restore|port|service|relay|clients|client-profiles|recover\nFlags: --profile NAME --server HTTPS_ORIGIN --client CLIENT --port PORT --state-dir ABSOLUTE_PATH\nservice: --action install|status|stop|remove\nDisconnect: offers settings restoration; preserves conflicts and reports incomplete revocation.\nConfiguration previews always require interactive confirmation; remote-key storage requires separate consent.\nSet NO_COLOR=1 to disable ANSI log colors.")
+		fmt.Fprintln(a.Out, "aiprouter connect|profiles|configure|disconnect|restore|port|service|relay|clients|client-profiles|recover|native\nFlags: --profile NAME --server HTTPS_ORIGIN --client CLIENT --port PORT --state-dir ABSOLUTE_PATH\nservice: --action install|status|stop|remove\nnative: --action plan|enable|status|stop|disable|serve --mode MODE --build BUILD --native-port PORT\nconfigure: --mode MODE selects an enabled, trusted native runtime; omit for gateway settings.\nDisconnect: offers settings restoration; preserves conflicts and reports incomplete revocation.\nConfiguration previews always require interactive confirmation; remote-key storage requires separate consent.\nSet NO_COLOR=1 to disable ANSI log colors.")
 		return nil
 	}
 	command := args[0]
@@ -114,6 +115,9 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 	stateDir := flags.String("state-dir", a.Disk.Root, "")
 	action := flags.String("action", "status", "")
 	deviceName := flags.String("device-name", "", "")
+	nativeMode := flags.String("mode", "", "")
+	nativeBuild := flags.String("build", "", "")
+	nativePort := flags.Int("native-port", DefaultNativePort, "")
 	if e := flags.Parse(args[1:]); e != nil || flags.NArg() != 0 {
 		return errors.New("invalid arguments; run aiprouter help")
 	}
@@ -145,6 +149,17 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 	if !namePattern.MatchString(*name) {
 		return errors.New("invalid profile name")
 	}
+	if command == "native" {
+		switch *action {
+		case "serve":
+			return a.nativeController().Serve(ctx, *name)
+		case "stop":
+			return a.nativeController().Stop(ctx, *name)
+		case "status":
+			state := emptyState()
+			return a.runNative(ctx, &state, *name, *action, "", "", 0)
+		}
+	}
 	if command == "relay" {
 		s, e := a.Disk.Load()
 		if e != nil {
@@ -168,7 +183,7 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 	if command == "recover" {
 		return a.Recover(&s)
 	}
-	if exists(filepath.Join(a.Disk.Root, "pending.json")) {
+	if exists(filepath.Join(a.Disk.Root, "pending.json")) && command != "disconnect" && !(command == "native" && *action == "disable") {
 		return errors.New("unfinished settings transaction; run aiprouter recover before changing state")
 	}
 	switch command {
@@ -239,11 +254,15 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		}
 		return a.Disk.Restore(&s, *client)
 	}
+	if command == "native" {
+		return a.runNative(ctx, &s, *name, *action, NativeCompatibilityMode(*nativeMode), *nativeBuild, *nativePort)
+	}
 	p, ok := s.Profiles[*name]
 	if !ok {
 		return errors.New("profile not found")
 	}
 	if command == "disconnect" {
+		a.nativeController()
 		return a.Disconnect(ctx, &s, p)
 	}
 	if p.RevocationPending {
@@ -287,7 +306,7 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		if e != nil {
 			return e
 		}
-		changes, e := PlanSettings(a.Resolver, s, *client, p, key, models)
+		changes, e := a.planConfiguration(ctx, s, *client, p, key, models, NativeCompatibilityMode(*nativeMode))
 		if e != nil {
 			return e
 		}
@@ -295,7 +314,7 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		if spec.Loopback {
 			fmt.Fprintf(a.Out, "Requires the profile relay at 127.0.0.1:%d; local processes share access. Install it with service --action install.\n", p.Port)
 		}
-		if (*client == "cline" || *client == "claude-desktop") && !a.Prompt.Confirm("Stop the client before applying these paired files. Is the client stopped?") {
+		if (*client == "cline" || *client == "claude-desktop" || *nativeMode != "") && !a.Prompt.Confirm("Stop the client before applying these paired files. Is the client stopped?") {
 			return errors.New("client must be stopped")
 		}
 		return a.Disk.Apply(&s, *client, p.Name, changes, a.Prompt)
@@ -371,6 +390,11 @@ func (a *Application) Disconnect(ctx context.Context, s *State, p Profile) error
 		failures = append(failures, "server revocation incomplete. "+revokeHint(p))
 	}
 	// Local cleanup must continue after network, credential-store and restore failures.
+	if a.Native != nil {
+		if e = a.Native.Stop(context.WithoutCancel(ctx), p.Name); e != nil {
+			failures = append(failures, "native listener stop incomplete")
+		}
+	}
 	if e = a.Services.Stop(context.WithoutCancel(ctx), p); e != nil {
 		failures = append(failures, "relay stop failed; stop it with the OS service manager")
 	}
@@ -390,6 +414,20 @@ func (a *Application) Disconnect(ctx context.Context, s *State, p Profile) error
 			failures = append(failures, "restoration declined for "+client+"; settings and backup retained")
 		}
 	}
+	if a.Native != nil {
+		status, err := a.Native.Status(context.WithoutCancel(ctx), p.Name)
+		if err != nil {
+			failures = append(failures, "native runtime status unavailable; owned trust may remain")
+		} else if status.Enabled || status.Trusted {
+			if a.Prompt.Confirm("Remove this profile’s owned native runtime trust certificate? Unrelated trust is preserved.") {
+				if err = a.Native.Disable(context.WithoutCancel(ctx), p.Name); err != nil {
+					failures = append(failures, "native trust cleanup incomplete; use native --action disable")
+				}
+			} else {
+				failures = append(failures, "native trust cleanup declined; use native --action disable")
+			}
+		}
+	}
 	if e = a.Store.Delete(credentialID(p)); e != nil {
 		failures = append(failures, "OS credential deletion failed; remove the profile credential manually")
 	}
@@ -401,6 +439,9 @@ func (a *Application) Disconnect(ctx context.Context, s *State, p Profile) error
 	}
 	if e = a.Disk.Save(*s); e != nil {
 		failures = append(failures, "local state save failed")
+	}
+	if exists(filepath.Join(a.Disk.Root, "pending.json")) {
+		failures = append(failures, "unfinished settings transaction retained; run aiprouter recover")
 	}
 	if len(failures) > 0 {
 		return errors.New(strings.Join(failures, "; "))
