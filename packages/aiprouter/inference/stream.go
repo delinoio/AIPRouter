@@ -107,6 +107,17 @@ func (r idleReader) Read(p []byte) (int, error) {
 	return n, e
 }
 func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Principal, in Wire, op Operation, b object, t Target, resp *http.Response, rec *UsageRecord, cancel context.CancelFunc, stall time.Duration) error {
+	reasoningCapture := h.NewReasoningStreamCapture(ctx)
+	captureFinished := false
+	defer func() {
+		if !captureFinished {
+			_ = reasoningCapture.Finish(ctx, false)
+		}
+	}()
+	finishReasoningCapture := func() error {
+		captureFinished = true
+		return replayError(reasoningCapture.Finish(ctx, true))
+	}
 	stopOnCancel := context.AfterFunc(ctx, func() { resp.Body.Close() })
 	defer stopOnCancel()
 	streaming := b["stream"] == true
@@ -153,9 +164,32 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 		if e != nil {
 			return &Error{502, "invalid_upstream_event", 0}
 		}
+
 		mergeUsage(&rec.Usage, readUsage(m, t.Wire))
+
 		if response := obj(m["response"]); response != nil {
 			mergeUsage(&rec.Usage, readUsage(response, t.Wire))
+		}
+
+		// Observe the unmodified provider event before projection or native forwarding.
+		if t.Wire == Chat && m["choices"] != nil {
+			if e := reasoningCapture.Observe(ctx, m); e != nil {
+				return replayError(e)
+			}
+		}
+		m, e = h.RewriteProviderResponse(ctx, m)
+		if e != nil {
+			return e
+		}
+		data, e = json.Marshal(m)
+		if e != nil {
+			return e
+		}
+		if tier := str(m["service_tier"]); tier != "" {
+			rec.ServiceTier = tier
+		}
+		if tier := str(obj(m["response"])["service_tier"]); tier != "" {
+			rec.ServiceTier = tier
 		}
 		if id := str(m["id"]); id != "" {
 			rec.ResponseID = id
@@ -229,6 +263,9 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 		return &Error{502, "upstream_stream_incomplete", 0}
 	}
 	if native && streaming {
+		if e := finishReasoningCapture(); e != nil {
+			return e
+		}
 		if final != nil {
 			if e := h.CaptureReplayReceipts(ctx, final); e != nil {
 				return e
@@ -287,6 +324,9 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 	r.Usage = rec.Usage
 	if err = validateTools(r, b, in); err != nil {
 		return err
+	}
+	if e := finishReasoningCapture(); e != nil {
+		return e
 	}
 	out := r.response(in)
 	if e := h.CaptureReplayReceipts(ctx, out); e != nil {

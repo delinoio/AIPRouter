@@ -4,8 +4,11 @@ package inference
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/reasoningreplay"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -284,5 +287,63 @@ func TestIncrementalReasoningIsNotRepeatedAtCompletion(t *testing.T) {
 	}
 	if strings.Count(all, `"reasoning_content":"thought"`) != 1 {
 		t.Fatal(all)
+	}
+}
+
+func TestDeliveryCapturesRawReasoningReplay(t *testing.T) {
+	for _, mode := range []string{"native", "translated", "buffered", "truncated", "save-error"} {
+		t.Run(mode, func(t *testing.T) {
+			states := map[string]reasoningreplay.State{}
+			replay, e := reasoningreplay.New(reasoningreplay.Hooks{
+				Lookup: func(_ context.Context, key string) (reasoningreplay.State, bool, error) {
+					v, ok := states[key]
+					return v, ok, nil
+				},
+				Save: func(_ context.Context, key string, v reasoningreplay.State) error {
+					if mode == "save-error" {
+						return reasoningreplay.ErrMissing
+					}
+					states[key] = v
+					return nil
+				},
+			}, reasoningreplay.Scope{OrganizationID: "org", UserID: "user", ConversationID: "thread", Provider: "fixture", AccountID: "account", Model: "deepseek-v3.2-pro", Destination: "https://fixture.test", Adapter: "chat", StateBinding: "version"})
+			if e != nil {
+				t.Fatal(e)
+			}
+			ctx, cancel := context.WithCancel(context.WithValue(context.Background(), reasoningReplayKey{}, replay))
+			defer cancel()
+			event := object{"choices": []any{object{"index": 0, "delta": object{"reasoning_content": "raw exact thought", "tool_calls": []any{object{"index": 0, "id": "call_1", "type": "function", "function": object{"name": "lookup", "arguments": "{}"}}}}}}}
+			payload := "data: " + translationJSON(event) + "\n\n"
+			if mode != "truncated" {
+				payload += "data: [DONE]\n\n"
+			}
+			wire := Chat
+			if mode == "translated" {
+				wire = Responses
+			}
+			tool := object{"type": "function", "name": "lookup", "parameters": object{"type": "object"}}
+			if wire == Chat {
+				tool = object{"type": "function", "function": object{"name": "lookup", "parameters": object{"type": "object"}}}
+			}
+			sink := httptest.NewRecorder()
+			record := &UsageRecord{}
+			e = (&Handler{}).deliverStream(ctx, sink, Principal{}, wire, Generate, object{"stream": mode != "buffered", "tools": []any{tool}}, Target{Wire: Chat}, &http.Response{Body: ioNopCloser(payload)}, record, cancel, 0)
+			text, lookupErr := replay.Peek(ctx, "call_1")
+			if mode == "truncated" || mode == "save-error" {
+				if e == nil || !errors.Is(lookupErr, reasoningreplay.ErrMissing) {
+					t.Fatalf("failed stream captured state: %v %v", e, lookupErr)
+				}
+				if mode == "save-error" && !errors.Is(e, ErrContinuation) {
+					t.Fatal(e)
+				}
+				if strings.Contains(sink.Body.String(), "[DONE]") {
+					t.Fatal("success before replay capture")
+				}
+				return
+			}
+			if e != nil || lookupErr != nil || text != "raw exact thought" {
+				t.Fatalf("raw capture: %q %v %v", text, e, lookupErr)
+			}
+		})
 	}
 }
