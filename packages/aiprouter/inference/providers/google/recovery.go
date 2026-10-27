@@ -48,12 +48,15 @@ func (*Adapter) RecoverHTTP(ctx context.Context, in inference.AdapterInput, f in
 			return stop("google_quota_exhausted")
 		}
 	}
+	// A changed-body compatibility send consumes the physical budget but is
+	// separate from the configured transient retry count in the pin.
+	attempt := f.Attempt - f.Repairs
 	retry := false
 	switch f.Status {
 	case 429:
-		retry = f.Attempt > 0 && f.Attempt <= in.Target.Retry.RateLimitRetries
+		retry = attempt > 0 && attempt <= in.Target.Retry.RateLimitRetries
 	case 500, 502, 503, 504:
-		retry = f.Attempt > 0 && f.Attempt < in.Target.Retry.TransientSends
+		retry = attempt > 0 && attempt < in.Target.Retry.TransientSends
 	default:
 		return d, nil
 	}

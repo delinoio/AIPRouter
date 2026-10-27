@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
+	"strings"
 	"time"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
@@ -65,35 +67,42 @@ func (a *Adapter) RestoreState(ctx context.Context, in inference.AdapterInput, s
 		return ctx, failure(500, "google_request_context_reused")
 	}
 	s.binding = replayBinding(in)
-	if in.PreviousResponseID == "" {
+	s.sessionID = ""
+	if a.cca && !strings.HasPrefix(strings.ToLower(in.Target.Model), "claude") {
+		if anchor := headerAnchor(in); anchor != "" {
+			h := sha256.Sum256([]byte(anchor))
+			s.sessionID = "google-session:" + hex.EncodeToString(h[:])
+		}
+	}
+	var b []byte
+	var err error
+	if in.PreviousResponseID != "" {
+		if store == nil {
+			return ctx, inference.ErrContinuation
+		}
+		b, err = store.Load(ctx, in.PreviousResponseID)
+	} else if s.sessionID != "" {
+		lookup, ok := store.(inference.AdapterStateLookup)
+		if !ok {
+			return ctx, failure(503, "google_session_state_unavailable")
+		}
+		if _, ok := store.(inference.AdapterStateUpdater); !ok {
+			return ctx, failure(503, "google_session_state_unavailable")
+		}
+		var found bool
+		b, found, err = lookup.Lookup(ctx, s.sessionID)
+		if err == nil && !found {
+			return ctx, nil
+		}
+	} else {
 		return ctx, nil
 	}
-	if store == nil {
-		return ctx, inference.ErrContinuation
-	}
-	b, err := store.Load(ctx, in.PreviousResponseID)
 	if err != nil {
 		return ctx, err
 	}
-	if len(b) > replayLimit {
-		return ctx, inference.ErrContinuation
-	}
-	var snapshot replaySnapshot
-	if json.Unmarshal(b, &snapshot) != nil || snapshot.Version != 1 || snapshot.Binding != s.binding || len(snapshot.Entries) > replayEntries {
-		return ctx, inference.ErrContinuation
-	}
-	for _, entry := range snapshot.Entries {
-		key, err := hex.DecodeString(entry.Key)
-		if err != nil || len(key) != sha256.Size || !realSignature(entry.Signature) || len(entry.Variants) > 32 {
-			return ctx, inference.ErrContinuation
-		}
-	}
-	for _, e := range snapshot.Entries {
-		for _, sig := range e.Variants {
-			if !realSignature(sig) {
-				return ctx, inference.ErrContinuation
-			}
-		}
+	snapshot, err := decodeReplaySnapshot(b, s.binding)
+	if err != nil {
+		return ctx, err
 	}
 	s.replay = append([]replayEntry(nil), snapshot.Entries...)
 	return ctx, nil
@@ -125,7 +134,39 @@ func (*Adapter) CaptureState(ctx context.Context, in inference.AdapterInput, id 
 	if len(b) > replayLimit {
 		return failure(500, "google_state_limit")
 	}
-	return store.Save(ctx, id, b, time.Hour)
+	if err := store.Save(ctx, id, b, time.Hour); err != nil {
+		return err
+	}
+	if s.sessionID != "" {
+		updater, ok := store.(inference.AdapterStateUpdater)
+		if !ok {
+			return failure(503, "google_session_state_unavailable")
+		}
+		return updater.Update(ctx, s.sessionID, time.Hour, func(current []byte) ([]byte, error) {
+			merged := &requestState{}
+			if len(current) == 0 {
+				merged.replay = append([]replayEntry(nil), s.replay...)
+			}
+			if len(current) > 0 {
+				snapshot, err := decodeReplaySnapshot(current, s.binding)
+				if err != nil {
+					return nil, err
+				}
+				merged.replay = snapshot.Entries
+			}
+			for _, e := range s.observed {
+				if len(e.Variants) == 0 {
+					merged.remember(e.Key, e.Signature)
+				} else {
+					for _, sig := range e.Variants {
+						merged.remember(e.Key, sig)
+					}
+				}
+			}
+			return json.Marshal(replaySnapshot{1, s.binding, merged.replay})
+		})
+	}
+	return nil
 }
 func (s *requestState) remember(key, sig string) {
 	if key == "" || !realSignature(sig) {
@@ -189,6 +230,29 @@ func (s *requestState) restoreCalls(body object, aliases map[string]string) {
 				name = original
 			}
 			key := replayKey(name, call["args"])
+			// Custom tool clients replay a JSON input string inside {input: ...}.
+			// Exact argument identity wins; unwrap only when that key was not observed.
+			if !s.hasReplayKey(key) {
+				raw := strings.TrimSpace(text(obj(call["args"])["input"]))
+				if len(raw) > 0 && len(raw) <= 64<<10 {
+					var parsed any
+					d := json.NewDecoder(strings.NewReader(raw))
+					d.UseNumber()
+					if d.Decode(&parsed) == nil {
+						switch parsed.(type) {
+						case map[string]any, []any:
+							// Require a complete JSON value, including no trailing garbage.
+							var extra any
+							if d.Decode(&extra) == io.EOF {
+								candidate := replayKey(name, parsed)
+								if s.hasReplayKey(candidate) {
+									key = candidate
+								}
+							}
+						}
+					}
+				}
+			}
 			occurrence := occurrences[key]
 			occurrences[key]++
 			if realSignature(signature(p)) {
@@ -223,5 +287,61 @@ func (s *responseState) completeReplay() {
 			}
 		}
 	}
+	s.request.observed = append([]replayEntry(nil), s.replay...)
 	s.request.complete = true
+}
+
+func (s *requestState) hasReplayKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for _, e := range s.replay {
+		if e.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+func decodeReplaySnapshot(b []byte, binding string) (replaySnapshot, error) {
+	if len(b) > replayLimit {
+		return replaySnapshot{}, inference.ErrContinuation
+	}
+	var snapshot replaySnapshot
+	if json.Unmarshal(b, &snapshot) != nil || snapshot.Version != 1 || snapshot.Binding != binding || len(snapshot.Entries) > replayEntries {
+		return replaySnapshot{}, inference.ErrContinuation
+	}
+	for _, entry := range snapshot.Entries {
+		key, err := hex.DecodeString(entry.Key)
+		if err != nil || len(key) != sha256.Size || !realSignature(entry.Signature) || len(entry.Variants) > 32 {
+			return replaySnapshot{}, inference.ErrContinuation
+		}
+	}
+	for _, e := range snapshot.Entries {
+		for _, sig := range e.Variants {
+			if !realSignature(sig) {
+				return replaySnapshot{}, inference.ErrContinuation
+			}
+		}
+	}
+	return snapshot, nil
+}
+
+// Match the pin's parent/own anchor. Parentless root requests keep their text
+// anchor; prompt-cache keys and request IDs are not conversation identities.
+func headerAnchor(in inference.AdapterInput) string {
+	parent := strings.TrimSpace(in.ClientHeaders.Get("x-codex-parent-thread-id"))
+	own := strings.TrimSpace(in.ClientHeaders.Get("thread-id"))
+	for _, v := range []string{parent, own} {
+		if len(v) > 4096 || strings.ContainsAny(v, "\x00\r\n") {
+			return ""
+		}
+	}
+	if parent == "" {
+		return ""
+	}
+	if own != "" {
+		return "codex-thread:" + parent + "\x00" + own
+	}
+	return "codex-thread:" + parent
 }

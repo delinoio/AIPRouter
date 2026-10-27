@@ -16,15 +16,18 @@ import (
 
 type requestKey struct{}
 type requestState struct {
-	mu       sync.Mutex
-	built    bool
-	aliases  map[string]string
-	model    string
-	wire     inference.Wire
-	report   SchemaLossReport
-	binding  string
-	replay   []replayEntry
-	complete bool
+	mu        sync.Mutex
+	built     bool
+	repaired  bool
+	aliases   map[string]string
+	model     string
+	wire      inference.Wire
+	report    SchemaLossReport
+	binding   string
+	sessionID string
+	observed  []replayEntry
+	replay    []replayEntry
+	complete  bool
 }
 
 // PrepareContext allocates state for one Build/Decode attempt. The executor must

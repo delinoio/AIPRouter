@@ -273,6 +273,9 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 		if e != nil {
 			return out, e
 		}
+		if header := headerAnchor(in); header != "" {
+			anchor = header
+		}
 		if anchor == "" {
 			anchor = id
 		}
