@@ -2,7 +2,7 @@
 
 ## Scope
 
-Owns planned `apps/aiprouter`, the responsive English web console. This is a separate build component from the service and public documentation.
+Owns `apps/aiprouter`, the responsive English web console. This is a separate build component from the service and public documentation.
 
 ## Runtime and Language
 
@@ -23,7 +23,7 @@ Web requirements:
 - WCAG 2.2 AA.
 - Follow repository requirements for focus on a single critical form input and Escape dismissal of dialogs.
 - Make decided permission, unknown-cost, invitation failure/expiry, and restoration-conflict outcomes distinguishable.
-- **Do not fix screen layouts, visual design, mockups, or design approval in this PRD.** The user explicitly excluded those decisions.
+- The behavior contract keeps visual decisions separate. Implement the approved [console design](apps-aiprouter-console-design.md).
 
 Use generated TypeScript management clients from `packages/aiprouter-client`. Support organization/member/key/provider/usage/operator flows and browser device approval. Onboarding is choose organization → connect personal providers → configure models/routing → issue API key → connect client. Users without organizations choose creation or invitation acceptance; do not create one automatically.
 

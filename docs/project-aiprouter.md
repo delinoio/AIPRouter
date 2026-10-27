@@ -35,6 +35,7 @@ The following canonical paths define component ownership. Contracts describe req
 - [packages-aiprouter-libraries-contract](packages-aiprouter-libraries-contract.md)
 - [packages-aiprouter-client-contract](packages-aiprouter-client-contract.md)
 - [apps-aiprouter-console-contract](apps-aiprouter-console-contract.md)
+- [Console design](apps-aiprouter-console-design.md)
 - [apps-aiprouter-docs-contract](apps-aiprouter-docs-contract.md)
 
 ## Cross-Domain Invariants
@@ -114,7 +115,7 @@ The earlier execution-agent proposal is superseded by this exclusion.
 - External penetration testing or compliance certification as first-release requirements.
 - Mandatory live provider/account, production-environment, or actual OS acceptance.
 - Internal runbooks.
-- Concrete screen layouts, visual design, mockups, and design approval.
+- Concrete visual decisions in the initial onboarding brief; the separately approved [console design](apps-aiprouter-console-design.md) now owns implementation layouts.
 - Runtime implementation or deployment as part of documentation-only onboarding.
 
 ## Change Policy
@@ -123,7 +124,7 @@ Update this index and affected domain contracts in the same change as ownership,
 
 Update scoped instructions only for development procedures, ownership, or rules, following the [instruction-update policy](README.md#instruction-update-policy). Keep new implementation status, validation results, source revisions, commands, unresolved limits, and traceability in GitHub records or CI artifacts. Do not include secrets or real user content. There is no fixed deadline or guaranteed SLO; the operations contract defines first-release gates and distinguishes mock/build evidence from live/native acceptance.
 
-Concrete layouts, visual design, mockups, and design approval are outside this onboarding decision scope. No unrelated labels, assignees, milestones, project fields, or metadata are part of onboarding.
+The initial onboarding scope excluded concrete visual decisions; the separately approved console design now defines them. No unrelated labels, assignees, milestones, project fields, or metadata are part of onboarding.
 
 ## References
 

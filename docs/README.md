@@ -28,6 +28,7 @@
 - [packages-aiprouter-libraries-contract](packages-aiprouter-libraries-contract.md)
 - [packages-aiprouter-client-contract](packages-aiprouter-client-contract.md)
 - [apps-aiprouter-console-contract](apps-aiprouter-console-contract.md)
+- [Console design](apps-aiprouter-console-design.md)
 - [apps-aiprouter-docs-contract](apps-aiprouter-docs-contract.md)
 
 ## Instruction update policy
