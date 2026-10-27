@@ -63,7 +63,10 @@ func (a *Adapter) RepairRequest(ctx context.Context, in inference.AdapterInput, 
 	}
 	params := obj(body["params"])
 	model, effort := str(params["model"]), str(params["reasoning_effort"])
-	p := policy(ctx)
+	p, err := a.resolvePolicy(ctx, in)
+	if err != nil {
+		return r, false, err
+	}
 	if effort == "" {
 		return r, false, nil
 	}
@@ -75,7 +78,7 @@ func (a *Adapter) RepairRequest(ctx context.Context, in inference.AdapterInput, 
 	refreshed, ok := lookup(p.RefreshedEfforts, model)
 	if !ok {
 		var err error
-		refreshed, ok, err = a.refreshProfile(ctx, in, model, effort)
+		refreshed, ok, err = a.refreshProfile(ctx, in, p, model, effort)
 		if err != nil {
 			return r, false, err
 		}

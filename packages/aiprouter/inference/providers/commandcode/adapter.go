@@ -104,7 +104,7 @@ func chatInput(in inference.AdapterInput) (object, error) {
 	}
 	return m, nil
 }
-func (*Adapter) Build(ctx context.Context, in inference.AdapterInput) (inference.AdapterRequest, error) {
+func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inference.AdapterRequest, error) {
 	var empty inference.AdapterRequest
 	if err := ctx.Err(); err != nil {
 		return empty, err
@@ -123,7 +123,10 @@ func (*Adapter) Build(ctx context.Context, in inference.AdapterInput) (inference
 	if err != nil {
 		return empty, err
 	}
-	p := policy(ctx)
+	p, err := a.resolvePolicy(ctx, in)
+	if err != nil {
+		return empty, err
+	}
 	model := CanonicalModel(in.Target.Model)
 	if model == "" {
 		model = CanonicalModel(str(m["model"]))

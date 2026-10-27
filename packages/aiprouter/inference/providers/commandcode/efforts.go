@@ -6,6 +6,8 @@ import (
 	"context"
 	"slices"
 	"strings"
+
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
 )
 
 // Policy is an immutable, request-scoped snapshot supplied by routing. Model keys
@@ -21,11 +23,34 @@ type Policy struct {
 }
 type policyKey struct{}
 
-func WithPolicy(ctx context.Context, p Policy) context.Context {
+func clonePolicy(p Policy) Policy {
 	p.ReasoningEfforts = copyLadders(p.ReasoningEfforts)
 	p.RefreshedEfforts = copyLadders(p.RefreshedEfforts)
 	p.RejectedEfforts = copyLadders(p.RejectedEfforts)
-	return context.WithValue(ctx, policyKey{}, p)
+	return p
+}
+func WithPolicy(ctx context.Context, p Policy) context.Context {
+	return context.WithValue(ctx, policyKey{}, clonePolicy(p))
+}
+
+// resolvePolicy snapshots callback-owned maps before use. A repair resolves once
+// and passes that snapshot through profile refresh and learning on the same leg.
+func (a *Adapter) resolvePolicy(ctx context.Context, in inference.AdapterInput) (Policy, error) {
+	if err := ctx.Err(); err != nil {
+		return Policy{}, err
+	}
+	p := policy(ctx)
+	if a.options.Policy != nil {
+		var err error
+		p, err = a.options.Policy(ctx, in)
+		if err != nil {
+			return Policy{}, err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return Policy{}, err
+	}
+	return clonePolicy(p), nil
 }
 func copyLadders(m map[string][]string) map[string][]string {
 	n := make(map[string][]string, len(m))

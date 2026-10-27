@@ -17,8 +17,12 @@ import (
 )
 
 // Options supplies service-owned authorization, send accounting and encrypted
-// state persistence. Neither hook may fall back to a process-global cache.
+// state persistence. No hook may fall back to a process-global cache.
 type Options struct {
+	// Policy resolves the complete selected owner/account/model snapshot. When set,
+	// it replaces WithPolicy context defaults. Errors stop request construction or
+	// repair; callers must not return a partially loaded policy on storage failure.
+	Policy func(context.Context, inference.AdapterInput) (Policy, error)
 	// ProfileTransport must retain ctx's physical-send budget, authorize Principal
 	// at the write gate, enforce destination policy, and refuse redirects. The
 	// request has no provider credentials and uses a fixed public profile URL.
@@ -158,12 +162,11 @@ func ParseProfileEfforts(page []byte, model string) ([]string, bool) {
 	}
 	return matched, matched != nil
 }
-func (a *Adapter) refreshProfile(ctx context.Context, in inference.AdapterInput, model, rejected string) (accepted []string, valid bool, failure error) {
+func (a *Adapter) refreshProfile(ctx context.Context, in inference.AdapterInput, p Policy, model, rejected string) (accepted []string, valid bool, failure error) {
 	existing, known := lookup(shippedEfforts, model)
 	if !known {
 		return nil, false, nil
 	}
-	p := policy(ctx)
 	if learned, ok := lookup(p.RefreshedEfforts, model); ok {
 		existing = learned
 	}
