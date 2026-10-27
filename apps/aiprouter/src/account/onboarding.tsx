@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { pageHref } from "../routes";
 import { useState } from "react";
 import { flushSync } from "react-dom";
 import { useMutation } from "@connectrpc/connect-query";
@@ -26,9 +27,7 @@ export function OnboardingPage({
         <p role="status">
           Your organization is ready. Connect your personal providers next.
         </p>
-        <a href={`/?organization=${encodeURIComponent(created.id)}`}>
-          Open organization
-        </a>
+        <a href={pageHref("overview", created.id)}>Open organization</a>
       </AccountSurface>
     );
   return (

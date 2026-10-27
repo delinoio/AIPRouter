@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { pageHref } from "../routes";
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "@connectrpc/connect-query";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -321,9 +322,7 @@ function DeviceReview({
                 <p>
                   If local storage fails, the CLI attempts to revoke the key. If
                   it reports incomplete revocation, revoke the CLI key in{" "}
-                  <a
-                    href={`/?organization=${encodeURIComponent(authorization.organizationId)}&page=keys`}
-                  >
+                  <a href={pageHref("keys", authorization.organizationId)}>
                     API keys
                   </a>
                   .

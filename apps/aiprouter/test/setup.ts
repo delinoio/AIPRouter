@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  window.history.replaceState(null, "", "/");
+});
 // jsdom has no top-layer rendering. Browser acceptance must verify native focus trapping.
 if (!HTMLDialogElement.prototype.showModal)
   HTMLDialogElement.prototype.showModal = function () {

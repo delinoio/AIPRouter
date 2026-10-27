@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { pageHref } from "./routes";
 import { useEffect, useState } from "react";
 import { HostedHelpers } from "./hosted";
 import {
@@ -92,10 +93,7 @@ export function ProvidersPage({ organization }: PageProps) {
         organization.
       </Notice>
       <div className="actions">
-        <a
-          className="button"
-          href={`?organization=${organization.id}&page=pools`}
-        >
+        <a className="button" href={pageHref("pools", organization.id)}>
           Manage account pools
         </a>
       </div>
@@ -330,9 +328,7 @@ export function ProvidersPage({ organization }: PageProps) {
           . Routes through these pools also need review.{" "}
           {(pools.error || routes.error) &&
             "Dependencies could not be loaded. Review routing before disconnecting. "}
-          <a href={`?organization=${organization.id}&page=routing`}>
-            Review routing
-          </a>{" "}
+          <a href={pageHref("routing", organization.id)}>Review routing</a>{" "}
           before disconnecting.
         </ConfirmDialog>
       )}

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { pageHref } from "../routes";
 import { useState } from "react";
 import { useMutation, useQuery } from "@connectrpc/connect-query";
 import { useQueryClient } from "@tanstack/react-query";
@@ -175,12 +176,8 @@ export function AccountPage({
                 <ul>
                   {owned.map((org) => (
                     <li key={org.id}>
-                      <a
-                        href={`/?organization=${encodeURIComponent(org.id)}&page=settings`}
-                      >
-                        {org.name}
-                      </a>{" "}
-                      — transfer ownership or delete this organization.
+                      <a href={pageHref("settings", org.id)}>{org.name}</a> —
+                      transfer ownership or delete this organization.
                     </li>
                   ))}
                 </ul>

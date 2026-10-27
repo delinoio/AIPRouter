@@ -15,6 +15,12 @@ After OIDC login, create an organization or accept an invitation. Select the int
 
 Administrators cannot change another administrator's or the owner's role/membership. Owners and administrators can inspect member usage, estimated cost, model, and error metadata, but cannot read another member's provider secrets, prompts, or responses. Permission changes apply to subsequent requests even if a page was already open.
 
+## Open and share a console page
+
+Console pages have direct addresses such as `/providers`, `/routing`, `/keys`, and `/organization-usage`. The `organization` query parameter selects the workspace, for example `/keys?organization=<organization-id>`. Opening or refreshing the address keeps that page and workspace; current membership and permissions still apply.
+
+Older `?page=` addresses and invitation links continue to open the corresponding page. Instance operators can also open individual sections, such as `/instance/settings` for request limits and `/instance/health` for health and usage aggregates.
+
 ## Invite and accept
 
 1. An authorized owner or administrator invites the intended email address.

@@ -27,6 +27,14 @@ Web requirements:
 
 Use generated TypeScript management clients from `packages/aiprouter-client`. Support organization/member/key/provider/usage/operator flows and browser device approval. Onboarding is choose organization → connect personal providers → configure models/routing → issue API key → connect client. Users without organizations choose creation or invitation acceptance; do not create one automatically.
 
+### Page routes
+
+Console navigation uses absolute pathname routes and the `organization` query parameter for workspace scope. Personal pages use `/overview`, `/providers`, `/pools`, `/routing`, `/keys`, `/usage`, and `/connect`. Organization administration uses `/members`, `/invitations`, `/organization-usage`, `/audit`, and `/settings`. Account and creation use `/account` and `/onboarding`.
+
+Standalone flows use `/sign-in`, `/device`, `/invitation`, and `/ownership`; preserve their error, code, token, invitation, and organization parameters. Instance sections use `/instance/health`, `/instance/settings` (request limits), `/instance/retention`, `/instance/destinations`, `/instance/prices`, and `/instance/audit`. The health page includes instance usage aggregates.
+
+Keep existing `?page=` links and `org`/`organization_id` workspace selectors compatible, normalizing them to canonical addresses without adding browser history entries. Preserve `/`, `/organizations`, `/connect-client`, `/invitations/accept`, `/instance`, and `/instance/usage` as aliases for overview, overview, connect, invitation acceptance, instance health, and instance health respectively. Unknown paths must not render the overview. The service console allowlist and OIDC return targets must support the same routes as the frontend.
+
 ## Storage
 
 PostgreSQL through server APIs is authoritative. React Query caches must respect organization/user boundaries and invalidate affected views after logout, organization changes, deletion, and permission changes. Temporary UI state must not become durable secret/content storage.

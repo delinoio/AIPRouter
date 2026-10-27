@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-import { useCallback, useState } from "react";
+import { pageHref, operatorPaths, operatorSection } from "../routes";
+import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@connectrpc/connect-query";
 import {
   AccountService,
@@ -53,7 +54,7 @@ function OrganizationBoundary({
     return (
       <div className="admin-workspace">
         <p role="alert">{permissionMessage}</p>
-        <a href={`/?organization_id=${encodeURIComponent(organization.id)}`}>
+        <a href={pageHref("overview", organization.id)}>
           Back to your workspace
         </a>
       </div>
@@ -93,7 +94,6 @@ const operatorSections = [
   ["prices", "Price overrides"],
   ["audit", "Audit"],
 ] as const;
-type OperatorSection = (typeof operatorSections)[number][0];
 export function OperatorPage({ session }: { session: GetSessionResponse }) {
   return (
     <div className="admin-operator-frame">
@@ -102,10 +102,32 @@ export function OperatorPage({ session }: { session: GetSessionResponse }) {
   );
 }
 function OperatorBoundary() {
-  const [section, setSection] = useState<OperatorSection>("health");
+  const [section, setSection] = useState(() =>
+    operatorSection(window.location.pathname),
+  );
   const [denied, setDenied] = useState(false);
   const [dirty, setDirty] = useState(false);
   const reportDirty = useDirtyForm();
+  useEffect(() => {
+    const onPopState = () => {
+      const next = operatorSection(window.location.pathname);
+      if (next === section) return;
+      if (
+        dirty &&
+        !window.confirm("Leave this page? Unsaved changes will be lost.")
+      ) {
+        // A history event has already changed the URL. Restore the editor's
+        // address when the user keeps unsaved changes.
+        window.history.pushState(null, "", operatorPaths[section]);
+        return;
+      }
+      setSection(next);
+      setDirty(false);
+      reportDirty(false);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [dirty, section, reportDirty]);
   const onDirty = useCallback(
     (value: boolean) => {
       setDirty(value);
@@ -161,7 +183,12 @@ function OperatorBoundary() {
                   )
                 )
                   return;
-                setSection(key);
+                if (section !== key) {
+                  window.history.pushState(null, "", operatorPaths[key]);
+                  setSection(key);
+                  setDirty(false);
+                  reportDirty(false);
+                }
               }}
             >
               {title}
