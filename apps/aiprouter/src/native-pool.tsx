@@ -6,6 +6,7 @@ import {
   NativeModelRouteSchema,
   NativePoolStrategy,
   NativeQuotaWindow,
+  NativePinnedTransientPolicy,
   ProviderAuthKind,
   type NativePoolOptions,
   type NativePoolMemberOptions,
@@ -60,6 +61,25 @@ export function nativePoolError(
       return "Check member thresholds, native priority, and provider-specific credit settings.";
   }
   if (!options) return;
+  if (!bounded(options.upstreamFailoverThreshold, 0, 20))
+    return "Upstream failover threshold must be 0–20, or empty for the default of 3.";
+  if (
+    options.pinnedTransientPolicy !== undefined &&
+    ![
+      NativePinnedTransientPolicy.UNSPECIFIED,
+      NativePinnedTransientPolicy.KEEP,
+      NativePinnedTransientPolicy.DETOUR_NEW_THREADS,
+    ].includes(options.pinnedTransientPolicy)
+  )
+    return "Choose a supported pinned transient policy.";
+  if (
+    provider !== "openai" &&
+    (options.upstreamFailoverThreshold !== undefined ||
+      options.failureWindow !== undefined ||
+      options.pinnedTransientPolicy !== undefined)
+  )
+    return "Upstream failover, failure window, and pinned transient policy require a Codex pool. Clear incompatible settings before saving.";
+
   if (
     !bounded(options.stickyLimit, 1, 100) ||
     !bounded(options.autoSwitchThreshold, 0, 100)
@@ -265,6 +285,55 @@ export function NativePoolFields({
           />
           {codex ? (
             <>
+              <OptionalNumber
+                label="Upstream failover threshold"
+                value={options.upstreamFailoverThreshold}
+                min={0}
+                max={20}
+                hint="Empty uses 3. Zero disables upstream-failure-based failover."
+                onChange={(upstreamFailoverThreshold) =>
+                  onChange({ ...options, upstreamFailoverThreshold })
+                }
+              />
+              <OptionalBoolean
+                label="Failure window"
+                value={options.failureWindow}
+                hint="Default: enabled. Uses a sliding 60-second failure ratio; Disabled uses only the consecutive-failure counter."
+                onChange={(failureWindow) =>
+                  onChange({ ...options, failureWindow })
+                }
+              />
+              <Field
+                label="Pinned transient policy"
+                hint="Empty uses Keep. Detour applies only to new threads on a degraded manually pinned account; existing bound threads are unchanged."
+              >
+                <select
+                  value={options.pinnedTransientPolicy ?? ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...options,
+                      pinnedTransientPolicy:
+                        e.target.value === ""
+                          ? undefined
+                          : Number(e.target.value),
+                    })
+                  }
+                >
+                  <option value="">Default (keep)</option>
+                  {options.pinnedTransientPolicy ===
+                    NativePinnedTransientPolicy.UNSPECIFIED && (
+                    <option value={NativePinnedTransientPolicy.UNSPECIFIED}>
+                      Unspecified (keep)
+                    </option>
+                  )}
+                  <option value={NativePinnedTransientPolicy.KEEP}>Keep</option>
+                  <option
+                    value={NativePinnedTransientPolicy.DETOUR_NEW_THREADS}
+                  >
+                    Detour new threads
+                  </option>
+                </select>
+              </Field>
               <OptionalBoolean
                 label="Cache affinity"
                 value={options.cacheAffinity}

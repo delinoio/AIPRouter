@@ -17,6 +17,8 @@ import {
   GetSessionResponseSchema,
   NativePoolStrategy,
   NativeQuotaWindow,
+  NativePinnedTransientPolicy,
+  NativePoolOptionsSchema,
   type Pool,
 } from "@aiprouter/client";
 import { ApiProvider } from "../src/api";
@@ -95,6 +97,12 @@ it.each(["", "false"])(
     mount(undefined, "openai", mutation);
     await start(user);
     await user.selectOptions(screen.getByLabelText("Native pooling"), enabled);
+    await user.type(screen.getByLabelText("Upstream failover threshold"), "0");
+    await user.selectOptions(screen.getByLabelText("Failure window"), "false");
+    await user.selectOptions(
+      screen.getByLabelText("Pinned transient policy"),
+      String(NativePinnedTransientPolicy.DETOUR_NEW_THREADS),
+    );
     await user.selectOptions(
       screen.getByLabelText("Native selection strategy"),
       String(NativePoolStrategy.RESET_FIRST),
@@ -120,6 +128,9 @@ it.each(["", "false"])(
       organizationId: "org",
       nativeOptions: {
         strategy: NativePoolStrategy.RESET_FIRST,
+        upstreamFailoverThreshold: 0,
+        failureWindow: false,
+        pinnedTransientPolicy: NativePinnedTransientPolicy.DETOUR_NEW_THREADS,
         autoSwitchThreshold: 0,
         cacheAffinity: false,
         excludedPlans: ["Free", "Trial"],
@@ -223,6 +234,9 @@ it("creates ordered Anthropic model rules and rejects duplicate patterns", async
     mutation = vi.fn((_r: unknown) => ({}));
   mount(undefined, "anthropic", mutation);
   await start(user);
+  expect(screen.queryByLabelText("Upstream failover threshold")).toBeNull();
+  expect(screen.queryByLabelText("Failure window")).toBeNull();
+  expect(screen.queryByLabelText("Pinned transient policy")).toBeNull();
   await user.selectOptions(
     screen.getByLabelText("Native quota window"),
     String(NativeQuotaWindow.WEEKLY),
@@ -278,4 +292,96 @@ it("blocks mixed-provider native settings until explicitly cleared", async () =>
   expect(
     screen.getByRole("button", { name: "Save pool" }).hasAttribute("disabled"),
   ).toBe(false);
+});
+
+it.each(["preserve", "clear"])(
+  "%s optional Codex health settings during full replacement",
+  async (mode) => {
+    const user = userEvent.setup(),
+      mutation = vi.fn((_r: unknown) => ({}));
+    const pool = create(PoolSchema, {
+      ...saved,
+      nativeOptions: create(NativePoolOptionsSchema, {
+        enabled: false,
+        upstreamFailoverThreshold: 0,
+        failureWindow: false,
+        pinnedTransientPolicy: NativePinnedTransientPolicy.KEEP,
+      }),
+    });
+    mount(pool, "openai", mutation);
+    await user.click(await screen.findByRole("button", { name: "Edit pool" }));
+    if (mode === "clear") {
+      await user.click(screen.getByText("Native OAuth pool settings"));
+      await user.clear(screen.getByLabelText("Upstream failover threshold"));
+      await user.selectOptions(screen.getByLabelText("Failure window"), "");
+      await user.selectOptions(
+        screen.getByLabelText("Pinned transient policy"),
+        "",
+      );
+    }
+    await user.click(screen.getByRole("button", { name: "Save pool" }));
+    const request = mutation.mock.calls[0]?.[0] as {
+      nativeOptions: {
+        enabled?: boolean;
+        upstreamFailoverThreshold?: number;
+        failureWindow?: boolean;
+        pinnedTransientPolicy?: number;
+      };
+    };
+    expect(request.nativeOptions.enabled).toBe(false);
+    expect(request.nativeOptions.upstreamFailoverThreshold).toBe(
+      mode === "clear" ? undefined : 0,
+    );
+    expect(request.nativeOptions.failureWindow).toBe(
+      mode === "clear" ? undefined : false,
+    );
+    expect(request.nativeOptions.pinnedTransientPolicy).toBe(
+      mode === "clear" ? undefined : NativePinnedTransientPolicy.KEEP,
+    );
+  },
+);
+it("blocks out-of-range health settings", async () => {
+  const user = userEvent.setup(),
+    mutation = vi.fn((_r: unknown) => ({}));
+  mount(undefined, "openai", mutation);
+  await start(user);
+  await user.type(screen.getByLabelText("Upstream failover threshold"), "21");
+  expect(
+    screen.getByRole("button", { name: "Save pool" }).hasAttribute("disabled"),
+  ).toBe(true);
+  await user.clear(screen.getByLabelText("Upstream failover threshold"));
+  expect(
+    screen.getByRole("button", { name: "Save pool" }).hasAttribute("disabled"),
+  ).toBe(false);
+});
+it("rejects explicit Codex health zero/false/unspecified in an Anthropic pool until cleared", async () => {
+  const user = userEvent.setup(),
+    mutation = vi.fn((_r: unknown) => ({}));
+  const pool = create(PoolSchema, {
+    ...saved,
+    nativeOptions: create(NativePoolOptionsSchema, {
+      ...saved.nativeOptions!,
+      upstreamFailoverThreshold: 0,
+      failureWindow: false,
+      pinnedTransientPolicy: NativePinnedTransientPolicy.UNSPECIFIED,
+    }),
+  });
+  mount(pool, "anthropic", mutation);
+  await user.click(await screen.findByRole("button", { name: "Edit pool" }));
+  await user.click(screen.getByText("Native OAuth pool settings"));
+  expect(screen.queryByLabelText("Failure window")).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Save pool" }).hasAttribute("disabled"),
+  ).toBe(true);
+  expect(mutation).not.toHaveBeenCalled();
+  await screen.findByText(
+    "Upstream failover, failure window, and pinned transient policy require a Codex pool. Clear incompatible settings before saving.",
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Clear all native settings" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Save pool" }));
+  expect(
+    (mutation.mock.calls[0]?.[0] as { nativeOptions?: unknown }).nativeOptions,
+  ).toBeUndefined();
 });
