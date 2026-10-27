@@ -25,3 +25,7 @@ Existing conversations and usage history do not migrate. Begin new conversations
 Switch clients only after evaluating the required interfaces. Watch errors and unknown usage during the change. When satisfied, revoke obsolete keys and disconnect old connections deliberately.
 
 If an integration is unavailable or fails, preserve the old setup and use the client's protected settings restoration procedure. Reconcile edits rather than overwriting conflicts. Stop AIPRouter relays and revoke dedicated keys; if the server is offline, complete web revocation later. Do not migrate excluded local-program provider execution to the server as a workaround.
+
+## Optional native mode migration
+
+Ordinary gateway configuration is sufficient for the supported gateway workflow; optional native TLS modes are a separate choice. Do not treat earlier provider/key consent as authorization to install a certificate or mutate native application settings. Review [native compatibility](native-compatibility.md), including exact-build restrictions and restoration, before changing modes. Do not copy old trust certificates, private keys, proxy settings, or compatibility state into AIPRouter.

@@ -2,7 +2,7 @@
 
 ## Availability
 
-The intended installation is a single-host Docker Compose deployment. A production-ready release, published image coordinates, and an end-to-end installation verification are not established by these guides. Use only the versioned distribution and its matching configuration instructions when they become available. Do not substitute guessed image tags or install an unrelated similarly named package.
+The supplied installation uses a single-host Docker Compose deployment with the web console served from the same origin as the API. A production-ready release, published image coordinates, and an end-to-end installation verification are not established by these guides. Use only the versioned distribution and its matching configuration instructions when they become available. Do not substitute guessed image tags or install an unrelated similarly named package.
 
 ## Prepare the host
 
@@ -49,4 +49,4 @@ The Compose service publishes HTTP only on host loopback port 8080 and does not 
 
 The public documentation can be hosted as a static site on Cloudflare Pages. That does not deploy the AIPRouter service. No public documentation domain or hosted service is promised here.
 
-The planned client executable is `aiprouter`, with standalone binaries and checksums and an npm installer named `@delino/aiprouter`. Package publication and download availability must be confirmed for a release before installation. See [client prerequisites](clients.md).
+The client executable is `aiprouter`, with standalone binaries and checksums and an npm installer named `@delino/aiprouter`. Package publication and download availability must be confirmed for a release before installation. See [client prerequisites](clients.md).

@@ -1,6 +1,6 @@
 # Organizations and invitations
 
-These procedures describe required user behavior. Use them only where your release exposes the corresponding workflow; they do not establish end-to-end verification.
+The console provides organization selection, creation, invitation acceptance, member administration, ownership transfer, and account deletion. The procedures below describe these workflows; their availability in code and mocked UI tests does not establish live OIDC or SMTP acceptance.
 
 ## Choose an organization
 

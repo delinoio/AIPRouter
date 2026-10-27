@@ -19,6 +19,10 @@ export default defineConfig({
         { text: "Upgrade and recover", link: "/guide/recovery" },
         { text: "Organizations and invitations", link: "/guide/organizations" },
         { text: "API keys and clients", link: "/guide/clients" },
+        {
+          text: "Optional native compatibility",
+          link: "/guide/native-compatibility",
+        },
         { text: "Providers and routing", link: "/guide/providers" },
         { text: "Compatibility", link: "/guide/compatibility" },
         { text: "Observe and troubleshoot", link: "/guide/operations" },

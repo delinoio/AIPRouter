@@ -2,9 +2,33 @@
 
 ## Availability and prerequisites
 
-This page defines the required recovery sequence. A complete executable Compose backup/restore procedure and a verified recovery result are not yet established here. Do not use a generic full-database dump as a substitute: ordinary backups must exclude temporary continuation and device-handoff data.
+The supplied `maintenance.py` tool implements backup, restore, upgrade, and key rotation for the single-host Compose deployment. Run the commands below from the directory containing that tool, keeping the complete supplied deployment bundle in its original layout. They are not evidence of a production restore. Do not use a generic full-database dump as a substitute: ordinary backups must exclude temporary continuation and device-handoff data.
 
-Before production use, obtain the release's exact backup exclusion and restore procedure, then test it on an isolated instance. Maintenance downtime is permitted. Keep the previous image version, matching database backup, and required encryption-key versions available together.
+Before production use, test the matching tool and deployment version on an isolated instance. Stop every separately managed server using the same database; the tool can stop only its Compose service. Stop evaluation sidecars before maintenance. Maintenance downtime is permitted. Keep the previous image version, matching database backup, and required encryption-key versions available together.
+
+## Maintenance commands
+
+Use an existing protected backup directory and a new absolute archive filename. `/secure/backups/before-upgrade.dump` is a placeholder; replace it with your own path. The backup refuses to overwrite an existing destination, creates a mode-600 archive, and excludes temporary storage and encryption keys.
+
+```sh
+python3 maintenance.py backup "/secure/backups/before-upgrade.dump"
+```
+
+The following are separate maintenance actions. Select the matching application image and configuration before running them:
+
+```sh
+python3 maintenance.py upgrade
+python3 maintenance.py restore "/secure/backups/before-upgrade.dump"
+python3 maintenance.py rotate
+```
+
+Upgrade, restore, and rotation leave the service stopped, including on failure. Restore removes old temporary state, restores durable data transactionally, migrates, and invalidates restored authority. Do not restart after a failed step. Only after successful maintenance and verification, return to the Compose directory and explicitly start the service:
+
+```sh
+docker compose up -d aiprouter
+```
+
+A backup does not stop service admission by itself. Arrange the required consistency and maintenance window before running it. Backup scheduling, storage, retention, and separate key copies remain operator responsibilities.
 
 ## Back up
 
@@ -37,7 +61,7 @@ Restore both the previous image and its matching database backup. A database res
 1. Keep all service instances stopped and public traffic blocked.
 2. Restore the selected durable database backup and configure its required encryption keys.
 3. Do not restore temporary continuation or device-handoff state.
-4. Invalidate **all API keys, web sessions, invitations, and device authorizations before starting any server**. The established maintenance command is `aiprouter-server restore-invalidate`, run offline with the restored database configuration. A complete released invocation/environment procedure is still required.
+4. Invalidate **all API keys, web sessions, invitations, and device authorizations before starting any server**. The established maintenance command is `aiprouter-server restore-invalidate`, run offline with the restored database configuration. The `restore` wrapper above invokes invalidation before returning successfully and never restarts the service itself.
 5. Verify invalidation completed successfully. If it fails or cannot be verified, keep the service stopped.
 6. Start the matching application image, verify readiness and recovery behavior, then reopen traffic.
 7. Require users to log in again, issue new keys, and reconnect CLIs. Send fresh invitations and start fresh device approvals. Old continuation state cannot be recovered; explicitly start new conversations.

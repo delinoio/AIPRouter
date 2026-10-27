@@ -14,6 +14,18 @@ The example binds Prometheus to `127.0.0.1:9090` and Grafana to `127.0.0.1:3000`
 
 Never log provider secrets, API keys, device secrets, raw prompts, or raw responses. Use request IDs and redacted error metadata to correlate problems. Keep unknown usage, usage-write failure, cancellation, limits, and upstream versus gateway errors distinct.
 
+## Inspect usage and instance settings
+
+Open **Usage** in the selected organization for your personal records, summary, and daily totals. Personal Usage remains scoped to you even if you own the organization. Use date, model, provider, and outcome filters; a failed filter request must remain an error rather than showing unfiltered data as a match. Per-request details retain the applied price and provenance. Daily results also have a table for inspection.
+
+Owners and administrators use the organization usage and audit views for permitted member metadata. Instance operators use the separate instance area for health, request limits, retention, approved destinations, common price overrides, and instance audits. Changing a limit or price does not grant access to another user's credentials or content.
+
+The console sends these filters to the service. Some server aggregation/filter behavior is still being completed, so end-to-end filtered totals are not verified here. Missing usage-recording failures can make totals incomplete; the available protocol does not provide a per-request recording-failure count. Do not infer that absent records represent zero usage. Audit filters labeled as current-page filters apply only to loaded records.
+
+## Traces
+
+The server enables OTLP HTTP trace export when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is configured. Use your operator-managed collector and its supported endpoint. Keep telemetry private and omit content and secret attributes. Trace export configuration is separate from Prometheus scrape configuration; no live collector acceptance is claimed here.
+
 ## Alerts and retention
 
 The default alert requirements are:

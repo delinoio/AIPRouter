@@ -2,9 +2,24 @@
 
 ## Availability
 
-The planned executable is `aiprouter`. Published packages, exact command syntax, and a verified per-client path/format/platform matrix are not established by this guide. Do not copy guessed connection flags or overwrite client settings manually to imitate an unavailable integration.
+The executable is `aiprouter`. The commands below are implemented; publication of downloadable packages and live external-client acceptance are not established here. Run `aiprouter help` and `aiprouter clients` to inspect the installed version. Flags follow the command. There is no noninteractive auto-accept option.
 
 Target CLI platforms are Linux x86_64/ARM64, macOS x86_64/ARM64, and Windows x86_64. A CLI build for an operating system does not mean every external client supports it. Confirm release availability and checksums before installing standalone binaries. The planned npm installer name is `@delino/aiprouter`; publication is not confirmed here.
+
+## Connect and configure
+
+Replace the example HTTPS origin with your operator's address. `work` is an example profile name. The browser approval selects the organization and expiry; there is no organization flag to invent.
+
+```sh
+aiprouter connect --profile work --server https://router.example.com --device-name workstation --port 17843
+aiprouter profiles
+aiprouter clients
+aiprouter configure --profile work --client codex
+```
+
+`connect` obtains and stores the dedicated key. `configure` then previews changes for the named client and asks for confirmation. It separately asks before placing a remote key in client settings. Close Cline or Claude Desktop before confirming their paired-file changes. Use the client IDs below exactly.
+
+`--state-dir` selects an absolute state directory. If you use it, supply the same directory to subsequent commands. State contains metadata and protected recovery backups, not a plaintext credential fallback. `NO_COLOR=1` disables ANSI log colors.
 
 ## Issue an inference key
 
@@ -14,7 +29,7 @@ Revoke a lost or exposed key through the organization's key management view. Rev
 
 ## Approve a CLI connection
 
-1. Start the supported connection workflow when available. The CLI displays an approval URL and one-time code; the browser can be on another computer for SSH use.
+1. Run `connect` as shown above. The CLI displays an approval URL and one-time code; the browser can be on another computer for SSH use.
 2. Open the URL, log in, and compare the code and server address. Confirm the organization, device name, and key expiry before approving.
 3. Allow the CLI to finish storing its dedicated key in the OS credential store.
 4. Review the proposed client-settings changes and confirm them.
@@ -30,12 +45,67 @@ Named profiles keep separate server/organization credentials. Select an active p
 
 Some clients require an HTTP relay installed as a user background service that starts at login. It binds only to loopback and has no separate local authentication: other processes on that computer can call it. Use this only under that local-computer trust policy. It does not execute client programs as providers.
 
-Concurrent profile relays require distinct fixed ports. A conflict must fail with an actionable error, not silently select another port. Changing a port requires a preview and confirmation of affected settings. Status, stop, and removal interfaces must be supplied by the actual CLI release before this workflow is available.
+Concurrent profile relays require distinct fixed ports. A conflict must fail with an actionable error, not silently select another port. Changing a port requires a preview and confirmation of affected settings. The default HTTP relay port is 17843. Choose a distinct `--port` at connection time for each additional profile.
+
+```sh
+aiprouter service --profile work --action install
+aiprouter service --profile work --action status
+aiprouter service --profile work --action stop
+aiprouter service --profile work --action remove
+```
+
+For foreground operation, use `aiprouter relay --profile work`. To change the profile port, use `aiprouter port --profile work --port 17845` and review the proposed settings changes. Port changes do not authorize optional certificate trust or native application changes.
 
 ## Disconnect and recover settings
+
+```sh
+aiprouter disconnect --profile work
+aiprouter restore --client codex
+aiprouter recover
+```
+
+These are separate recovery actions, not a sequence to run blindly. `disconnect` offers restoration and attempts revocation. `restore` can restore a client's protected backup even after the profile was removed. Use `recover` when the CLI reports an interrupted settings transaction; review and confirm recovery rather than deleting its state. Conflicting user edits require manual reconciliation.
 
 Disconnect attempts server-key revocation, stops the relay, and offers restoration from protected original-settings backups. It must preserve unrelated settings and your later edits. Successful restoration deletes the recovery backup.
 
 If your edits conflict, preserve both the edited settings and recovery backup, then reconcile them manually using the reported conflict. Do not overwrite the whole file. Key revocation and relay shutdown must still be attempted. Backups can contain original secrets: keep owner-only permissions or Windows ACLs and never attach them to support requests.
 
 If the server is offline, local cleanup can proceed, but server revocation remains incomplete. When access returns, sign in to that server and organization and revoke the dedicated key. A restored server also requires fresh login, keys, and CLI connection; see [recovery](recovery.md).
+
+## Client configuration inventory
+
+The table describes implemented configuration handling, not tested acceptance of the external applications. The preview reports the resolved files. Existing client installations and supported client versions are prerequisites; an AIPRouter platform build is not evidence that a client runs on that platform. Unsupported formats, unsafe links, ambiguous ownership, or competing settings fail without a lossy whole-file fallback.
+
+| Client IDs                  | Configuration and important constraints                                                                     |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `qoder`, `qoder-cn`         | JSON settings in their separate homes; `QODER_CONFIG_DIR` / `QODERCN_CONFIG_DIR`; HTTP relay                |
+| `workbuddy`, `workbuddy-ai` | Separate JSON model stores; `WORKBUDDY_CONFIG_DIR`, then `CODEBUDDY_CONFIG_DIR`; HTTP relay                 |
+| `opencode`                  | JSON provider blocks in the XDG configuration home; direct key consent                                      |
+| `pi`, `prime`, `omo`        | JSON model catalogs using each client's agent-directory selectors; HTTP relay                               |
+| `omp`                       | YAML model catalog and selected `OMP_PROFILE` / `PI_PROFILE`; HTTP relay                                    |
+| `hermes`                    | YAML configuration; `HERMES_HOME` and discovered live named profiles; direct key consent                    |
+| `openclaw`                  | JSON5 with native config/state/home/profile selectors and legacy candidate checks; direct key consent       |
+| `kimi`                      | TOML under `KIMI_CODE_HOME`; only models with authoritative context limits; HTTP relay                      |
+| `gajae`                     | YAML model configuration; HTTP relay                                                                        |
+| `dsh`                       | YAML settings or active Desktop profile patch; missing active patch refuses; HTTP relay                     |
+| `mcode`                     | YAML configuration using `MINIMAX_DATA_DIR`, then `MAVIS_DATA_DIR`; Messages through HTTP relay             |
+| `zcode`                     | Bootstrap/data-directory and selected personal provider store; unknown schema refuses; HTTP relay           |
+| `aside`                     | Registered account catalogs and canonical root alias; no guessed account; HTTP relay                        |
+| `raycast`                   | YAML provider entries, macOS/Windows; HTTP relay                                                            |
+| `cline`                     | Paired JSON provider/model catalogs; stop the client first; HTTP relay                                      |
+| `commandcode`               | JSON provider store preserving singular/plural provider roots; HTTP relay                                   |
+| `kilo`                      | JSONC/JSON5 candidate detection and recorded ownership; competing providers refuse; direct key consent      |
+| `droid`                     | JSON custom models with competing-settings checks; HTTP relay                                               |
+| `gentle-shell`              | Isolated/custom home and Pi-derived configuration; linked/shared homes refuse; HTTP relay                   |
+| `codex`                     | Native TOML provider selection and merged model catalog/cache under `CODEX_HOME`; direct key consent        |
+| `claude`                    | Gateway settings and native gateway-model cache under `CLAUDE_CONFIG_DIR`; direct key consent               |
+| `grok`                      | TOML provider and collision-safe model aliases/reasoning choices under `GROK_HOME`; HTTP relay              |
+| `claude-desktop`            | Third-party profile and active-selection metadata, macOS/Windows; stop the client first; direct key consent |
+
+Use `aiprouter client-profiles --client hermes` to inspect discoverable client profiles. AIPRouter connection profiles and a client's own profiles are separate concepts.
+
+Codex ordinary configuration preserves native provider identity, merges service catalog data with retained native rows, and invalidates the owned model cache. WebSocket capability is advertised only when exact service metadata supplies it. Foreign selected providers or conflicting owned settings refuse. Claude ordinary configuration updates its gateway model cache; Desktop selects a dedicated third-party profile while preserving the previous selection for restoration.
+
+There is no unattended catalog refresher. Rerun `configure` to preview refreshed settings/catalogs. Source-preserving YAML flow-map and flow-sequence insertion is supported; shared anchored containers and unsupported alias shapes refuse. Not every upstream model-effort/default/modality mapping has complete parity. Filesystem recovery preserves conflicts; fixture tests do not establish safety against every external native writer race.
+
+Optional first-party TLS and experimental Desktop behavior have separate consent and cleanup requirements. See [native compatibility](native-compatibility.md).

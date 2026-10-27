@@ -4,17 +4,25 @@
 
 The compatibility target is opencodex revision `88aaa754566d119b6b8fc898f8fb47602387d82e`. Later upstream changes are not automatically included. This is a reference target, not a claim that AIPRouter has implemented or tested every route, provider, or client.
 
-| Surface                  | Required coverage                                           | Status communicated by this guide                            |
-| ------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------ |
-| Responses                | HTTP, WebSocket, compaction, streaming, tools, continuation | Complete compatibility verification unavailable              |
-| Chat Completions         | Requests, responses, streams, errors, model selection       | Complete compatibility verification unavailable              |
-| Anthropic Messages       | Messages and token counting                                 | Complete compatibility verification unavailable              |
-| Models and hosted search | Discovery and provider-specific behavior                    | Complete compatibility verification unavailable              |
-| Images                   | Generation, editing, temporary artifact retrieval           | Complete compatibility verification unavailable              |
-| Providers                | API keys, OAuth, pools, routing, retry/timeout exceptions   | Per-provider live acceptance not established                 |
-| Client configuration     | Formats, paths, platform constraints, restoration, relay    | Complete client matrix and native acceptance not established |
+| Surface                  | Required coverage                                           | Status communicated by this guide                                     |
+| ------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------- |
+| Responses                | HTTP, WebSocket, compaction, streaming, tools, continuation | Complete compatibility verification unavailable                       |
+| Chat Completions         | Requests, responses, streams, errors, model selection       | Complete compatibility verification unavailable                       |
+| Anthropic Messages       | Messages and token counting                                 | Complete compatibility verification unavailable                       |
+| Models and hosted search | Discovery and provider-specific behavior                    | Complete compatibility verification unavailable                       |
+| Images                   | Generation, editing, temporary artifact retrieval           | Complete compatibility verification unavailable                       |
+| Providers                | API keys, OAuth, pools, routing, retry/timeout exceptions   | Per-provider live acceptance not established                          |
+| Client configuration     | Formats, paths, platform constraints, restoration, relay    | Configuration handlers implemented; native acceptance not established |
 
 This table is an overview, not an exhaustive inventory or list of supported providers. A release needs a complete interface/provider/authentication/client matrix with evidence for each included path and an explicit exclusion for each omitted path.
+
+## Implemented workflows and remaining limits
+
+The console implements account and organization workflows, provider/pool/routing editors, keys, usage views, and operator controls. The CLI implements browser device approval, protected credentials, named profiles, client configuration/restoration, and loopback service control. [Client guidance](clients.md) lists the current handlers, including native Codex catalog/cache configuration and Claude gateway/Desktop profiles.
+
+The Compose packaging includes the console and API together, PostgreSQL, optional monitoring, proxy examples, and offline maintenance. Automated fixture evidence exists for parts of these workflows. It does not establish production image execution, live identity/provider accounts, native credential stores, or real application compatibility. A final source-revision acceptance assessment remains separate.
+
+Provider OAuth and refresh, advanced pool/routing scheduling, and usage filtering/aggregation are still being completed. Keep unavailable errors visible until the corresponding service implementation and tests establish support. Optional [native TLS compatibility](native-compatibility.md) has separate build gates, consent, and cleanup requirements; ordinary gateway tests do not establish optional runtime readiness.
 
 ## Explicit differences
 

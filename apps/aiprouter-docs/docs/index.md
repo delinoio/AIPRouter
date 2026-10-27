@@ -10,7 +10,7 @@ Start with [installation](guide/installation.md) and [service configuration](gui
 
 ## First connection
 
-When the corresponding workflows are available in your release:
+The console guides you through this order:
 
 1. Sign in through your operator's identity provider.
 2. Create an organization or accept an invitation. A personal organization is not created automatically.
