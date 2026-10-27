@@ -146,11 +146,11 @@ func (s *Store) PollDevice(ctx context.Context, id, secret string) (out DeviceRe
 		}
 		out.KeyID = key.String
 		out.OrganizationID = org.String
-		if out.Status == "confirmed" {
-			return nil
-		}
 		if !expires.After(now) {
 			return ErrExpired
+		}
+		if out.Status == "confirmed" {
+			return nil
 		}
 		if last != nil && now.Sub(*last) < 5*time.Second {
 			return &LimitError{5*time.Second - now.Sub(*last)}

@@ -168,7 +168,11 @@ func (s *Store) RemoveMember(ctx context.Context, sc core.Scope, user string) er
 		if e = s.remove(ctx, tx, sc.OrganizationID, user); e != nil {
 			return e
 		}
-		return s.audit(ctx, tx, sc.OrganizationID, sc.UserID, "membership.removed", user)
+		action := "membership.removed"
+		if user == sc.UserID {
+			action = "membership.left"
+		}
+		return s.audit(ctx, tx, sc.OrganizationID, sc.UserID, action, user)
 	})
 }
 func (s *Store) RequestTransfer(ctx context.Context, sc core.Scope, target string) error {

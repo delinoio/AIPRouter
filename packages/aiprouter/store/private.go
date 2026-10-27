@@ -34,6 +34,9 @@ func (s *Store) GetPrivate(ctx context.Context, sc core.Scope, kind, id string) 
 		if _, e := s.guard(ctx, tx, sc); e != nil {
 			return e
 		}
+		if e := s.privateUsable(ctx, tx, sc, kind, id); e != nil {
+			return e
+		}
 		var b []byte
 		if e := tx.QueryRowContext(ctx, "SELECT value FROM private_data WHERE org_id=$1 AND user_id=$2 AND kind=$3 AND id=$4", sc.OrganizationID, sc.UserID, kind, id).Scan(&b); e != nil {
 			return noRows(e)

@@ -43,6 +43,9 @@ type Store struct {
 //go:embed migrations/001.sql
 var migration string
 
+//go:embed migrations/002.sql
+var migration2 string
+
 func Open(ctx context.Context, dsn string, o Options) (*Store, error) {
 	if o.Schema == "" {
 		o.Schema = "aiprouter"
@@ -71,7 +74,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if _, e := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", s.schema+":migration"); e != nil {
 			return e
 		}
-		_, e := tx.ExecContext(ctx, strings.NewReplacer("{{schema}}", s.schema, "{{temp}}", s.temp).Replace(migration))
+		_, e := tx.ExecContext(ctx, strings.NewReplacer("{{schema}}", s.schema, "{{temp}}", s.temp).Replace(migration+"\n"+migration2))
 		return e
 	})
 }
@@ -107,7 +110,7 @@ func (s *Store) guard(ctx context.Context, tx *sql.Tx, sc core.Scope) (core.Role
 }
 func elevated(r core.Role) bool { return r == core.Owner || r == core.Administrator }
 func (s *Store) audit(ctx context.Context, tx *sql.Tx, org, actor, action, target string) error {
-	_, e := tx.ExecContext(ctx, "INSERT INTO audits(id,org_id,actor_id,action,target_id,expires_at) SELECT $1,NULLIF($2,''),NULLIF($3,''),$4,$5,clock_timestamp()+audit_days*interval '1 day' FROM settings", core.ID(), org, actor, action, target)
+	_, e := tx.ExecContext(ctx, "INSERT INTO audits(id,org_id,actor_id,action,target_id,outcome,expires_at) SELECT $1,NULLIF($2,''),NULLIF($3,''),$4,$5,'succeeded',clock_timestamp()+audit_days*interval '1 day' FROM settings", core.ID(), org, actor, action, target)
 	return e
 }
 func ownership(sc core.Scope, kind, id string) string {

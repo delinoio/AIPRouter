@@ -11,6 +11,7 @@ import (
 )
 
 type Invitation struct {
+	DeliveryState                     string
 	ID, OrganizationID, Email, Status string
 	OrganizationName                  string
 	CreatedAt, NextAttemptAt          time.Time
@@ -30,12 +31,15 @@ func emailMatch(s string) string {
 	}
 	return a + "@" + strings.ToLower(b)
 }
-func (s *Store) Invite(ctx context.Context, sc core.Scope, email string) (i Invitation, e error) {
+func (s *Store) Invite(ctx context.Context, sc core.Scope, email string) (Invitation, error) {
+	return s.invite(ctx, sc, email, "invitation.created")
+}
+func (s *Store) invite(ctx context.Context, sc core.Scope, email, action string) (i Invitation, e error) {
 	email = emailMatch(email)
 	if email == "" {
 		return i, ErrConflict
 	}
-	i = Invitation{ID: core.ID(), OrganizationID: sc.OrganizationID, Email: email, Status: "pending"}
+	i = Invitation{ID: core.ID(), OrganizationID: sc.OrganizationID, Email: email, Status: "pending", DeliveryState: "queued"}
 	e = s.tx(ctx, func(tx *sql.Tx) error {
 		r, e := s.guard(ctx, tx, sc)
 		if e != nil {
@@ -68,7 +72,10 @@ func (s *Store) Invite(ctx context.Context, sc core.Scope, email string) (i Invi
 		if _, e = tx.ExecContext(ctx, "INSERT INTO "+s.temp+".mail_tokens(invitation_id,value) VALUES($1,$2)", i.ID, value); e != nil {
 			return e
 		}
-		return s.audit(ctx, tx, sc.OrganizationID, sc.UserID, "invitation.created", i.ID)
+		if e = tx.QueryRowContext(ctx, "SELECT name FROM organizations WHERE id=$1", sc.OrganizationID).Scan(&i.OrganizationName); e != nil {
+			return e
+		}
+		return s.audit(ctx, tx, sc.OrganizationID, sc.UserID, action, i.ID)
 	})
 	return
 }
@@ -243,17 +250,20 @@ func (s *Store) WithMailAttempt(ctx context.Context, m Mail, send func(context.C
 }
 func (s *Store) finishMail(ctx context.Context, tx *sql.Tx, m Mail, outcome MailOutcome) error {
 	status := "pending"
+	delivery := "retry_pending"
 	delay := time.Minute
 	if m.Attempts >= 2 {
 		delay = 5 * time.Minute
 	}
 	if outcome == MailSuccess {
+		delivery = "sent"
 		delay = 8 * 24 * time.Hour
 	}
 	if outcome == MailPermanent || outcome == MailTransient && m.Attempts >= 3 {
 		status = "failed"
+		delivery = "failed"
 	}
-	res, e := tx.ExecContext(ctx, "UPDATE invitations SET status=$3,claim=NULL,next_attempt=clock_timestamp()+$4*interval '1 second' WHERE id=$1 AND claim=$2 AND status='pending'", m.ID, m.Claim, status, delay.Seconds())
+	res, e := tx.ExecContext(ctx, "UPDATE invitations SET status=$3,delivery_state=$5,claim=NULL,next_attempt=clock_timestamp()+$4*interval '1 second' WHERE id=$1 AND claim=$2 AND status='pending'", m.ID, m.Claim, status, delay.Seconds(), delivery)
 	if e != nil {
 		return e
 	}

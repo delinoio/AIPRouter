@@ -7,10 +7,10 @@ import (
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 )
 
-const invitationColumns = "i.id,i.org_id,i.email,CASE WHEN i.status='pending' AND i.expires_at<=clock_timestamp() THEN 'expired' ELSE i.status END,i.expires_at,i.attempts,o.name,i.created_at,i.next_attempt"
+const invitationColumns = "i.id,i.org_id,i.email,CASE WHEN i.status='pending' AND i.expires_at<=clock_timestamp() THEN 'expired' ELSE i.status END,i.expires_at,i.attempts,o.name,i.created_at,i.next_attempt,i.delivery_state"
 
 func scanInvitation(row interface{ Scan(...any) error }, i *Invitation) error {
-	return row.Scan(&i.ID, &i.OrganizationID, &i.Email, &i.Status, &i.ExpiresAt, &i.Attempts, &i.OrganizationName, &i.CreatedAt, &i.NextAttemptAt)
+	return row.Scan(&i.ID, &i.OrganizationID, &i.Email, &i.Status, &i.ExpiresAt, &i.Attempts, &i.OrganizationName, &i.CreatedAt, &i.NextAttemptAt, &i.DeliveryState)
 }
 
 // User records are created only after verified-email OIDC authentication.

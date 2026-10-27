@@ -118,6 +118,6 @@ func (s *Store) RotateEncryption(ctx context.Context) error {
 				}
 			}
 		}
-		return nil
+		return s.rotateProviderState(ctx, tx)
 	})
 }
