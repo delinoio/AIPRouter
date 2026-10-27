@@ -862,3 +862,49 @@ func TestDatabaseFailureClosesAdmissionAndDispatch(t *testing.T) {
 		t.Fatal("missing DB failure")
 	}
 }
+
+func TestStateAndAdmissionAcrossInstances(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, sc := tenant(t, s)
+	if e := s.PutState(ctx, sc, core.Responses, "restart", []byte("continuation")); e != nil {
+		t.Fatal(e)
+	}
+	_, raw, e := s.IssueKey(ctx, sc, "shared", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	settings, e := s.Settings(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	settings.Concurrency = 1
+	if e = s.UpdateSettings(ctx, core.Identity{Issuer: "issuer", Subject: "operator"}, settings); e != nil {
+		t.Fatal(e)
+	}
+	lease, e := s.Admit(ctx, raw)
+	if e != nil {
+		t.Fatal(e)
+	}
+	second, e := Open(ctx, os.Getenv("AIPROUTER_TEST_DATABASE_URL"), Options{Schema: s.schema, Keys: s.keys})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer second.Close()
+	if e = second.Migrate(ctx); e != nil {
+		t.Fatal(e)
+	}
+	value, e := second.GetState(ctx, sc, core.Responses, "restart")
+	if e != nil || string(value) != "continuation" {
+		t.Fatal("state not durable across instances", e)
+	}
+	if _, e = second.Admit(ctx, raw); e == nil {
+		t.Fatal("separate instance bypassed concurrency")
+	}
+	if e = second.Release(ctx, lease); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.Admit(ctx, raw); e != nil {
+		t.Fatal("cross-instance release not visible", e)
+	}
+}
