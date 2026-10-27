@@ -25,6 +25,26 @@ Closing the dialog does not cancel the flow. Use **Cancel authorization** to can
 
 OAuth completion, cancellation, refresh, and model discovery are implemented for the corresponding supported provider methods. Provider-specific restrictions still apply. If a connection reports **Authorization required**, reconnect through the explicit authorization workflow rather than repeatedly retrying an uncertain credential rotation. Automated provider fixtures do not establish live login, refresh, or native callback acceptance.
 
+## Google Vertex project and location
+
+Connect **Google Vertex** using your own supported credential in the selected organization. In the connection editor, expand **Advanced connection settings** and find **Vertex AI**. Select **Override vertex project** or **Override vertex location** to enter **Vertex project** or **Vertex location**. These fields apply only to Google Vertex connections.
+
+For an OAuth connection, complete authorization first, then edit the resulting connection to set its advanced configuration. OAuth and service-account credentials require an explicit project and location, supplied by that personal credential or its connection overrides. They reject `auto`. AIPRouter does not use the service host's ambient Google identity or project when your connection omits a value.
+
+For an API-key connection, choose the setup that matches your key:
+
+| Project setup                                          | Behavior                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| No project in the personal credential or configuration | Uses the Vertex express endpoint. A location does not turn an express request into a project request.                                                                                                                                                                    |
+| Explicit project ID or project number                  | Uses the project endpoint. If no location is supplied, the location defaults to `global`.                                                                                                                                                                                |
+| Explicit lowercase `auto`                              | Uses a bounded, read-only discovery request to Google with your selected API key. If discovery identifies its project, uses that project and your selected location, or `global` if omitted. If discovery returns no usable project, falls back to the express endpoint. |
+
+Automatic project discovery has a 10-second probe limit. It does not grant project access or bypass destination restrictions, credential revocation, or request cancellation. Such authorization failures stop the request rather than authorize a fallback. An express fallback still requires a key and model that support that endpoint; discovery does not guarantee a successful inference request.
+
+Use a valid Google location such as `global` or `us-central1`, not a URL. Location values use lowercase letters, digits, and internal hyphens. The server validates project and location values. A checked override with an empty value is explicitly empty and is rejected; uncheck the override to omit it. Omission uses the selected personal credential's metadata where available, then the defaults above.
+
+For an existing connection, **Keep saved configuration** preserves its configuration. Editing a setting selects replacement of the complete configuration, retaining the other values shown in the form. Unchecking an override removes that override when the replacement is saved. **Reset configuration to provider defaults** removes all configuration overrides, not just Vertex project and location. Review the other settings before selecting **Save connection**. These implemented workflows and automated checks do not establish live Google authorization, project access, or model acceptance.
+
 ## Pools, models, and combinations
 
 Add only your own accounts to your personal pool in the selected organization. Select the model and configure routing and combination fallbacks using that release's supported model identifiers and rules. Check streaming, tool calling, continuation, and error behavior for the chosen client/provider pair, rather than testing only a simple text response.
