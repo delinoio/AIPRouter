@@ -1,0 +1,16 @@
+{
+  "name": "@aiprouter/docs",
+  "private": true,
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "rspress dev",
+    "build": "rspress build",
+    "preview": "rspress preview",
+    "test": "node --test scripts/*.test.mjs"
+  },
+  "devDependencies": {
+    "@rspress/core": "2.0.23"
+  }
+}

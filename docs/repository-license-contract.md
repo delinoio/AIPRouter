@@ -10,4 +10,4 @@ Imported agent skills retain their upstream licenses, attribution and notices. A
 
 ## Distribution
 
-Future distributions must include the complete applicable license terms and notices. Validate package contents in the owning project's distribution checks. This base publishes no runtime packages or release artifacts.
+Future distributions must include the complete applicable license terms and notices. Validate package contents in the owning project's distribution checks. The [AIPRouter operations contract](servers-aiprouter-operations-contract.md) owns its distribution checks and publication boundaries.

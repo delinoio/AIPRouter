@@ -15,3 +15,9 @@
 - [Repository defaults](../docs/repository-defaults.md)
 - [Repository workflow](../docs/repository-workflow-contract.md)
 - Register each new project and its domain contracts in [the documentation catalog](../docs/README.md) before implementation.
+
+## AIPRouter ownership
+
+- Read the [AIPRouter project index](../docs/project-aiprouter.md) before work on its paths.
+- Read [servers-aiprouter-service-contract](../docs/servers-aiprouter-service-contract.md) for the paths it owns.
+- Read [servers-aiprouter-operations-contract](../docs/servers-aiprouter-operations-contract.md) for the paths it owns.
