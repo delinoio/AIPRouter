@@ -16,6 +16,9 @@ import {
   RoutingService,
   HostedSettingsService,
   ProviderConnectionSchema,
+  ProviderConfigurationSchema,
+  ProviderPolicyOverridesSchema,
+  ResponsesItemIdRepairSchema,
   OrganizationSchema,
   GetSessionResponseSchema,
   ProviderAuthKind,
@@ -66,6 +69,7 @@ const connection = create(ProviderConnectionSchema, {
 function providerRoutes(
   r: ConnectRouter,
   update: (request: unknown) => object,
+  source = connection,
 ) {
   r.service(ProviderService, {
     listProviderCatalog: () => ({
@@ -77,13 +81,99 @@ function providerRoutes(
         },
       ],
     }),
-    listProviderConnections: () => ({ connections: [connection] }),
+    listProviderConnections: () => ({ connections: [source] }),
     updateProviderConnection: update,
   });
   r.service(PoolService, { listPools: () => ({}) });
   r.service(RoutingService, { listRoutes: () => ({}) });
 }
 describe("provider configuration mutations", () => {
+  it.each(["inherit", "empty", "custom"] as const)(
+    "sends nested item ID repair policy with %s semantics",
+    async (mode) => {
+      const user = userEvent.setup();
+      const update = vi.fn((_request: unknown) => ({}));
+      const source = create(ProviderConnectionSchema, {
+        ...connection,
+        configuration: create(ProviderConfigurationSchema, {
+          ...connection.configuration!,
+          policy: create(ProviderPolicyOverridesSchema, {
+            responsesItemIdRepair: create(ResponsesItemIdRepairSchema, {
+              message: ["old-placeholder"],
+              repairInvalidIds: true,
+            }),
+          }),
+        }),
+      });
+      mount(
+        <ProvidersPage organization={organization} session={session} />,
+        (r) => providerRoutes(r, update, source),
+      );
+      await user.click(
+        await screen.findByRole("button", { name: "Edit connection" }),
+      );
+      await user.click(screen.getByText("Advanced connection settings"));
+      await user.click(screen.getByText("Request compatibility policies"));
+      expect(
+        (
+          screen.getByLabelText(
+            "Message placeholder IDs",
+          ) as HTMLTextAreaElement
+        ).value,
+      ).toBe("old-placeholder");
+      await user.selectOptions(
+        screen.getByLabelText("Item ID repair policy"),
+        "inherit",
+      );
+      if (mode !== "inherit")
+        await user.selectOptions(
+          screen.getByLabelText("Item ID repair policy"),
+          "replace",
+        );
+      if (mode === "custom") {
+        await user.type(
+          screen.getByLabelText("Message placeholder IDs"),
+          "placeholder-a\nplaceholder-b",
+        );
+        await user.type(
+          screen.getByLabelText("Reasoning placeholder IDs"),
+          "reasoning-placeholder",
+        );
+        await user.selectOptions(
+          screen.getByLabelText("Repair invalid IDs"),
+          "false",
+        );
+      }
+      await user.click(screen.getByRole("button", { name: "Save connection" }));
+      const request = update.mock.calls[0]?.[0] as {
+        configuration: {
+          policy: {
+            responsesItemIdRepair?: {
+              message: string[];
+              reasoning: string[];
+              repairInvalidIds?: boolean;
+              repairMissingTerminalIds?: boolean;
+            };
+          };
+        };
+      };
+      const repair = request.configuration.policy.responsesItemIdRepair;
+      if (mode === "inherit") expect(repair).toBeUndefined();
+      else {
+        expect(repair?.message).toEqual(
+          mode === "custom" ? ["placeholder-a", "placeholder-b"] : [],
+        );
+        expect(repair?.reasoning).toEqual(
+          mode === "custom" ? ["reasoning-placeholder"] : [],
+        );
+        expect(repair?.repairInvalidIds).toBe(
+          mode === "custom" ? false : undefined,
+        );
+        expect(repair?.repairMissingTerminalIds).toBeUndefined();
+      }
+    },
+  );
+
   it("preserves hidden header values and configuration when only the name changes", async () => {
     const user = userEvent.setup(),
       update = vi.fn((_request: unknown) => ({}));

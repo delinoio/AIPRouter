@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { create } from "@bufbuild/protobuf";
 import {
+  ResponsesItemIdRepairSchema,
   ProviderConfigurationSchema,
   ProviderPolicyOverridesSchema,
   ProviderCustomHeadersSchema,
@@ -129,7 +130,6 @@ const policies = [
   ["supportsVerbosity", "Verbosity support"],
   ["supportsResponsesCustomTools", "Responses custom tools"],
   ["supportsOpenAiWebSearchToolFields", "OpenAI web search fields"],
-  ["responsesItemIdRepair", "Responses item ID repair"],
   ["showThinkingSummary", "Show thinking summary"],
   ["escapeBuiltinToolNames", "Escape built-in tool names"],
 ] as const satisfies readonly (readonly [
@@ -148,6 +148,7 @@ export function ConfigurationFields({
   connection?: ProviderConnection;
 }) {
   const config = draft.configuration;
+  const repair = config.policy?.responsesItemIdRepair;
   const update = (patch: Partial<ProviderConfiguration>) =>
     onChange({
       ...draft,
@@ -363,6 +364,105 @@ export function ConfigurationFields({
                   </select>
                 </Field>
               ))}
+              <fieldset>
+                <legend>Responses item ID repair</legend>
+                <Field
+                  label="Item ID repair policy"
+                  hint="Inherit uses the provider preset. Replace with empty values selects no repairs."
+                >
+                  <select
+                    value={repair ? "replace" : "inherit"}
+                    onChange={(e) =>
+                      update({
+                        policy: create(ProviderPolicyOverridesSchema, {
+                          ...config.policy,
+                          responsesItemIdRepair:
+                            e.target.value === "inherit"
+                              ? undefined
+                              : create(ResponsesItemIdRepairSchema),
+                        }),
+                      })
+                    }
+                  >
+                    <option value="inherit">Inherit provider preset</option>
+                    <option value="replace">Replace provider preset</option>
+                  </select>
+                </Field>
+                {repair && (
+                  <>
+                    {(["message", "reasoning"] as const).map((key) => (
+                      <Field
+                        key={key}
+                        label={
+                          key === "message"
+                            ? "Message placeholder IDs"
+                            : "Reasoning placeholder IDs"
+                        }
+                        hint="One placeholder ID per line. Empty selects none."
+                      >
+                        <textarea
+                          value={repair[key].join("\n")}
+                          onChange={(e) =>
+                            update({
+                              policy: create(ProviderPolicyOverridesSchema, {
+                                ...config.policy,
+                                responsesItemIdRepair: create(
+                                  ResponsesItemIdRepairSchema,
+                                  {
+                                    ...repair,
+                                    [key]:
+                                      e.target.value === ""
+                                        ? []
+                                        : e.target.value.split("\n"),
+                                  },
+                                ),
+                              }),
+                            })
+                          }
+                        />
+                      </Field>
+                    ))}
+                    {(
+                      [
+                        ["repairInvalidIds", "Repair invalid IDs"],
+                        [
+                          "repairMissingTerminalIds",
+                          "Repair missing terminal IDs",
+                        ],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <Field key={key} label={label}>
+                        <select
+                          value={
+                            repair[key] === undefined ? "" : String(repair[key])
+                          }
+                          onChange={(e) =>
+                            update({
+                              policy: create(ProviderPolicyOverridesSchema, {
+                                ...config.policy,
+                                responsesItemIdRepair: create(
+                                  ResponsesItemIdRepairSchema,
+                                  {
+                                    ...repair,
+                                    [key]:
+                                      e.target.value === ""
+                                        ? undefined
+                                        : e.target.value === "true",
+                                  },
+                                ),
+                              }),
+                            })
+                          }
+                        >
+                          <option value="">Unspecified</option>
+                          <option value="true">Enabled</option>
+                          <option value="false">Disabled</option>
+                        </select>
+                      </Field>
+                    ))}
+                  </>
+                )}
+              </fieldset>
             </details>
           </>
         )}
