@@ -28,6 +28,7 @@ All paths below are planned. Documentation-only onboarding does not create runti
 ## Domain Contract Documents
 
 - [servers-aiprouter-service-contract](servers-aiprouter-service-contract.md)
+- [servers-aiprouter-compatibility-contract](servers-aiprouter-compatibility-contract.md)
 - [servers-aiprouter-operations-contract](servers-aiprouter-operations-contract.md)
 - [cmds-aiprouter-client-contract](cmds-aiprouter-client-contract.md)
 - [protos-aiprouter-management-contract](protos-aiprouter-management-contract.md)
