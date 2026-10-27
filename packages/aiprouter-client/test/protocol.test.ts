@@ -199,3 +199,20 @@ test("provider catalog carries typed eligible OAuth methods without client inven
   );
   assert.deepEqual(create(ProviderDefinitionSchema).oauthMethods, []);
 });
+
+test("pool generic OAuth affinity requires explicit opt-in", async () => {
+  const { PoolSchema, CreatePoolRequestSchema, UpdatePoolRequestSchema } =
+    await import("../src/index.js");
+  for (const schema of [
+    PoolSchema,
+    CreatePoolRequestSchema,
+    UpdatePoolRequestSchema,
+  ]) {
+    assert.equal(create(schema).affinityEnabled, false);
+    const enabled = create(schema, { affinityEnabled: true });
+    assert.equal(
+      fromBinary(schema, toBinary(schema, enabled)).affinityEnabled,
+      true,
+    );
+  }
+});

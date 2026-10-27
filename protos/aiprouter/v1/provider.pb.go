@@ -389,8 +389,11 @@ type Pool struct {
 	Name           string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Strategy       PoolStrategy           `protobuf:"varint,4,opt,name=strategy,proto3,enum=aiprouter.v1.PoolStrategy" json:"strategy,omitempty"`
 	Members        []*PoolMember          `protobuf:"bytes,5,rep,name=members,proto3" json:"members,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Opt-in generic OAuth session affinity only; default false.
+	// Does not enable or change Codex or Anthropic provider-specific affinity.
+	AffinityEnabled bool `protobuf:"varint,6,opt,name=affinity_enabled,json=affinityEnabled,proto3" json:"affinity_enabled,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Pool) Reset() {
@@ -456,6 +459,13 @@ func (x *Pool) GetMembers() []*PoolMember {
 		return x.Members
 	}
 	return nil
+}
+
+func (x *Pool) GetAffinityEnabled() bool {
+	if x != nil {
+		return x.AffinityEnabled
+	}
+	return false
 }
 
 type RouteTarget struct {
@@ -1904,8 +1914,11 @@ type CreatePoolRequest struct {
 	Name           string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Strategy       PoolStrategy           `protobuf:"varint,3,opt,name=strategy,proto3,enum=aiprouter.v1.PoolStrategy" json:"strategy,omitempty"`
 	Members        []*PoolMember          `protobuf:"bytes,4,rep,name=members,proto3" json:"members,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Opt-in generic OAuth session affinity only; default false.
+	// Does not enable or change Codex or Anthropic provider-specific affinity.
+	AffinityEnabled bool `protobuf:"varint,5,opt,name=affinity_enabled,json=affinityEnabled,proto3" json:"affinity_enabled,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CreatePoolRequest) Reset() {
@@ -1966,6 +1979,13 @@ func (x *CreatePoolRequest) GetMembers() []*PoolMember {
 	return nil
 }
 
+func (x *CreatePoolRequest) GetAffinityEnabled() bool {
+	if x != nil {
+		return x.AffinityEnabled
+	}
+	return false
+}
+
 type CreatePoolResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Pool          *Pool                  `protobuf:"bytes,1,opt,name=pool,proto3" json:"pool,omitempty"`
@@ -2017,8 +2037,11 @@ type UpdatePoolRequest struct {
 	Name           string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Strategy       PoolStrategy           `protobuf:"varint,4,opt,name=strategy,proto3,enum=aiprouter.v1.PoolStrategy" json:"strategy,omitempty"`
 	Members        []*PoolMember          `protobuf:"bytes,5,rep,name=members,proto3" json:"members,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Opt-in generic OAuth session affinity only; default false.
+	// Does not enable or change Codex or Anthropic provider-specific affinity.
+	AffinityEnabled bool `protobuf:"varint,6,opt,name=affinity_enabled,json=affinityEnabled,proto3" json:"affinity_enabled,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *UpdatePoolRequest) Reset() {
@@ -2084,6 +2107,13 @@ func (x *UpdatePoolRequest) GetMembers() []*PoolMember {
 		return x.Members
 	}
 	return nil
+}
+
+func (x *UpdatePoolRequest) GetAffinityEnabled() bool {
+	if x != nil {
+		return x.AffinityEnabled
+	}
+	return false
 }
 
 type UpdatePoolResponse struct {
@@ -2704,13 +2734,14 @@ const file_aiprouter_v1_provider_proto_rawDesc = "" +
 	"PoolMember\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x1a\n" +
 	"\bpriority\x18\x02 \x01(\rR\bpriority\x12\x16\n" +
-	"\x06weight\x18\x03 \x01(\rR\x06weight\"\xbf\x01\n" +
+	"\x06weight\x18\x03 \x01(\rR\x06weight\"\xea\x01\n" +
 	"\x04Pool\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x126\n" +
 	"\bstrategy\x18\x04 \x01(\x0e2\x1a.aiprouter.v1.PoolStrategyR\bstrategy\x122\n" +
-	"\amembers\x18\x05 \x03(\v2\x18.aiprouter.v1.PoolMemberR\amembers\"\xa8\x01\n" +
+	"\amembers\x18\x05 \x03(\v2\x18.aiprouter.v1.PoolMemberR\amembers\x12)\n" +
+	"\x10affinity_enabled\x18\x06 \x01(\bR\x0faffinityEnabled\"\xa8\x01\n" +
 	"\vRouteTarget\x12%\n" +
 	"\rconnection_id\x18\x01 \x01(\tH\x00R\fconnectionId\x12\x19\n" +
 	"\apool_id\x18\x02 \x01(\tH\x00R\x06poolId\x12\x19\n" +
@@ -2840,20 +2871,22 @@ const file_aiprouter_v1_provider_proto_rawDesc = "" +
 	"\x04page\x18\x02 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04page\"m\n" +
 	"\x11ListPoolsResponse\x12(\n" +
 	"\x05pools\x18\x01 \x03(\v2\x12.aiprouter.v1.PoolR\x05pools\x12.\n" +
-	"\x04page\x18\x02 \x01(\v2\x1a.aiprouter.v1.PageResponseR\x04page\"\xbc\x01\n" +
+	"\x04page\x18\x02 \x01(\v2\x1a.aiprouter.v1.PageResponseR\x04page\"\xe7\x01\n" +
 	"\x11CreatePoolRequest\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x126\n" +
 	"\bstrategy\x18\x03 \x01(\x0e2\x1a.aiprouter.v1.PoolStrategyR\bstrategy\x122\n" +
-	"\amembers\x18\x04 \x03(\v2\x18.aiprouter.v1.PoolMemberR\amembers\"<\n" +
+	"\amembers\x18\x04 \x03(\v2\x18.aiprouter.v1.PoolMemberR\amembers\x12)\n" +
+	"\x10affinity_enabled\x18\x05 \x01(\bR\x0faffinityEnabled\"<\n" +
 	"\x12CreatePoolResponse\x12&\n" +
-	"\x04pool\x18\x01 \x01(\v2\x12.aiprouter.v1.PoolR\x04pool\"\xd5\x01\n" +
+	"\x04pool\x18\x01 \x01(\v2\x12.aiprouter.v1.PoolR\x04pool\"\x80\x02\n" +
 	"\x11UpdatePoolRequest\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12\x17\n" +
 	"\apool_id\x18\x02 \x01(\tR\x06poolId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x126\n" +
 	"\bstrategy\x18\x04 \x01(\x0e2\x1a.aiprouter.v1.PoolStrategyR\bstrategy\x122\n" +
-	"\amembers\x18\x05 \x03(\v2\x18.aiprouter.v1.PoolMemberR\amembers\"<\n" +
+	"\amembers\x18\x05 \x03(\v2\x18.aiprouter.v1.PoolMemberR\amembers\x12)\n" +
+	"\x10affinity_enabled\x18\x06 \x01(\bR\x0faffinityEnabled\"<\n" +
 	"\x12UpdatePoolResponse\x12&\n" +
 	"\x04pool\x18\x01 \x01(\v2\x12.aiprouter.v1.PoolR\x04pool\"U\n" +
 	"\x11DeletePoolRequest\x12'\n" +

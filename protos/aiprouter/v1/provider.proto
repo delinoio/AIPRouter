@@ -54,6 +54,9 @@ message Pool {
   string name = 3;
   PoolStrategy strategy = 4;
   repeated PoolMember members = 5;
+  // Opt-in generic OAuth session affinity only; default false.
+  // Does not enable or change Codex or Anthropic provider-specific affinity.
+  bool affinity_enabled = 6;
 }
 message RouteTarget {
   oneof target {
@@ -223,6 +226,9 @@ message CreatePoolRequest {
   string name = 2;
   PoolStrategy strategy = 3;
   repeated PoolMember members = 4;
+  // Opt-in generic OAuth session affinity only; default false.
+  // Does not enable or change Codex or Anthropic provider-specific affinity.
+  bool affinity_enabled = 5;
 }
 message CreatePoolResponse {
   Pool pool = 1;
@@ -233,6 +239,9 @@ message UpdatePoolRequest {
   string name = 3;
   PoolStrategy strategy = 4;
   repeated PoolMember members = 5;
+  // Opt-in generic OAuth session affinity only; default false.
+  // Does not enable or change Codex or Anthropic provider-specific affinity.
+  bool affinity_enabled = 6;
 }
 message UpdatePoolResponse {
   Pool pool = 1;
