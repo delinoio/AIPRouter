@@ -113,11 +113,14 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 			if r.URL.Path == "/_aiprouter/native/health" && r.Method == http.MethodGet {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Cache-Control", "no-store")
-				io.WriteString(w, `{"ready":true}`)
+				io.WriteString(w, `{"status":"ready"}`)
 				return
 			}
 			if r.URL.Path == "/_aiprouter/native/stop" && r.Method == http.MethodPost {
-				w.WriteHeader(204)
+				w.WriteHeader(http.StatusOK)
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
 				cancel()
 				return
 			}
@@ -165,6 +168,8 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 			defer wg.Done()
 			defer func() { raw.Close(); mu.Lock(); delete(conns, raw); mu.Unlock(); <-slots }()
 			raw.SetDeadline(time.Now().Add(15 * time.Minute))
+			connCtx, connCancel := context.WithTimeout(ctx, 15*time.Minute)
+			defer connCancel()
 			if _, e = buffer.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); e != nil {
 				return
 			}
@@ -178,7 +183,7 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 				}
 				return &cfg.CA.TLSCertificate, nil
 			}})
-			hs, done := context.WithTimeout(ctx, 10*time.Second)
+			hs, done := context.WithTimeout(connCtx, 10*time.Second)
 			e = secure.HandshakeContext(hs)
 			done()
 			if e != nil {
@@ -190,7 +195,7 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 				if e != nil {
 					return
 				}
-				req = req.WithContext(ctx)
+				req = req.WithContext(connCtx)
 				req.Close = true
 				if len(req.Host) > 1024 || (req.Host != targetHost && req.Host != targetHost+":443") || req.URL.IsAbs() || req.URL.Opaque != "" {
 					req.Body.Close()
@@ -199,7 +204,7 @@ func RunNativeTLS(ctx context.Context, cfg NativeTLSConfig) error {
 				}
 				req.URL.Scheme = "https"
 				req.URL.Host = targetHost
-				if e = nativeForwardResponse(ctx, secure, req, cfg, gateway, transport); e != nil {
+				if e = nativeForwardResponse(connCtx, secure, req, cfg, gateway, transport); e != nil {
 					return
 				}
 				if req.Close {
@@ -266,6 +271,13 @@ func nativeForwardResponse(ctx context.Context, output io.Writer, req *http.Requ
 		nativeWriteError(output, 413)
 		return errors.New("native request body exceeds limit")
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// A tunnel carries one request. Once its body has been consumed, any new
+	// input or disconnect cancels upstream work. TLS supports concurrent read/write.
+	if conn, ok := output.(net.Conn); ok {
+		go func() { var b [1]byte; conn.Read(b[:]); cancel() }()
+	}
 	target := *req.URL
 	headers := req.Header.Clone()
 	if decision.Action == NativeCompatibilityGateway {
@@ -318,9 +330,12 @@ func nativeForwardResponse(ctx context.Context, output io.Writer, req *http.Requ
 	if decision.ResponseKind == NativeCompatibilityResponseUsageStream {
 		// Transform incrementally through a pipe; cancellation/close releases the
 		// producer and preserves backpressure without buffering a live stream.
-		res.Header.Del("Content-Length")
-		res.Header.Del("ETag")
-		res.Header.Del("Content-MD5")
+		if res.Header.Get("Content-Encoding") == "" || res.Header.Get("Content-Encoding") == "identity" {
+			nativeRewriteHeaders(res.Header)
+		} else {
+			res.Header.Del("Content-Length")
+		}
+		res.Header.Set("Cache-Control", "no-store")
 		res.ContentLength = -1
 		pr, pw := io.Pipe()
 		original := res.Body

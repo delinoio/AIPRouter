@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -12,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -262,5 +264,76 @@ func TestNativeTLSHeaderBound(t *testing.T) {
 	_, e := nativeReadRequest(bufio.NewReader(strings.NewReader("GET / HTTP/1.1\r\nX-Large: " + strings.Repeat("a", 40<<10) + "\r\n\r\n")))
 	if e == nil {
 		t.Fatal("oversized header accepted")
+	}
+}
+
+func TestNativeTLSDisconnectCancelsUpstream(t *testing.T) {
+	entered := make(chan struct{})
+	cancelled := make(chan struct{})
+	_, client, stop := nativeRuntimeFixture(t, nativeRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		close(entered)
+		<-r.Context().Done()
+		close(cancelled)
+		return nil, r.Context().Err()
+	}))
+	defer stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r, _ := http.NewRequestWithContext(ctx, "POST", "https://api.anthropic.com/v1/messages", strings.NewReader("{}"))
+	done := make(chan struct{})
+	go func() {
+		res, _ := client.Do(r)
+		if res != nil {
+			res.Body.Close()
+		}
+		close(done)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("upstream never entered")
+	}
+	cancel()
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("disconnected downstream retained upstream inference")
+	}
+	<-done
+}
+func TestNativeTLSControlProtocolMatchesController(t *testing.T) {
+	cfg, _, stop := nativeRuntimeFixture(t, nativeRoundTripFunc(func(*http.Request) (*http.Response, error) { return nil, context.Canceled }))
+	defer stop()
+	c := &nativeRuntimeController{}
+	_, port, _ := net.SplitHostPort(cfg.Address)
+	n, _ := strconv.Atoi(port)
+	record := nativeRuntimeRecord{Token: cfg.Token, Request: NativeRuntimeRequest{Port: n}}
+	if e := c.control(context.Background(), record, "GET", "health"); e != nil {
+		t.Fatal(e)
+	}
+	if e := c.control(context.Background(), record, "POST", "stop"); e != nil {
+		t.Fatal(e)
+	}
+}
+
+func TestNativeTLSUsageStreamDropsCacheValidators(t *testing.T) {
+	cfg := NativeTLSConfig{Policy: nativePolicyFixture(t, NativeCompatibilityCodexObserve)}
+	request, _ := http.NewRequest("GET", "https://chatgpt.com/backend-api/wham/usage/stream", nil)
+	request.Body = io.NopCloser(strings.NewReader(""))
+	upstream := nativeRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}, "Cache-Control": []string{"public, max-age=600"}, "Digest": []string{"sha256=old"}, "Last-Modified": []string{"yesterday"}}, Body: io.NopCloser(strings.NewReader(": heartbeat\n\n")), ContentLength: -1}, nil
+	})
+	var output bytes.Buffer
+	if e := nativeForwardResponse(context.Background(), &output, request, cfg, &url.URL{}, upstream); e != nil {
+		t.Fatal(e)
+	}
+	res, e := http.ReadResponse(bufio.NewReader(&output), request)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.Header.Get("Cache-Control") != "no-store" || res.Header.Get("Digest") != "" || res.Header.Get("Last-Modified") != "" || string(body) != ": heartbeat\n\n" {
+		t.Fatal("stream headers or bytes changed incorrectly")
 	}
 }
