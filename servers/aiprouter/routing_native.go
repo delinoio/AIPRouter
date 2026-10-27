@@ -23,6 +23,7 @@ type nativeSelectionState struct {
 	ConfigGroup                                              string
 	Epoch, ActiveEpoch                                       int64
 	ActiveSession                                            string
+	PreserveActive                                           bool
 	Preserve, Reused                                         bool
 	Candidates                                               map[string]string
 }
@@ -51,6 +52,7 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 	options := nativePoolOptions(selection.pool)
 	now := time.Now()
 	quotas := map[string]nativeQuotaSnapshot{}
+	deniedIDs := map[string]bool{}
 	eligible := make([]store.SelectionCandidate, 0, len(req.Candidates))
 	preferred := []store.SelectionCandidate{}
 	for _, c := range req.Candidates {
@@ -102,6 +104,7 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 		if e != nil {
 			return req, inferenceError(e)
 		}
+		deniedIDs[c.ID] = denied
 		if !denied || c.ID == req.PinnedID {
 			preferred = append(preferred, c)
 		}
@@ -134,6 +137,7 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 		return req, inferenceError(e)
 	}
 	state.ActiveEpoch = active.Epoch
+	state.PreserveActive = deniedIDs[active.AccountID]
 	save := func(cs []store.SelectionCandidate) (store.SelectionRequest, error) {
 		req.Candidates = cs
 		a.mu.Lock()
@@ -173,7 +177,7 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 					present = true
 				}
 			}
-			state.Preserve = !present
+			state.Preserve = !present || deniedIDs[affinity.AccountID]
 			if provider != "openai" {
 				allowed := false
 				for _, c := range eligible {
@@ -328,7 +332,7 @@ func (a *inferenceAdapter) finishNative(ctx context.Context, p inference.Princip
 				continue
 			}
 		}
-		if s.ActiveSession != "" && !s.Reused {
+		if s.ActiveSession != "" && !s.Reused && !s.PreserveActive {
 			err = a.s.FinishNativeAffinity(ctx, l, s.Group, s.Version, s.ActiveSession, r.AccountID, version, s.ActiveEpoch, true)
 			if err != nil && !errors.Is(err, store.ErrConflict) {
 				return inferenceError(err)

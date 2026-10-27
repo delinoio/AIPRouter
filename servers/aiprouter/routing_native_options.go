@@ -67,7 +67,7 @@ func (o nativeOptions) thresholdFor(id string) float64 {
 func (o nativeOptions) score(provider, model, id string, q nativeQuotaSnapshot, now time.Time) (float64, bool) {
 	if provider == "openai" {
 		score, known := nativeUsageScore(provider, model, q, now)
-		if m := o.members[id]; m != nil && m.AllowCredits && q.spendableCredits(now) {
+		if m := o.members[id]; m != nil && m.AllowCredits && known && q.spendableCredits(now) {
 			score = math.Min(score, 99)
 		}
 		return score, known

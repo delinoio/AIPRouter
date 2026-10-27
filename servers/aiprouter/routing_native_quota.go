@@ -42,11 +42,12 @@ func (q nativeQuotaSnapshot) spendableCredits(now time.Time) bool {
 }
 
 type nativeQuotaSnapshot struct {
-	RejectionCleared  map[string]time.Time `json:"rejection_cleared,omitempty"`
-	Plan              string               `json:"plan,omitempty"`
-	Credits           *nativeQuotaCredits  `json:"credits,omitempty"`
-	CreditsObservedAt time.Time            `json:"credits_observed_at,omitempty"`
-	Windows           []nativeQuotaWindow  `json:"windows"`
+	MonthlyPrimaryObservedAt time.Time            `json:"monthly_primary_observed_at,omitempty"`
+	RejectionCleared         map[string]time.Time `json:"rejection_cleared,omitempty"`
+	Plan                     string               `json:"plan,omitempty"`
+	Credits                  *nativeQuotaCredits  `json:"credits,omitempty"`
+	CreditsObservedAt        time.Time            `json:"credits_observed_at,omitempty"`
+	Windows                  []nativeQuotaWindow  `json:"windows"`
 	// Rejections are admission facts, separate from advisory percentage evidence.
 	Rejected map[string]time.Time `json:"rejected,omitempty"`
 }
@@ -70,6 +71,16 @@ func (a *inferenceAdapter) readNativeQuota(ctx context.Context, p inference.Prin
 	return out, true, nil
 }
 func mergeNativeQuota(old, update nativeQuotaSnapshot) nativeQuotaSnapshot {
+	if !update.MonthlyPrimaryObservedAt.IsZero() && !update.MonthlyPrimaryObservedAt.Before(old.MonthlyPrimaryObservedAt) {
+		old.MonthlyPrimaryObservedAt = update.MonthlyPrimaryObservedAt
+		kept := old.Windows[:0]
+		for _, w := range old.Windows {
+			if w.Window != "weekly" || w.ObservedAt.After(update.MonthlyPrimaryObservedAt) {
+				kept = append(kept, w)
+			}
+		}
+		old.Windows = kept
+	}
 	if !update.CreditsObservedAt.IsZero() && !update.CreditsObservedAt.Before(old.CreditsObservedAt) {
 		old.Credits = update.Credits
 		old.CreditsObservedAt = update.CreditsObservedAt
@@ -160,7 +171,8 @@ func parseNativeQuota(provider, model string, status int, h http.Header, now tim
 		out.Windows = append(out.Windows, nativeQuotaWindow{Window: window, Percent: n * scale, ObservedAt: now, ResetAt: nativeReset(reset)})
 	}
 	if provider == "openai" {
-		if strings.Contains(strings.ToLower(model), "spark") {
+		parts := strings.Split(strings.ToLower(strings.TrimSpace(model)), "/")
+		if parts[len(parts)-1] == "gpt-5.3-codex-spark" {
 			return out
 		}
 		prefix := "x-codex-"
@@ -169,6 +181,9 @@ func parseNativeQuota(provider, model string, status int, h http.Header, now tim
 		_, primaryKnown := nativeNumber(primary)
 		switch {
 		case minutes >= 28*24*60 && primary != "":
+			if n, ok := nativeNumber(primary); ok && n >= 0 && n <= 100 {
+				out.MonthlyPrimaryObservedAt = now
+			}
 			add("monthly", primary, h.Get(prefix+"primary-reset-at"), 1)
 			add("weekly", secondary, h.Get(prefix+"secondary-reset-at"), 1)
 		case minutes > 0 && minutes < 24*60:
@@ -329,7 +344,9 @@ func parseNativeQuotaBody(provider string, raw []byte, now time.Time) (nativeQuo
 				h.Set("x-codex-"+item.name+"-window-minutes", strconv.FormatFloat(*w.Seconds/60, 'f', -1, 64))
 			}
 		}
-		out.Windows = parseNativeQuota(provider, "", 200, h, now).Windows
+		parsed := parseNativeQuota(provider, "", 200, h, now)
+		out.Windows = parsed.Windows
+		out.MonthlyPrimaryObservedAt = parsed.MonthlyPrimaryObservedAt
 		if strings.EqualFold(out.Plan, "free") || strings.EqualFold(out.Plan, "go") {
 			filtered := out.Windows[:0]
 			for _, w := range out.Windows {

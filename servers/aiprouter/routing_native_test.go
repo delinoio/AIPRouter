@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
 	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
 	"google.golang.org/protobuf/proto"
@@ -232,5 +233,55 @@ func TestNativePreselectStrategies(t *testing.T) {
 				t.Fatal("RR not delegated to durable selector")
 			}
 		})
+	}
+}
+
+func TestNativeRoundRobinStickyAcrossInstances(t *testing.T) {
+	a, sc, key := poolRoutingFixture(t, v1.PoolStrategy_POOL_STRATEGY_PRIORITY)
+	ctx := context.Background()
+	for _, id := range []string{"a", "b", "c"} {
+		d, err := a.provider(ctx, sc, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.Metadata.ProviderId = "openai"
+		d.Metadata.AuthKind = v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH
+		d.Metadata.BaseUrl = ""
+		d.Secret = ""
+		d.Credential = &providers.Credential{Provider: "openai", Scope: sc, AccessToken: "fixture-" + id, AccountID: id}
+		putRoutingProvider(t, a, sc, d)
+	}
+	pool := &v1.Pool{Id: "pool", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, NativeOptions: &v1.NativePoolOptions{Enabled: proto.Bool(true), Strategy: v1.NativePoolStrategy_NATIVE_POOL_STRATEGY_ROUND_ROBIN, StickyLimit: proto.Uint32(2)}, Members: []*v1.PoolMember{{ConnectionId: "a"}, {ConnectionId: "b"}, {ConnectionId: "c"}}}
+	raw, _ := json.Marshal(pool)
+	if err := a.s.PutPrivate(ctx, sc, string(poolKind), pool.Id, raw); err != nil {
+		t.Fatal(err)
+	}
+	putRoutingRoute(t, a, sc, &v1.Route{Id: "r", ModelId: "model", Enabled: true, Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT, Targets: []*v1.RouteTarget{{Target: &v1.RouteTarget_PoolId{PoolId: "pool"}, ModelId: "gpt-6-astra"}}})
+	for i, want := range []string{"a", "a", "b", "b", "c", "c", "a"} {
+		instance := &inferenceAdapter{s: a.s, telemetry: a.telemetry}
+		p, release, err := instance.Admit(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		route, err := instance.Resolve(ctx, p, "model", inference.Generate)
+		if err != nil {
+			release()
+			t.Fatal(err)
+		}
+		target := route.Targets[0]
+		credential, err := instance.Select(ctx, p, target, "")
+		if err != nil {
+			release()
+			t.Fatal(err)
+		}
+		if credential.AccountID != want {
+			release()
+			t.Fatalf("step%d=%s want%s", i, credential.AccountID, want)
+		}
+		if err = instance.finishNative(ctx, p, inference.UsageRecord{Outcome: inference.OutcomeSuccess, Provider: target.Provider, Model: target.Model, AccountID: credential.AccountID}); err != nil {
+			release()
+			t.Fatal(err)
+		}
+		release()
 	}
 }
