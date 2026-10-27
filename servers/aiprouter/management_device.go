@@ -168,13 +168,12 @@ func (m *management) ListClientModels(ctx context.Context, r *connect.Request[v1
 	if e != nil {
 		return nil, deviceError(e)
 	}
-	models, e := m.inference.models(ctx, p.Scope)
+	models, e := m.inference.clientModels(ctx, p.Scope)
 	if e != nil {
 		return nil, rpcError(e)
 	}
-	out := &v1.ListClientModelsResponse{}
-	for _, model := range models {
-		out.Models = append(out.Models, &v1.Model{Id: model.ID, DisplayName: model.ID})
+	if _, e = m.store.AuthenticateKey(ctx, raw); e != nil {
+		return nil, deviceError(e)
 	}
-	return connect.NewResponse(out), nil
+	return connect.NewResponse(&v1.ListClientModelsResponse{Models: models}), nil
 }

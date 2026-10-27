@@ -8,6 +8,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/artifacts"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/commandcode"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/cursor"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/pricing"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
@@ -103,6 +104,7 @@ func (s *server) serveInference(w http.ResponseWriter, r *http.Request) {
 		destinations.ApprovedOrigins = append(append([]string(nil), destinations.ApprovedOrigins...), settings.Destinations...)
 	}
 	adapters := providerAdapters()
+	adapters[commandcode.Wire] = commandCodeAdapter(adapter, destinations)
 	originals := make(map[inference.Wire]inference.Adapter, len(adapters))
 	for wire, value := range adapters {
 		originals[wire] = value
