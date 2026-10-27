@@ -51,6 +51,7 @@ type tool struct {
 type historyMessage struct {
 	Role, Text, CallID string
 	Calls              []historyCall
+	IsError            bool
 }
 type historyCall struct{ ID, Name, Arguments string }
 
@@ -101,6 +102,16 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 	}
 	if len(history) == 0 {
 		return bad("cursor_empty_messages")
+	}
+	hasSystem := false
+	for _, h := range history {
+		if h.Role == "system" || h.Role == "developer" {
+			hasSystem = true
+			break
+		}
+	}
+	if !hasSystem {
+		history = append([]historyMessage{{Role: "system", Text: "You are a helpful assistant."}}, history...)
 	}
 	tools, catalog, err := readTools(body, in.Wire)
 	if err != nil {
@@ -191,12 +202,20 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 				return bad("cursor_unpaired_tool_result")
 			}
 			role = "assistant"
-			content = "[Tool Result]\nname: " + c.Name + "\ncall_id: " + c.ID + "\narguments: " + c.Arguments + "\noutput:\n" + content
+			prefix := "[Tool Result]"
+			if h.IsError {
+				prefix = "[Tool Error]"
+			}
+			content = fmt.Sprintf("%s\n[tool_result]\ncall_id: %s\nname: %s\ninvoked: %s with %s\nis_error: %t\noutput:\n%s", prefix, c.ID, c.Name, c.Name, c.Arguments, h.IsError, content)
 		}
 		if content == "" {
 			continue
 		}
-		b, _ := json.Marshal(map[string]any{"role": role, "content": []any{map[string]any{"type": "text", "text": content}}})
+		var rootContent any = []any{map[string]any{"type": "text", "text": content}}
+		if role == "system" {
+			rootContent = content
+		}
+		b, _ := json.Marshal(map[string]any{"role": role, "content": rootContent})
 		rootCount++
 		rootBytes += len(b)
 		if rootCount > MaxRoots || rootBytes > MaxRootBytes {
@@ -215,6 +234,17 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 	if format != nil {
 		b, _ := json.Marshal(format)
 		text += "\n\nReturn output matching this JSON format: " + string(b)
+	}
+	choice := body["tool_choice"]
+	choiceType := str(choice)
+	if m := object(choice); m != nil {
+		choiceType = str(m["type"])
+	}
+	if choiceType == "required" || choiceType == "any" || choiceType == "tool" || choiceType == "function" {
+		if len(tools) == 0 {
+			return bad("cursor_required_tool_missing")
+		}
+		text += "\n\nUse the declared client tools to answer this request. Emit a real tool call, not a textual tool-call envelope."
 	}
 	messageID, err := newID()
 	if err != nil {
@@ -359,7 +389,8 @@ func readHistory(body map[string]any, wire inference.Wire) ([]historyMessage, er
 							if e != nil {
 								return nil, e
 							}
-							out = append(out, historyMessage{Role: "tool", CallID: str(part["tool_use_id"]), Text: s})
+							isError, _ := part["is_error"].(bool)
+							out = append(out, historyMessage{Role: "tool", CallID: str(part["tool_use_id"]), Text: s, IsError: isError})
 						case "text":
 							if e := add(role, part["text"]); e != nil {
 								return nil, e
@@ -401,7 +432,7 @@ func readTools(body map[string]any, wire inference.Wire) ([]tool, []byte, error)
 	var catalog []byte
 	choice := body["tool_choice"]
 	choiceName := ""
-	if str(choice) == "none" {
+	if str(choice) == "none" || str(object(choice)["type"]) == "none" {
 		return out, nil, nil
 	}
 	if c := object(choice); c != nil {

@@ -565,6 +565,53 @@ func TestJSONValueRoundTripAndDepth(t *testing.T) {
 	requireCode(t, err, "cursor_argument_depth")
 }
 
+func TestTextToolMarkersAreDeferredAndRealCallsWin(t *testing.T) {
+	for split := 0; split <= len("[TOOL_CALL]"); split++ {
+		_, s := prepared(t)
+		marker := `[TOOL_CALL]mcp_opencodex-responses_ocx_client_weather[ARGS]{"city":"Seoul"}`
+		var text string
+		for _, part := range []string{"before " + marker[:split], marker[split:] + " after"} {
+			events, _ := handle(t, s, interaction(1, ps(1, part)))
+			for _, event := range events {
+				if event.Kind != Text {
+					t.Fatal("premature fallback")
+				}
+				text += event.Text
+			}
+		}
+		if text != "before  after" {
+			t.Fatalf("marker leaked at split %d: %q", split, text)
+		}
+		e, _ := handle(t, s, Frame{Flags: 2, Payload: []byte(`{}`)})
+		if len(e) != 2 || e[0].Kind != ToolCall || e[0].Name != "weather" || e[1].Kind != Done {
+			t.Fatalf("fallback=%+v", e)
+		}
+	}
+	_, s := prepared(t)
+	handle(t, s, interaction(1, ps(1, `[TOOL_CALL]ocx_client_weather[ARGS]{"city":"stale"}`)))
+	e, _ := handle(t, s, toolUpdate(3, "real", "ocx_client_weather", "", map[string]any{"city": "real"}))
+	if len(e) != 1 {
+		t.Fatal("missing real call")
+	}
+	handle(t, s, interaction(14, nil))
+	e, _ = handle(t, s, Frame{Flags: 2, Payload: []byte(`{}`)})
+	if len(e) != 1 || e[0].Kind != Done {
+		t.Fatal("text fallback duplicated real call")
+	}
+}
+
+func TestTextMarkerBoundsAndUndeclaredNames(t *testing.T) {
+	_, s := prepared(t)
+	handle(t, s, interaction(1, ps(1, `safe [TOOL_CALL]undeclared[ARGS]{"secret":"fixture"} tail`)))
+	e, _ := handle(t, s, Frame{Flags: 2, Payload: []byte(`{}`)})
+	if len(e) != 1 || e[0].Kind != Done {
+		t.Fatal("undeclared fallback promoted")
+	}
+	_, s = prepared(t)
+	_, _, err := s.Handle(context.Background(), interaction(1, ps(1, "[TOOL_CALL]"+strings.Repeat("x", maxPendingText))))
+	requireCode(t, err, "cursor_text_tool_call_limit")
+}
+
 func TestSnapshotCorruptionAndPrefixMismatch(t *testing.T) {
 	_, s := prepared(t)
 	handle(t, s, Frame{Payload: pb(3, pb(5, pv(1, 9)))})

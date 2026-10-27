@@ -58,6 +58,9 @@ type Session struct {
 	output, contextTokens      *int64
 	ended, terminal, visible   bool
 	frames                     int
+	pendingText                string
+	fallback                   []Event
+	sawRealTool                bool
 }
 
 func newSession(model string, tools []tool) *Session {
@@ -193,6 +196,9 @@ func (s *Session) interaction(b []byte) ([]Event, error) {
 			if text == "" {
 				return nil, nil
 			}
+			if f.number == 1 {
+				return s.textEvents(text)
+			}
 			s.visible = true
 			kind := Text
 			if f.number == 4 {
@@ -228,6 +234,8 @@ func (s *Session) interaction(b []byte) ([]Event, error) {
 			}
 			wasOpen := s.open[id] != nil
 			if name != "" {
+				s.sawRealTool = true
+				s.fallback = nil
 				if e := s.start(id, name); e != nil {
 					return nil, e
 				}
@@ -425,6 +433,8 @@ func (s *Session) exec(b []byte) ([]Event, [][]byte, error) {
 		if _, ok := s.tools[name]; !ok {
 			return nil, nil, protocolError("cursor_unknown_tool")
 		}
+		s.sawRealTool = true
+		s.fallback = nil
 		if old, ok := s.pending[callID]; ok && (old.ID != id || old.ExecID != execID) {
 			return nil, nil, protocolError("cursor_conflicting_tool_execution")
 		}
@@ -525,10 +535,25 @@ func (s *Session) finish(cleanEnd bool) ([]Event, error) {
 	if len(s.open) > 0 {
 		return nil, protocolError("cursor_incomplete_tool_call")
 	}
-	if !s.ended && (!cleanEnd || !s.visible) {
+	if !s.ended && (!cleanEnd || !s.visible && len(s.fallback) == 0) {
 		return nil, protocolError("cursor_stream_truncated")
 	}
-	return []Event{{Kind: Done, Usage: inference.Usage{OutputTokens: cloneInt(s.output)}, ContextTokens: cloneInt(s.contextTokens)}}, nil
+	s.pendingText = ""
+	var events []Event
+	if !s.sawRealTool {
+		for _, call := range s.fallback {
+			if err := s.start(call.ID, call.Name); err != nil {
+				return nil, err
+			}
+			committed, err := s.commit(call.ID, call.Arguments)
+			if err != nil {
+				return nil, err
+			}
+			events = append(events, committed...)
+		}
+	}
+	s.fallback = nil
+	return append(events, Event{Kind: Done, Usage: inference.Usage{OutputTokens: cloneInt(s.output)}, ContextTokens: cloneInt(s.contextTokens)}), nil
 }
 func cloneInt(p *int64) *int64 {
 	if p == nil {
