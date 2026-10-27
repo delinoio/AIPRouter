@@ -638,7 +638,7 @@ func TestProviderJEVConfigurationPersistsAndClears(t *testing.T) {
 		t.Fatal(err)
 	}
 	targets := []*v1.RouteTarget{{Target: &v1.RouteTarget_ConnectionId{ConnectionId: target.Metadata.Id}, ModelId: "model", ReasoningEfforts: []string{"low", "high"}, ModelProfile: "coding"}}
-	config := &v1.JevDecisionConfig{DecisionConnectionId: service.Msg.Connection.Id, DecisionTimeoutMs: 4000, SessionPinTtlSeconds: 60}
+	config := &v1.JevDecisionConfig{DecisionConnectionId: service.Msg.Connection.Id, DecisionTimeoutMs: 4000, SessionPinTtlSeconds: 60, DecisionQuotaSignals: true, DecisionQuotaTiers: &v1.JevQuotaTiers{Moderate: ptr(float64(0))}}
 	created, err := m.CreateRoute(ctx, connect.NewRequest(&v1.CreateRouteRequest{OrganizationId: sc.OrganizationID, ModelId: "choice", Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_JEV, Targets: targets, Enabled: true, JevDecision: config}))
 	if err != nil {
 		t.Fatal(err)
@@ -649,6 +649,19 @@ func TestProviderJEVConfigurationPersistsAndClears(t *testing.T) {
 	}
 	if saved.JevDecision == nil || saved.JevDecision.DecisionConnectionId != service.Msg.Connection.Id || len(saved.Targets[0].ReasoningEfforts) != 2 || saved.Targets[0].ModelProfile != "coding" {
 		t.Fatal("JEV fields not persisted")
+	}
+	if !saved.JevDecision.DecisionQuotaSignals || saved.JevDecision.DecisionQuotaTiers == nil || saved.JevDecision.DecisionQuotaTiers.Moderate == nil || *saved.JevDecision.DecisionQuotaTiers.Moderate != 0 || saved.JevDecision.DecisionQuotaTiers.Limited != nil || saved.JevDecision.DecisionQuotaTiers.NearlyExhausted != nil {
+		t.Fatal("quota zero or omitted tier presence not preserved")
+	}
+	config.DecisionQuotaSignals = false
+	config.DecisionQuotaTiers = &v1.JevQuotaTiers{Limited: ptr(float64(65)), NearlyExhausted: ptr(float64(95))}
+	_, err = m.UpdateRoute(ctx, connect.NewRequest(&v1.UpdateRouteRequest{OrganizationId: sc.OrganizationID, RouteId: saved.Id, ModelId: saved.ModelId, Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_JEV, Targets: targets, Enabled: true, JevDecision: config}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err = m.getRoute(ctx, sc, saved.Id)
+	if err != nil || saved.JevDecision == nil || saved.JevDecision.DecisionQuotaSignals || saved.JevDecision.DecisionQuotaTiers == nil || saved.JevDecision.DecisionQuotaTiers.Moderate != nil || saved.JevDecision.DecisionQuotaTiers.GetLimited() != 65 || saved.JevDecision.DecisionQuotaTiers.GetNearlyExhausted() != 95 {
+		t.Fatalf("quota full replacement not persisted: %v", err)
 	}
 	_, err = m.UpdateRoute(ctx, connect.NewRequest(&v1.UpdateRouteRequest{OrganizationId: sc.OrganizationID, RouteId: saved.Id, ModelId: saved.ModelId, Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT, Targets: targets, Enabled: true}))
 	if err != nil {
