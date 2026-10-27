@@ -1,5 +1,5 @@
 {
-  "name": "delinoio-base",
+  "name": "aiprouter",
   "private": true,
   "license": "Apache-2.0",
   "packageManager": "pnpm@10.26.2",

@@ -26,7 +26,7 @@ Include English public guidance for all of:
 
 Include internal design and source-of-truth contract documents. Exclude internal runbooks.
 
-Keep public docs focused on user/operator workflows and supported interfaces; keep internal implementation details in repository contracts. This repository does not yet have a public docs application, so establish its owning project/domain publication contract rather than assuming another repository's existing documentation app.
+Keep public docs focused on user/operator workflows and supported interfaces; keep internal implementation details in repository contracts. `apps/aiprouter-docs` owns the public documentation application under this contract and the project index. Its publication configuration must not assume another repository's documentation app or deployment.
 
 Exclude automatic import of opencodex settings, credentials, or usage. Users register providers/accounts/routing again using manual migration guidance.
 

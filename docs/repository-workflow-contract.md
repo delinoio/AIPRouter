@@ -2,7 +2,7 @@
 
 ## Scope
 
-The repository contains shared instructions, skills, documentation templates and formatting infrastructure. [AIPRouter](project-aiprouter.md) owns the Go runtime, generated protocol bindings, web applications and deployment assets. Release credentials remain outside the repository.
+The repository contains AIPRouter and its shared development infrastructure: instructions, skills, documentation templates and formatting tools. [AIPRouter](project-aiprouter.md) owns the Go runtime, generated protocol bindings, web applications and deployment assets. Release credentials remain outside the repository.
 
 ## Installation
 
