@@ -257,3 +257,14 @@ func TestAnthropicEffortHeadroom(t *testing.T) {
 		}
 	}
 }
+
+func TestNamespacedCustomDeclarationsAndHistory(t *testing.T) {
+	body := `{"input":[{"type":"custom_tool_call","call_id":"c1","name":"patch","namespace":"editor","input":"raw"},{"type":"custom_tool_call_output","call_id":"c1","output":"done"}],"tools":[{"type":"namespace","name":"editor","tools":[{"type":"custom","name":"patch","format":{"type":"text"}}]}],"tool_choice":{"type":"custom","name":"patch","namespace":"editor"}}`
+	for _, p := range []Provider{Anthropic, Google, XAI} {
+		r := build(t, p, inference.Responses, body)
+		data := jsonString(r)
+		if !strings.Contains(data, "editor__patch") || !strings.Contains(data, "raw") || strings.Contains(data, `"type":"namespace"`) {
+			t.Fatal(data)
+		}
+	}
+}

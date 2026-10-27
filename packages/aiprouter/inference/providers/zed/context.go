@@ -6,8 +6,80 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"regexp"
+	"strings"
 	"sync"
 )
+
+// Namespace groups are declarations, not callable tools. The pinned delegates
+// flatten their wire names with __ and resolve an unqualified historical name
+// only when the current catalog gives it a unique meaning.
+func flattenToolGroups(b object) error {
+	declared := map[string]bool{}
+	byBare := map[string][]string{}
+	var flatten func([]any, string, int) ([]any, error)
+	flatten = func(tools []any, namespace string, depth int) ([]any, error) {
+		if depth > 32 {
+			return nil, requestError("zed_tool_group_depth")
+		}
+		out := []any{}
+		for _, v := range tools {
+			t := objectOf(v)
+			if t["type"] == "namespace" {
+				ns := stringOf(t["name"])
+				if namespace != "" {
+					ns = namespace + "__" + ns
+				}
+				children, err := flatten(arrayOf(t["tools"]), ns, depth+1)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, children...)
+				continue
+			}
+			f := objectOf(t["function"])
+			if f == nil {
+				f = t
+			}
+			name := stringOf(f["name"])
+			wire := name
+			if namespace != "" {
+				wire = namespace + "__" + name
+				f["name"] = wire
+			}
+			if name != "" {
+				if declared[wire] {
+					return nil, requestError("ambiguous_zed_tool_catalog")
+				}
+				declared[wire] = true
+				byBare[name] = append(byBare[name], wire)
+			}
+			out = append(out, t)
+		}
+		return out, nil
+	}
+	if tools, ok := b["tools"].([]any); ok {
+		flat, err := flatten(tools, "", 0)
+		if err != nil {
+			return err
+		}
+		b["tools"] = flat
+	}
+	visitToolNames(b, func(m object, k string) {
+		name := stringOf(m[k])
+		if name == "" {
+			return
+		}
+		if ns := stringOf(m["namespace"]); ns != "" {
+			m[k] = ns + "__" + name
+			delete(m, "namespace")
+			return
+		}
+		if !declared[name] && !strings.Contains(name, "__") && len(byBare[name]) == 1 {
+			m[k] = byBare[name][0]
+		}
+	})
+	return nil
+}
 
 // RequestOptions comes from authenticated routing, never from request JSON or
 // arbitrary inbound headers. The executor owns thread/replay authorization.

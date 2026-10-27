@@ -144,6 +144,9 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	}
 	aliases, custom := map[string]string{}, map[string]bool{}
 	if a.provider != OpenAI {
+		if err := flattenToolGroups(body); err != nil {
+			return inference.AdapterRequest{}, err
+		}
 		aliases, custom = aliasTools(body)
 		if len(aliases) > 0 && state == nil {
 			return inference.AdapterRequest{}, requestError("zed_request_context_required")
