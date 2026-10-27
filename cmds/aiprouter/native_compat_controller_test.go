@@ -179,17 +179,18 @@ func TestNativeControllerOwnedReadinessAndStop(t *testing.T) {
 	}
 	record, _, _ := c.load(req.Profile.Name)
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer "+record.Token {
+		if !nativeControlAuthorize(r, record.Token) {
 			http.Error(w, "unauthorized", 401)
 			return
 		}
 		if r.URL.Path == "/_aiprouter/native/stop" && r.Method == "POST" {
-			w.WriteHeader(200)
+			nativeControlRespond(w, r, record.Token, 200, nil)
 			go func() { time.Sleep(10 * time.Millisecond); _ = listener.Close() }()
 			return
 		}
 		if r.URL.Path == "/_aiprouter/native/health" {
-			_, _ = w.Write([]byte(`{"status":"ready"}`))
+			body, _ := json.Marshal(map[string]any{"status": "ready", "caFingerprint": record.Fingerprint, "leafFingerprint": strings.Repeat("a", 64), "leafNotAfter": time.Now().Add(time.Hour)})
+			nativeControlRespond(w, r, record.Token, 200, body)
 			return
 		}
 		http.NotFound(w, r)
@@ -403,7 +404,8 @@ func controllerConsent(t *testing.T, c *nativeRuntimeController, req NativeRunti
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NativeRuntimeConsent{Trust: true, Application: true, AccountTrial: req.Trial, PlanFingerprint: ca.Fingerprint, PlanDigest: nativePlanDigest(req, ca.Fingerprint, policy)}
+	installation, _ := c.installation(context.Background(), req)
+	return NativeRuntimeConsent{Trust: true, Application: true, AccountTrial: req.Trial, PlanFingerprint: ca.Fingerprint, PlanDigest: nativePlanDigest(req, ca.Fingerprint, policy, installation)}
 }
 func TestNativeControllerConsentBindsPreviewedCertificate(t *testing.T) {
 	c, req, trust := controllerFixture(t)

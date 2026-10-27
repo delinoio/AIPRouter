@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -44,10 +43,11 @@ func observeNativeCodexBuild(ctx context.Context, req NativeRuntimeRequest, plat
 type nativeCodexLaunchProof struct {
 	Verified                                                bool
 	PackageFullName, Family, Version, Executable, Arguments string
+	Root, ExecutableStamp, ManifestStamp, ManifestDigest    string
 	PID                                                     uint32
 }
 
-func nativeCodexCommand(ctx context.Context, platform string, run NativeTrustCommandRunner, operation, pac string) (nativeCodexLaunchProof, error) {
+func nativeCodexCommand(ctx context.Context, platform string, run NativeTrustCommandRunner, operation, pac string, expected ...NativeInstallationProof) (nativeCodexLaunchProof, error) {
 	var proof nativeCodexLaunchProof
 	if platform != "windows" || run == nil {
 		return proof, errors.New("Codex package activation requires Windows and a command runner")
@@ -68,12 +68,31 @@ func nativeCodexCommand(ctx context.Context, platform string, run NativeTrustCom
 	if !regexp.MustCompile(`^[A-Za-z]:\\[^\r\n]*$`).MatchString(root) || strings.Contains(root, "..") {
 		return proof, errors.New("invalid Windows system directory")
 	}
-	input, _ := json.Marshal(map[string]string{"operation": operation, "pac": pac})
+	inputData := map[string]string{"operation": operation, "pac": pac}
+	if len(expected) > 0 {
+		p := expected[0]
+		inputData["root"] = p.Root
+		inputData["stamp"] = p.ExecutableStamp
+		inputData["manifest"] = p.ManifestStamp
+		inputData["digest"] = p.ManifestDigest
+		inputData["full"] = p.PackageFullName
+	}
+	input, _ := json.Marshal(inputData)
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	out, err := run(ctx, filepath.Join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), []string{"-NoProfile", "-NonInteractive", "-Command", nativeCodexPackageScript}, input)
 	if err != nil || len(out) > 65536 || json.Unmarshal(out, &proof) != nil || !proof.Verified || !nativeCodexFullName.MatchString(proof.PackageFullName) || proof.Family != nativeCodexFamily || proof.Version != NativeCompatibilityCodexBuild || !strings.EqualFold(proof.Executable, `app\ChatGPT.exe`) {
 		return nativeCodexLaunchProof{}, errors.New("Codex package attestation or activation failed; inspect the native application before retrying")
+	}
+	if proof.Root == "" || proof.ExecutableStamp == "" || proof.ManifestStamp == "" || proof.ManifestDigest == "" {
+		return nativeCodexLaunchProof{}, errNativeBuild
+	}
+	if len(expected) > 0 {
+		p := expected[0]
+		p.Generation = ""
+		if proof.installation() != p {
+			return nativeCodexLaunchProof{}, errNativeBuild
+		}
 	}
 	if operation == "launch" && (proof.PID == 0 || proof.Arguments != "--proxy-pac-url="+pac) {
 		return nativeCodexLaunchProof{}, errors.New("Codex launch ownership could not be verified")
@@ -130,28 +149,28 @@ func (c *nativeRuntimeController) launchCodex(ctx context.Context, name string, 
 	if err = ready.Validate(); err != nil {
 		return err
 	}
-	_, err = nativeCodexCommand(ctx, c.options.Platform, run, "launch", pac)
+	if !c.installationMatches(ctx, r) {
+		return errors.New("native installation changed before launch")
+	}
+	_, err = nativeCodexCommand(ctx, c.options.Platform, run, "launch", pac, r.Installation)
+	if err != nil {
+		return errors.Join(err, c.invalidateInstallation(r.Request))
+	}
+	if !c.installationMatches(ctx, r) {
+		return errors.New("native installation changed during launch")
+	}
 	return err
 }
 func (c *nativeRuntimeController) codexPAC(ctx context.Context, r nativeRuntimeRecord) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+nativeRuntimeAddress(r.Request)+"/_aiprouter/native/launch", nil)
+	data, err := nativeControlRequest(ctx, nativeRuntimeAddress(r.Request), r.Token, http.MethodGet, "/_aiprouter/native/launch")
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+r.Token)
-	client := &http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("native launch redirect refused") }}
-	defer client.CloseIdleConnections()
-	res, err := client.Do(req)
-	if err != nil {
-		return "", errors.New("owned native launch endpoint unavailable")
-	}
-	defer res.Body.Close()
 	var payload struct {
 		PACURL string `json:"pacURL"`
 	}
-	data, err := io.ReadAll(io.LimitReader(res.Body, 4097))
-	if err != nil || len(data) > 4096 || res.StatusCode != http.StatusOK || json.Unmarshal(data, &payload) != nil {
-		return "", errors.New("owned native launch endpoint rejected request")
+	if json.Unmarshal(data, &payload) != nil {
+		return "", errors.New("invalid native PAC response")
 	}
 	if err = validateNativePAC(payload.PACURL, nativeRuntimeAddress(r.Request)); err != nil {
 		return "", err

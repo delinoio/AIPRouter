@@ -46,6 +46,9 @@ function Package-Proof {
 }
 Import-Module Appx -ErrorAction Stop
 $proof=Package-Proof
+if($inputData.operation -eq 'launch' -and $inputData.root) {
+ if($proof.Root -cne $inputData.root -or $proof.Stamp -cne $inputData.stamp -or $proof.Manifest -cne $inputData.manifest -or $proof.Digest -cne $inputData.digest -or $proof.Full -cne $inputData.full){throw 'Approved installation changed'}
+}
 $pidValue=0
 $arguments=''
 if($inputData.operation -eq 'launch') {
@@ -113,5 +116,5 @@ public static class AIPRouterCodexActivation {
  if(-not $process -or $process.ExecutablePath -ine $proof.Exe -or -not [AIPRouterCodexActivation]::Arguments($process.CommandLine,$arguments)){throw 'Activated executable or arguments mismatch'}
 } elseif($inputData.operation -ne 'observe') {throw 'Unknown operation'}
 if(($proof|ConvertTo-Json -Compress) -cne ((Package-Proof)|ConvertTo-Json -Compress)){throw 'Package changed after operation'}
-[pscustomobject]@{verified=$true;packageFullName=$proof.Full;family=$proof.Family;version='26.924.2738.0';executable='app\ChatGPT.exe';pid=$pidValue;arguments=$arguments}|ConvertTo-Json -Compress
+[pscustomobject]@{root=$proof.Root;executableStamp=$proof.Stamp;manifestStamp=$proof.Manifest;manifestDigest=$proof.Digest;verified=$true;packageFullName=$proof.Full;family=$proof.Family;version='26.924.2738.0';executable='app\ChatGPT.exe';pid=$pidValue;arguments=$arguments}|ConvertTo-Json -Compress
 `

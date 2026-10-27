@@ -16,7 +16,7 @@ import (
 )
 
 func launchProof(pac string) nativeCodexLaunchProof {
-	return nativeCodexLaunchProof{Verified: true, PackageFullName: "OpenAI.Codex_26.924.2738.0_x64__2p2nqsd0c76g0", Family: nativeCodexFamily, Version: NativeCompatibilityCodexBuild, Executable: `app\ChatGPT.exe`, PID: 42, Arguments: "--proxy-pac-url=" + pac}
+	return nativeCodexLaunchProof{Root: `C:\Program Files\WindowsApps\fixture`, ExecutableStamp: "exe-stamp", ManifestStamp: "manifest-stamp", ManifestDigest: "manifest-hash", Verified: true, PackageFullName: "OpenAI.Codex_26.924.2738.0_x64__2p2nqsd0c76g0", Family: nativeCodexFamily, Version: NativeCompatibilityCodexBuild, Executable: `app\ChatGPT.exe`, PID: 42, Arguments: "--proxy-pac-url=" + pac}
 }
 func TestNativeCodexCommandAttestation(t *testing.T) {
 	pac := "http://127.0.0.1:17844/0123456789abcdef0123456789abcdef/proxy.pac"
@@ -92,7 +92,10 @@ func TestNativeCodexLaunchOwnedRuntimeLifecycle(t *testing.T) {
 	c.options.Platform = "windows"
 	req.Mode = NativeCompatibilityCodexObserve
 	req.Build = NativeCompatibilityCodexBuild
-	c.options.ObserveBuild = func(context.Context, NativeRuntimeRequest) (string, error) { return NativeCompatibilityCodexBuild, nil }
+	installed := launchProof("").installation()
+	c.options.ObserveInstallation = func(context.Context, NativeRuntimeRequest) (NativeInstallationProof, error) {
+		return installed, nil
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -103,11 +106,23 @@ func TestNativeCodexLaunchOwnedRuntimeLifecycle(t *testing.T) {
 	defer cancel()
 	var calls int
 	var pac string
+	mutateDuringLaunch := false
 	runner := func(_ context.Context, _ string, _ []string, input []byte) ([]byte, error) {
 		calls++
 		var request map[string]string
 		json.Unmarshal(input, &request)
 		pac = request["pac"]
+		if mutateDuringLaunch {
+			original := installed
+			installed.ExecutableStamp += "replacement"
+			if _, e := c.installation(ctx, req); e != nil {
+				t.Fatal(e)
+			}
+			installed = original
+			if _, e := c.installation(ctx, req); e != nil {
+				t.Fatal(e)
+			}
+		}
 		return json.Marshal(launchProof(pac))
 	}
 	if err := c.launchCodex(ctx, req.Profile.Name, runner); err == nil || calls != 0 {
@@ -152,6 +167,10 @@ func TestNativeCodexLaunchOwnedRuntimeLifecycle(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatal("owned PAC unavailable")
 	}
+	mutateDuringLaunch = true
+	if err = c.launchCodex(ctx, req.Profile.Name, runner); err == nil {
+		t.Fatal("A-B-A during launch retained consent")
+	}
 	if err = c.Stop(ctx, req.Profile.Name); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +182,7 @@ func TestNativeCodexLaunchOwnedRuntimeLifecycle(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("owned listener survived stop")
 	}
-	if err = c.launchCodex(ctx, req.Profile.Name, runner); err == nil || calls != 1 {
+	if err = c.launchCodex(ctx, req.Profile.Name, runner); err == nil || calls != 2 {
 		t.Fatal("stopped runtime launched")
 	}
 	if res, err = http.Get(pac); err == nil {
@@ -183,7 +202,7 @@ func TestNativeCodexLaunchOwnedRuntimeLifecycle(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(root, "runtime.json")); !os.IsNotExist(err) {
 		t.Fatal("disable retained consent")
 	}
-	if calls != 1 || trust.removes != 1 {
+	if calls != 2 || trust.removes != 1 {
 		t.Fatal(fmt.Sprint("unowned cleanup", calls, trust.removes))
 	}
 }

@@ -22,15 +22,16 @@ import (
 // NativeRuntimeOptions isolates OS trust, installed-build inspection and network
 // work. Tests must inject these dependencies instead of modifying real trust.
 type NativeRuntimeOptions struct {
-	Platform     string
-	Trust        NativeTrustAdapter
-	EnsureCA     func(string, []string) (*NativeCA, error)
-	ObserveBuild func(context.Context, NativeRuntimeRequest) (string, error)
-	Account      func(context.Context, NativeRuntimeRequest) (NativeCompatibilityAccount, error)
-	Run          func(context.Context, NativeTLSConfig) error
-	Transport    http.RoundTripper
-	Models       func(context.Context, Profile, string) ([]ClientModel, error)
-	CLIModels    func(context.Context, Profile, string) ([]ClientModel, error)
+	Platform            string
+	Trust               NativeTrustAdapter
+	EnsureCA            func(string, []string) (*NativeCA, error)
+	ObserveBuild        func(context.Context, NativeRuntimeRequest) (string, error)
+	ObserveInstallation func(context.Context, NativeRuntimeRequest) (NativeInstallationProof, error)
+	Account             func(context.Context, NativeRuntimeRequest) (NativeCompatibilityAccount, error)
+	Run                 func(context.Context, NativeTLSConfig) error
+	Transport           http.RoundTripper
+	Models              func(context.Context, Profile, string) ([]ClientModel, error)
+	CLIModels           func(context.Context, Profile, string) ([]ClientModel, error)
 }
 type nativeRuntimeController struct {
 	disk        Disk
@@ -48,8 +49,8 @@ func NewNativeRuntimeControllerWithOptions(disk Disk, credentials Credentials, o
 	if options.Platform == "" {
 		options.Platform = runtime.GOOS
 	}
-	if options.ObserveBuild == nil {
-		options.ObserveBuild = (NativeBuildResolver{Platform: options.Platform}).Observe
+	if options.ObserveBuild == nil && options.ObserveInstallation == nil {
+		options.ObserveInstallation = (NativeBuildResolver{Platform: options.Platform}).ObserveInstallation
 	}
 	if options.Account == nil {
 		options.Account = ObserveNativeCodexAccount
@@ -73,6 +74,7 @@ type nativeRuntimeRecord struct {
 	Token, Fingerprint string
 	TrialUntil         time.Time
 	Account            NativeCompatibilityAccount
+	Installation       NativeInstallationProof
 }
 
 func (c *nativeRuntimeController) root(name string) (string, error) {
@@ -117,15 +119,10 @@ func (c *nativeRuntimeController) policy(req NativeRuntimeRequest) (NativeCompat
 	return NewNativeCompatibilityPolicy(req.Mode, c.options.Platform, req.Build)
 }
 func (c *nativeRuntimeController) observed(ctx context.Context, req NativeRuntimeRequest) error {
-	if c.options.ObserveBuild == nil {
-		return errors.New("installed native build attestation is unavailable; activation refused")
-	}
-	build, err := c.options.ObserveBuild(ctx, req)
-	if err != nil || build != req.Build {
-		return errors.New("installed native build does not match the approved build")
-	}
-	return nil
+	_, err := c.installation(ctx, req)
+	return err
 }
+
 func (c *nativeRuntimeController) ca(req NativeRuntimeRequest) (*NativeCA, error) {
 	root, err := c.root(req.Profile.Name)
 	if err != nil {
@@ -181,7 +178,8 @@ func (c *nativeRuntimeController) Plan(ctx context.Context, req NativeRuntimeReq
 	if err != nil {
 		return plan, err
 	}
-	if err = c.observed(ctx, req); err != nil {
+	installation, err := c.installation(ctx, req)
+	if err != nil {
 		return plan, err
 	}
 	release, err := c.lock(req.Profile.Name)
@@ -197,9 +195,9 @@ func (c *nativeRuntimeController) Plan(ctx context.Context, req NativeRuntimeReq
 		return plan, err
 	}
 	address := nativeRuntimeAddress(req)
-	return NativeRuntimePlan{PlanDigest: nativePlanDigest(req, ca.Fingerprint, p), Profile: req.Profile.Name, Mode: req.Mode, Build: req.Build, Address: address, CAPath: ca.CertificatePath, Fingerprint: ca.Fingerprint, Hosts: p.Hosts(), Routes: p.Routes(), Listeners: []string{"HTTP CONNECT and authenticated control: " + address}, TrustChanges: []string{"Install only the owned CA in current-user trust"}, SettingsChanges: []string{"Apply the separately previewed native application settings"}, RequiresTrust: true, RequiresApplication: true, RequiresAccountTrial: req.Trial}, nil
+	return NativeRuntimePlan{PlanDigest: nativePlanDigest(req, ca.Fingerprint, p, installation), Profile: req.Profile.Name, Mode: req.Mode, Build: req.Build, Address: address, CAPath: ca.CertificatePath, Fingerprint: ca.Fingerprint, Hosts: p.Hosts(), Routes: p.Routes(), Listeners: []string{"HTTP CONNECT and authenticated control: " + address}, TrustChanges: []string{"Install only the owned CA in current-user trust"}, SettingsChanges: []string{"Apply the separately previewed native application settings"}, RequiresTrust: true, RequiresApplication: true, RequiresAccountTrial: req.Trial}, nil
 }
-func nativePlanDigest(req NativeRuntimeRequest, fingerprint string, policy NativeCompatibilityPolicy) string {
+func nativePlanDigest(req NativeRuntimeRequest, fingerprint string, policy NativeCompatibilityPolicy, installation ...NativeInstallationProof) string {
 	if req.Port == 0 {
 		req.Port = DefaultNativePort
 	}
@@ -207,7 +205,8 @@ func nativePlanDigest(req NativeRuntimeRequest, fingerprint string, policy Nativ
 		Request       NativeRuntimeRequest
 		Fingerprint   string
 		Hosts, Routes []string
-	}{req, fingerprint, policy.Hosts(), policy.Routes()})
+		Installation  []NativeInstallationProof
+	}{req, fingerprint, policy.Hosts(), policy.Routes(), installation})
 	return digest(data)
 }
 func nativeRuntimeAddress(req NativeRuntimeRequest) string {
@@ -227,7 +226,8 @@ func (c *nativeRuntimeController) Enable(ctx context.Context, req NativeRuntimeR
 	if _, err := c.policy(req); err != nil {
 		return NativeRuntimeStatus{}, err
 	}
-	if err := c.observed(ctx, req); err != nil {
+	installation, err := c.installation(ctx, req)
+	if err != nil {
 		return NativeRuntimeStatus{}, err
 	}
 	release, err := c.lock(req.Profile.Name)
@@ -256,14 +256,14 @@ func (c *nativeRuntimeController) Enable(ctx context.Context, req NativeRuntimeR
 		return NativeRuntimeStatus{}, err
 	}
 	policy, _ := c.policy(req)
-	if consent.PlanDigest != nativePlanDigest(req, ca.Fingerprint, policy) {
+	if consent.PlanDigest != nativePlanDigest(req, ca.Fingerprint, policy, installation) {
 		return NativeRuntimeStatus{}, errors.New("native request differs from the reviewed plan; preview and confirm again")
 	}
 	if ca.Fingerprint != consent.PlanFingerprint {
 		return NativeRuntimeStatus{}, errors.New("native CA differs from the reviewed plan; preview and confirm again")
 	}
 	if !exists {
-		r = nativeRuntimeRecord{Version: 1, Request: req, Consent: consent, Fingerprint: ca.Fingerprint}
+		r = nativeRuntimeRecord{Version: 1, Request: req, Consent: consent, Fingerprint: ca.Fingerprint, Installation: installation}
 		if req.Trial {
 			if c.options.Account == nil {
 				return NativeRuntimeStatus{}, errors.New("native account attestation unavailable; account UI trial refused")
@@ -277,6 +277,9 @@ func (c *nativeRuntimeController) Enable(ctx context.Context, req NativeRuntimeR
 			if _, err = p.WithAccountUITrial(r.Account, r.TrialUntil, time.Now, func() bool { return true }); err != nil {
 				return NativeRuntimeStatus{}, err
 			}
+		}
+		if !c.installationMatches(ctx, r) {
+			return NativeRuntimeStatus{}, errors.New("native installation changed during consent")
 		}
 		token := make([]byte, 32)
 		if _, err = rand.Read(token); err != nil {
@@ -310,7 +313,7 @@ func (c *nativeRuntimeController) trialValid(ctx context.Context, r nativeRuntim
 		return false
 	}
 	current, exists, err := c.load(r.Request.Profile.Name)
-	if err != nil || !exists || current != r || c.observed(ctx, r.Request) != nil {
+	if err != nil || !exists || current != r || !c.installationMatches(ctx, r) {
 		return false
 	}
 	account, err := c.options.Account(ctx, r.Request)
@@ -318,7 +321,7 @@ func (c *nativeRuntimeController) trialValid(ctx context.Context, r nativeRuntim
 		return false
 	}
 	actual, err := c.credentials.Get(credentialID(r.Request.Profile))
-	return err == nil && actual != "" && (key == "" || actual == key)
+	return err == nil && actual != "" && (key == "" || actual == key) && c.installationMatches(ctx, r)
 }
 func (c *nativeRuntimeController) statusRecord(ctx context.Context, r nativeRuntimeRecord, ca *NativeCA) NativeRuntimeStatus {
 	s := NativeRuntimeStatus{Profile: r.Request.Profile.Name, Mode: r.Request.Mode, Build: r.Request.Build, Address: nativeRuntimeAddress(r.Request), CAPath: ca.CertificatePath, Fingerprint: r.Fingerprint, Enabled: true, Consent: r.Consent, TrialUntil: r.TrialUntil}
@@ -326,7 +329,7 @@ func (c *nativeRuntimeController) statusRecord(ctx context.Context, r nativeRunt
 	manager := c.trust(root)
 	trust, err := manager.Status(ctx, ca)
 	s.Trusted = err == nil && trust.Trusted && ca.Fingerprint == r.Fingerprint
-	s.Ready = !time.Now().Before(ca.Certificate.NotBefore) && time.Now().Before(ca.Certificate.NotAfter) && s.Trusted && r.Consent.Trust && r.Consent.Application && (!r.Request.Trial || c.trialValid(ctx, r, "")) && c.observed(ctx, r.Request) == nil && c.control(ctx, r, http.MethodGet, "health") == nil
+	s.Ready = !time.Now().Before(ca.Certificate.NotBefore) && time.Now().Before(ca.Certificate.NotAfter) && s.Trusted && r.Consent.Trust && r.Consent.Application && (!r.Request.Trial || c.trialValid(ctx, r, "")) && c.installationMatches(ctx, r) && c.control(ctx, r, http.MethodGet, "health") == nil
 	return s
 }
 func (c *nativeRuntimeController) publicCA(req NativeRuntimeRequest) (*NativeCA, error) {
@@ -362,7 +365,7 @@ func (c *nativeRuntimeController) Ready(ctx context.Context, name string) (Nativ
 	if !c.statusRecord(ctx, r, ca).Ready {
 		return NativeRuntimeReady{}, errors.New("native runtime is not ready")
 	}
-	proxy := (&url.URL{Scheme: "http", Host: nativeRuntimeAddress(r.Request), User: url.UserPassword("aiprouter", r.Token)}).String()
+	proxy := (&url.URL{Scheme: "http", Host: nativeRuntimeAddress(r.Request), User: url.UserPassword("aiprouter", NativeProxyPassword(r.Token))}).String()
 	expiry := time.Now().Add(30 * time.Second)
 	if r.Request.Trial && r.TrialUntil.Before(expiry) {
 		expiry = r.TrialUntil
@@ -379,25 +382,21 @@ func (c *nativeRuntimeController) Ready(ctx context.Context, name string) (Nativ
 	}}}, nil
 }
 func (c *nativeRuntimeController) control(ctx context.Context, r nativeRuntimeRecord, method, action string) error {
-	req, err := http.NewRequestWithContext(ctx, method, "http://"+nativeRuntimeAddress(r.Request)+"/_aiprouter/native/"+action, nil)
+	data, err := nativeControlRequest(ctx, nativeRuntimeAddress(r.Request), r.Token, method, "/_aiprouter/native/"+action)
 	if err != nil {
 		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+r.Token)
-	client := &http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("native control redirect refused") }}
-	defer client.CloseIdleConnections()
-	res, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return errors.New("owned native control endpoint rejected request")
 	}
 	if action == "health" {
-		var health struct{ Status string }
-		if json.NewDecoder(http.MaxBytesReader(nil, res.Body, 4096)).Decode(&health) != nil || health.Status != "ready" {
+		var health struct {
+			Status, CAFingerprint, LeafFingerprint string
+			LeafNotAfter                           time.Time
+		}
+		if json.Unmarshal(data, &health) != nil || health.Status != "ready" || health.CAFingerprint != r.Fingerprint || !time.Now().Before(health.LeafNotAfter) {
 			return errors.New("native listener is not ready")
+		}
+		fingerprint, e := hex.DecodeString(health.LeafFingerprint)
+		if e != nil || len(fingerprint) != 32 {
+			return errors.New("invalid served native leaf proof")
 		}
 	}
 	return nil
@@ -489,9 +488,9 @@ func (c *nativeRuntimeController) Serve(ctx context.Context, name string) error 
 		release()
 		return err
 	}
-	if err = c.observed(ctx, r.Request); err != nil {
+	if !c.installationMatches(ctx, r) {
 		release()
-		return err
+		return errors.New("native installation changed")
 	}
 	ca, err := c.ca(r.Request)
 	if err != nil {
@@ -551,6 +550,9 @@ func (c *nativeRuntimeController) Serve(ctx context.Context, name string) error 
 			models, err = api.ModelsForClient(ctx, key, client)
 		}
 	}
+	if err == nil && r.Request.Mode == NativeCompatibilityClaudeFirstParty {
+		cliModels = models
+	}
 	if err == nil && r.Request.Mode == NativeCompatibilityClaudePicker {
 		if c.options.CLIModels != nil {
 			cliModels, err = c.options.CLIModels(ctx, r.Request.Profile, key)
@@ -567,6 +569,10 @@ func (c *nativeRuntimeController) Serve(ctx context.Context, name string) error 
 	if err != nil {
 		release()
 		return errors.New("native model catalog unavailable")
+	}
+	if !c.installationMatches(ctx, r) {
+		release()
+		return errors.New("native installation changed while preparing runtime")
 	}
 	// Hold the mutation lock until the transport owns its listener. OnReady releases
 	// it before the blocking server loop, allowing Stop and Disable to proceed.
