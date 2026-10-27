@@ -44,6 +44,8 @@ Preserve optional native pool and member values through generated clients, persi
 
 Native member priority is signed, ranges from −100 to 100, and sorts higher first. It does not change the existing smaller-first pool priority. Ordered Anthropic model routes retain unique safe names and glob patterns, personal connection allowlists, and explicit fallback. The first matching route wins; absent fallback must not widen the account roster. The generated schema owns field bounds and allowed characters, and runtime validation must enforce them.
 
+Codex-only health options preserve optional presence: `upstream_failover_threshold` defaults to 3 and accepts 0–20, with zero disabling that threshold; `failure_window` defaults to true; `pinned_transient_policy` defaults to keep, with an explicit detour-new-threads alternative. Unspecified enum values use the keep behavior but remain distinct from omission in stored configuration. Detour applies only to new threads and must not silently move an existing pinned conversation. Reject these fields on Anthropic pools even when explicitly set to zero, false, or the unspecified enum value. Generated getters do not apply runtime defaults. Full replacement updates clear omitted options.
+
 ## Storage
 
 Schemas describe lifecycle and ownership; bindings do not own persisted state.
