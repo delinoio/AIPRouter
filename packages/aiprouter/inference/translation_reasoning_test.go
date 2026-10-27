@@ -391,3 +391,176 @@ func TestTranslationNativeReceiptBeforeTerminal(t *testing.T) {
 		t.Fatal("fragmented signature created multiple receipts")
 	}
 }
+
+func TestHostedCodecOutputMatrix(t *testing.T) {
+	body := translationObject(t, `{"id":"hosted","choices":[{"message":{"role":"assistant","content":"answer"},"finish_reason":"stop"}],"hosted_outputs":[{"type":"web_search_call","id":"s","status":"completed","action":{"query":"fixture"},"sources":[{"url":"https://example.test","title":"source"}]},{"type":"image_generation_call","id":"i","status":"completed","artifacts":[{"id":"artifact1","url":"https://artifacts.test/image","content_type":"image/png"}]},{"type":"video_generation_call","id":"v","status":"completed","artifacts":[{"id":"artifact2","url":"https://artifacts.test/video","content_type":"video/mp4"}]}]}`)
+	r, e := parseResult(body, Chat)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(r.Tools) != 0 {
+		t.Fatal("hosted output became client tools")
+	}
+	for _, wire := range []Wire{Chat, Responses, Anthropic} {
+		out := r.response(wire)
+		raw := translationJSON(out)
+		for _, want := range []string{"artifact1", "artifact2", "https://example.test"} {
+			if !strings.Contains(raw, want) {
+				t.Fatalf("%s lost %s", wire, want)
+			}
+		}
+		if wire == Chat && strings.Contains(raw, `"tool_calls"`) {
+			t.Fatal("hosted output leaked as a function")
+		}
+		recorder := httptest.NewRecorder()
+		emitter := streamEmitter{w: recorder, wire: wire, id: "public", model: "m"}
+		if e := emitter.finish(r); e != nil {
+			t.Fatal(e)
+		}
+		resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: ioNopCloser(recorder.Body.String())}
+		got, e := (HostedCodec{}).Collect(context.Background(), resp, wire, 1<<20)
+		if e != nil {
+			t.Fatal(e)
+		}
+		m := translationObject(t, string(got))
+		if len(arr(m["hosted_outputs"])) != 3 {
+			t.Fatalf("%s lost streamed hosted cells: %s", wire, got)
+		}
+	}
+	small := &http.Response{StatusCode: 200, Header: http.Header{}, Body: ioNopCloser(translationJSON(body))}
+	if _, e := (HostedCodec{}).Collect(context.Background(), small, Chat, 5); e == nil {
+		t.Fatal("hosted aggregate ignored caller limit")
+	}
+}
+func TestTranslationModelAndUsageDetails(t *testing.T) {
+	r, e := parseResult(translationObject(t, `{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":7,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":3},"completion_tokens_details":{"reasoning_tokens":1},"extra_content":{"google":{"thoughts_token_count":1}}}}`), Chat)
+	if e != nil {
+		t.Fatal(e)
+	}
+	out := r.response(Responses)
+	usage := obj(out["usage"])
+	if obj(usage["output_tokens_details"])["reasoning_tokens"] != json.Number("1") || obj(obj(usage["extra_content"])["google"])["thoughts_token_count"] != json.Number("1") {
+		t.Fatal(usage)
+	}
+	u := readUsage(translationObject(t, `{"usage":{"input_tokens":9223372036854775807,"cache_read_input_tokens":1}}`), Anthropic)
+	if u.InputTokens != nil {
+		t.Fatal("cache addition overflow accepted")
+	}
+}
+
+func TestTranslationToolKindAdmissionAndStructuredFormat(t *testing.T) {
+	body := translationObject(t, `{"tools":[{"type":"function","name":"exec","parameters":{"type":"object"}}]}`)
+	r, e := parseResult(translationObject(t, `{"output":[{"type":"custom_tool_call","call_id":"c","name":"exec","input":"raw"}]}`), Responses)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = validateTools(r, body, Responses); e == nil {
+		t.Fatal("provider changed declared tool kind")
+	}
+	r, e = parseResult(translationObject(t, `{"output":[{"type":"web_search_call","id":"s","action":{"query":"q"}}]}`), Responses)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if validateTools(r, body, Responses) == nil {
+		t.Fatal("undeclared hosted output accepted")
+	}
+	request := translationObject(t, `{"messages":[],"response_format":{"type":"json_schema","json_schema":{"name":"result","strict":true,"schema":{"type":"object","properties":{"number":{"type":"integer","minimum":9007199254740993}},"required":["number"]}}}}`)
+	translated, e := translateRequest(request, Chat, Responses)
+	if e != nil {
+		t.Fatal(e)
+	}
+	f := obj(obj(translated["text"])["format"])
+	if f["schema"] == nil || f["json_schema"] != nil {
+		t.Fatal(f)
+	}
+	back, e := translateRequest(translated, Responses, Chat)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if translationJSON(back["response_format"]) != translationJSON(request["response_format"]) {
+		t.Fatal(back)
+	}
+}
+func TestTranslationNativeReasoningReceiptBindsText(t *testing.T) {
+	s := newStreamReceipts(Chat)
+	for _, raw := range []string{`{"choices":[{"delta":{"reasoning_content":"signed "}}]}`, `{"choices":[{"delta":{"content":"visible unrelated"}}]}`, `{"choices":[{"delta":{"reasoning_content":"text","reasoning_signature":"sig"}}]}`} {
+		if e := s.consume(translationObject(t, raw)); e != nil {
+			t.Fatal(e)
+		}
+	}
+	values, e := s.values()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if strings.Contains(translationJSON(values), "visible unrelated") {
+		t.Fatal("native receipt retained visible text")
+	}
+	h := &Handler{c: Config{Authorizer: &testAuth{}, ProviderStates: receiptMemory{}}}
+	scope := scopedAdapterState{h: h, p: Principal{OrganizationID: "o", UserID: "u"}, t: Target{Provider: "p", Model: "m"}, c: Credential{AccountID: "a"}}
+	ctx := context.WithValue(context.Background(), replayScopeKey{}, scope)
+	if e = h.CaptureReplayReceipts(ctx, values); e != nil {
+		t.Fatal(e)
+	}
+	history := translationObject(t, `{"messages":[{"role":"assistant","reasoning_content":"signed text","reasoning_signature":"sig"}]}`)
+	if e = h.validateReplay(ctx, history, scope); e != nil {
+		t.Fatal(e)
+	}
+	obj(arr(history["messages"])[0])["reasoning_content"] = "changed"
+	if e = h.validateReplay(ctx, history, scope); e == nil {
+		t.Fatal("changed signed text replayed")
+	}
+}
+
+func TestTranslationStreamReasoningDetailsWithoutIndexes(t *testing.T) {
+	state := newTranslationStream(Chat)
+	event := translationObject(t, `{"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.encrypted","data":"red-one","format":"anthropic-claude-v1"},{"type":"reasoning.encrypted","data":"red-two","format":"anthropic-claude-v1"},{"type":"reasoning.text","text":"thought","signature":"signed","format":"anthropic-claude-v1"}]}}]}`)
+	if e := state.consume(event); e != nil {
+		t.Fatal(e)
+	}
+	r, e := state.result()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(r.Items) != 3 {
+		t.Fatalf("unindexed details collapsed: %s", translationJSON(r.Items))
+	}
+	recorder := httptest.NewRecorder()
+	emitter := streamEmitter{w: recorder, wire: Chat, id: "r"}
+	if e = emitter.finish(r); e != nil {
+		t.Fatal(e)
+	}
+	resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: ioNopCloser(recorder.Body.String())}
+	out, e := AggregateResponse(context.Background(), resp, Chat)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(string(out), "red-one") || !strings.Contains(string(out), "red-two") {
+		t.Fatal(string(out))
+	}
+}
+
+func TestTranslationLoadedCatalogDedupAndRefusal(t *testing.T) {
+	tools := []any{object{"type": "function", "name": "fetch", "parameters": object{"type": "object"}}}
+	b := object{"tools": tools, "input": []any{object{"type": "additional_tools", "tools": tools}}}
+	out, e := translateRequest(b, Responses, Chat)
+	if e != nil || len(arr(out["tools"])) != 1 {
+		t.Fatal(out, e)
+	}
+	b["tools"] = append(tools, object{"type": "function", "name": "fetch", "parameters": object{"type": "object", "required": []any{"x"}}})
+	if _, e = translateRequest(b, Responses, Chat); e == nil {
+		t.Fatal("conflicting declaration accepted")
+	}
+	r, e := parseResult(translationObject(t, `{"choices":[{"message":{"role":"assistant","content":null,"refusal":"cannot answer"}}]}`), Chat)
+	if e != nil {
+		t.Fatal(e)
+	}
+	back := r.response(Chat)
+	msg := obj(obj(arr(back["choices"])[0])["message"])
+	if msg["refusal"] != "cannot answer" || msg["content"] != nil {
+		t.Fatal(msg)
+	}
+	rich := translationObject(t, `{"input":[{"type":"function_call_output","call_id":"c","output":[{"type":"input_text","text":"result"},{"type":"input_image","image_url":"https://images.test/fixture.png"}]}]}`)
+	if _, e := translateRequest(rich, Responses, Anthropic); e != nil {
+		t.Fatal(e)
+	}
+}

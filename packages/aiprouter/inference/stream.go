@@ -375,6 +375,9 @@ func (s *streamEmitter) finish(r result) error {
 	switch s.wire {
 	case Chat:
 		msg := obj(obj(arr(out["choices"])[0])["message"])
+		for i, v := range arr(msg["tool_calls"]) {
+			obj(v)["index"] = i
+		}
 		if e := s.chat(msg, nil); e != nil {
 			return e
 		}
@@ -629,6 +632,9 @@ func (s *translationStream) consume(m object) error {
 					q := obj(v)
 					details := arr(msg["reasoning_details"])
 					idx := index(q["index"])
+					if q["index"] == nil {
+						idx = len(details)
+					}
 					if idx < 0 || idx > 4095 {
 						return &Error{502, "stream_index_limit", 0}
 					}

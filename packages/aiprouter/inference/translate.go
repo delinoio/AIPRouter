@@ -266,7 +266,11 @@ func toMessages(b object, w Wire) ([]any, error) {
 			case "function_call", "custom_tool_call", "tool_search_call", "web_search_call", "image_generation_call", "video_generation_call":
 				out = append(out, object{"role": "assistant", "tool_calls": []any{responseCallToChat(m)}})
 			case "function_call_output", "custom_tool_call_output", "tool_search_output":
-				msg := object{"role": "tool", "tool_call_id": m["call_id"], "content": m["output"]}
+				content, e := contentToChat(m["output"], Responses)
+				if e != nil {
+					return nil, e
+				}
+				msg := object{"role": "tool", "tool_call_id": m["call_id"], "content": content}
 				copyFields(msg, m, "is_error", "extra_content", "provider_metadata", "additional_tools")
 				if m["type"] == "custom_tool_call_output" {
 					msg["custom_result"] = true
@@ -418,6 +422,9 @@ func messagesToResponses(msgs []any) ([]any, error) {
 			return nil, e
 		}
 		out = append(out, reasoning...)
+		if refusal, ok := m["refusal"].(string); ok && refusal != "" {
+			out = append(out, object{"type": "message", "role": "assistant", "content": []any{object{"type": "refusal", "refusal": refusal}}})
+		}
 		if str(m["role"]) == "tool" {
 			if item := obj(obj(m["provider_metadata"])["output_item"]); item != nil {
 				out = append(out, clone(item))
@@ -933,7 +940,7 @@ func chatCallToResponse(c object) (object, error) {
 func translateTools(tools []any, from, to Wire) ([]any, error) {
 	out := []any{}
 	var visit func([]any, string, int) error
-	seen := map[string]bool{}
+	seen := map[string]string{}
 	visit = func(tools []any, namespace string, depth int) error {
 		if depth > 8 || len(out) > 4096 {
 			return &Error{400, "tool_catalog_limit", 0}
@@ -972,10 +979,17 @@ func translateTools(tools []any, from, to Wire) ([]any, error) {
 			if ns != "" && ns != "functions" {
 				wireName = ns + "__" + name
 			}
-			if name == "" || seen[wireName] {
+			fingerprint, _ := json.Marshal(object{"kind": kind, "definition": f})
+			if name == "" {
 				return &Error{400, "ambiguous_tool_catalog", 0}
 			}
-			seen[wireName] = true
+			if previous, ok := seen[wireName]; ok {
+				if previous == string(fingerprint) {
+					continue
+				}
+				return &Error{400, "ambiguous_tool_catalog", 0}
+			}
+			seen[wireName] = string(fingerprint)
 			if kind == "tool_search" && to != Responses {
 				schema := f["parameters"]
 				if schema == nil {
@@ -1084,12 +1098,28 @@ func translateOptions(b, out object, from, to Wire) error {
 		format = obj(b["text"])["format"]
 	}
 	if format != nil {
-		if to == Responses {
-			out["text"] = object{"format": format}
-		} else if to == Chat {
-			out["response_format"] = format
-		} else {
-			out["output_config"] = object{"format": format}
+		f := clone(obj(format))
+		if f["type"] == "json_schema" {
+			if nested := obj(f["json_schema"]); nested != nil {
+				f = clone(nested)
+				f["type"] = "json_schema"
+			}
+		}
+		switch to {
+		case Responses:
+			out["text"] = object{"format": f}
+		case Chat:
+			if f["type"] == "json_schema" {
+				nested := clone(f)
+				delete(nested, "type")
+				out["response_format"] = object{"type": "json_schema", "json_schema": nested}
+			} else {
+				out["response_format"] = f
+			}
+		case Anthropic:
+			config := clone(obj(out["output_config"]))
+			config["format"] = f
+			out["output_config"] = config
 		}
 	}
 	stop := b["stop"]
@@ -1130,7 +1160,12 @@ func parseResult(m object, w Wire) (result, error) {
 		}
 		ch := obj(choices[0])
 		r.Stop = str(ch["finish_reason"])
-		msg := obj(ch["message"])
+		msg := clone(obj(ch["message"]))
+		if msg["images"] != nil {
+			extra := clone(obj(msg["extra_content"]))
+			extra["images"] = msg["images"]
+			msg["extra_content"] = extra
+		}
 		items, err := messagesToResponses([]any{msg})
 		if err != nil {
 			return r, err
@@ -1345,6 +1380,8 @@ func (r result) response(w Wire) object {
 			}
 		}
 		if len(nativeReasoning) > 1 {
+			delete(msg, "reasoning_signature")
+			delete(msg, "kiro_reasoning")
 			openai := clone(obj(extra["openai"]))
 			delete(openai, "reasoning")
 			openai["reasoning_items"] = nativeReasoning
@@ -1354,13 +1391,20 @@ func (r result) response(w Wire) object {
 		text := ""
 		for _, v := range parts {
 			p := obj(v)
-			if p["type"] != "text" || p["annotations"] != nil || p["citations"] != nil {
+			if p["type"] == "refusal" {
+				msg["refusal"] = str(msg["refusal"]) + str(p["refusal"])
+				continue
+			}
+			if p["type"] != "text" || len(arr(p["annotations"])) > 0 || len(arr(p["citations"])) > 0 {
 				plain = false
 			}
 			text += str(p["text"])
 		}
 		if plain {
 			msg["content"] = text
+			if text == "" && msg["refusal"] != nil {
+				msg["content"] = nil
+			}
 		} else {
 			msg["content"] = parts
 		}
@@ -1368,13 +1412,22 @@ func (r result) response(w Wire) object {
 			msg["tool_calls"] = calls
 		}
 		if len(details) > 0 {
+			for i, v := range details {
+				d := clone(obj(v))
+				d["index"] = i
+				details[i] = d
+			}
 			msg["reasoning_details"] = details
 		}
 		if reasoning != "" {
 			msg["reasoning_content"] = reasoning
 		}
+		mergeExtra(extra, obj(r.Extra["extra_content"]))
 		if len(extra) > 0 {
 			msg["extra_content"] = extra
+		}
+		if images := arr(extra["images"]); len(images) > 0 {
+			msg["images"] = images
 		}
 		stop := "stop"
 		if len(calls) > 0 {
@@ -1444,6 +1497,38 @@ func validateTools(r result, body object, w Wire) error {
 	// Project lowered custom calls only after complete arguments have been validated.
 	for _, v := range r.Items {
 		item := obj(v)
+		if hostedItem(item) {
+			kind := strings.TrimSuffix(str(item["type"]), "_call")
+			allowed := false
+			for _, d := range names {
+				typ := str(d["type"])
+				if typ == kind || kind == "web_search" && strings.HasPrefix(typ, "web_search") {
+					allowed = true
+				}
+			}
+			if !allowed {
+				return &Error{502, "undeclared_hosted_tool", 0}
+			}
+			continue
+		}
+		if item["type"] == "custom_tool_call" || item["type"] == "tool_search_call" {
+			name := str(item["name"])
+			if name == "" && item["type"] == "tool_search_call" {
+				name = "tool_search"
+			}
+			if ns := str(item["namespace"]); ns != "" {
+				name = ns + "__" + name
+			}
+			d := names[name]
+			expected := "custom"
+			if item["type"] == "tool_search_call" {
+				expected = "tool_search"
+			}
+			if d["type"] != expected && !(expected == "custom" && obj(obj(d["extra_content"])["aiprouter"])["custom_tool"] == true) {
+				return &Error{502, "upstream_tool_kind_mismatch", 0}
+			}
+			continue
+		}
 		if item["type"] != "function_call" {
 			continue
 		}
