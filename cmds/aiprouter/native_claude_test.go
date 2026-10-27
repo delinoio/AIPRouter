@@ -284,3 +284,61 @@ func TestClaudeNativeEmptySnapshotAndUserDiscoverySetting(t *testing.T) {
 		t.Fatal("user model preferences overwritten")
 	}
 }
+
+type claudeConsentAnswers struct {
+	answers []bool
+	calls   int
+}
+
+func (a *claudeConsentAnswers) Confirm(string) bool {
+	a.calls++
+	return a.calls <= len(a.answers) && a.answers[a.calls-1]
+}
+
+func TestClaudeNativeRequiresBothConsents(t *testing.T) {
+	for _, answers := range [][]bool{{false}, {true, false}} {
+		resolver := Resolver{Home: realTemp(t), OS: "linux", Env: map[string]string{}}
+		state := emptyState()
+		changes, err := PlanClaudeNative(resolver, state, "claude", testProfile(), "PRIVATE_KEY", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		prompt := &claudeConsentAnswers{answers: answers}
+		if err := testDisk(t).Apply(&state, "claude", "test", changes, prompt); err == nil {
+			t.Fatal("declined consent applied")
+		}
+		if prompt.calls != len(answers) {
+			t.Fatal("consent prompts skipped")
+		}
+		for _, change := range changes {
+			if _, err := os.Stat(change.Path); !os.IsNotExist(err) {
+				t.Fatal("decline wrote file")
+			}
+		}
+	}
+}
+
+func TestClaudeNativeOwnedEditRefusesRefreshAndRestore(t *testing.T) {
+	resolver := Resolver{Home: realTemp(t), OS: "linux", Env: map[string]string{}}
+	state := emptyState()
+	changes, err := PlanClaudeNative(resolver, state, "claude", testProfile(), "ORIGINAL_KEY", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disk := testDisk(t)
+	if err := disk.Apply(&state, "claude", "test", changes, answer(true)); err != nil {
+		t.Fatal(err)
+	}
+	edited := bytes.Replace(changes[0].After, []byte("ORIGINAL_KEY"), []byte("USER_KEY"), 1)
+	writeClaudeFixture(t, changes[0].Path, string(edited))
+	if _, err := PlanClaudeNative(resolver, state, "claude", testProfile(), "REFRESH_KEY", nil); err == nil {
+		t.Fatal("owned drift overwritten on refresh")
+	}
+	if err := disk.Restore(&state, "claude"); err == nil {
+		t.Fatal("owned drift overwritten on restore")
+	}
+	current, _ := os.ReadFile(changes[0].Path)
+	if !bytes.Equal(current, edited) || len(state.Records["claude"].Files) != 2 {
+		t.Fatal("conflict lost settings or backup")
+	}
+}
