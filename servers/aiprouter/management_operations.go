@@ -25,8 +25,8 @@ func (m *management) operator(ctx context.Context) (core.Identity, error) {
 }
 func settingsMessage(s store.Settings) *v1.InstanceSettings {
 	out := &v1.InstanceSettings{RequestLimits: &v1.RequestLimits{RequestsPerMinute: uint32(s.RPM), ConcurrentRequests: uint32(s.Concurrency)}, Retention: &v1.RetentionSettings{RequestDays: uint32(s.UsageDays), AggregateDays: uint32(s.AggregateDays), AuditDays: uint32(s.AuditDays)}}
-	for _, origin := range s.Destinations {
-		out.AllowedDestinations = append(out.AllowedDestinations, &v1.AllowedDestination{Origin: origin})
+	for _, rule := range s.DestinationRules {
+		out.AllowedDestinations = append(out.AllowedDestinations, &v1.AllowedDestination{Id: rule.ID, Origin: rule.Origin, AllowedCidrs: append([]string(nil), rule.AllowedCIDRs...)})
 	}
 	out.Revision = strconv.FormatInt(s.Revision, 10)
 	return out
@@ -64,15 +64,19 @@ func (m *management) UpdateInstanceSettings(ctx context.Context, r *connect.Requ
 	if next.RPM < 1 || next.RPM > 6000 || next.Concurrency < 1 || next.Concurrency > 100 || next.UsageDays < 1 || next.UsageDays > 90 || next.AggregateDays < 30 || next.AggregateDays > 730 || next.AuditDays < 30 || next.AuditDays > 365 {
 		return nil, invalid("settings values outside supported bounds")
 	}
+	// A non-nil empty typed list clears every rule; the legacy origin projection
+	// must not resurrect settings removed by this request.
 	next.Destinations = nil
+	next.DestinationRules = make([]store.AllowedDestination, 0, len(q.AllowedDestinations))
 	for _, d := range q.AllowedDestinations {
-		if d == nil || !validProviderURL(d.Origin) {
+		if d == nil {
 			return nil, invalid("invalid allowed destination")
 		}
-		if len(d.AllowedCidrs) > 0 {
-			return nil, unimplemented()
-		}
-		next.Destinations = append(next.Destinations, d.Origin)
+		next.DestinationRules = append(next.DestinationRules, store.AllowedDestination{ID: d.Id, Origin: d.Origin, AllowedCIDRs: append([]string(nil), d.AllowedCidrs...)})
+	}
+	next.DestinationRules, e = core.NormalizeDestinationRules(next.DestinationRules)
+	if e != nil {
+		return nil, invalid("invalid destination origin, CIDR, or duplicate origin")
 	}
 	saved, e := m.store.UpdateSettingsCAS(ctx, i, revision, next)
 	if e != nil {

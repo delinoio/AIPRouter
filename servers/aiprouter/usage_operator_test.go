@@ -36,6 +36,7 @@ func usageOperatorFixture(t *testing.T) *acceptanceFixture {
 	s, err := store.Open(context.Background(), dsn, store.Options{Schema: schema, Keys: keys, Operators: []core.Identity{identity}})
 	acceptanceOK(t, err)
 	acceptanceOK(t, s.Migrate(context.Background()))
+	acceptanceOK(t, s.RegisterAdmissionInstance(context.Background()))
 	t.Cleanup(func() {
 		s.Close()
 		db, err := sql.Open("pgx", dsn)
