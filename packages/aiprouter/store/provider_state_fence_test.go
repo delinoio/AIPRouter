@@ -89,3 +89,45 @@ func TestProviderStateAccountReplacementDeletionGate(t *testing.T) {
 		})
 	}
 }
+
+func TestMarkPrivateReauthenticationVersionFence(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, sc := tenant(t, s)
+	l := leaseFor(t, s, sc)
+	if e := s.PutPrivate(ctx, sc, "provider", "dsh", []byte("old")); e != nil {
+		t.Fatal(e)
+	}
+	_, v, e := s.GetPrivateVersion(ctx, sc, "provider", "dsh")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.MarkPrivateReauthentication(ctx, l, "provider", "dsh", v); e != nil {
+		t.Fatal(e)
+	}
+	if _, _, e = s.GetPrivateVersion(ctx, sc, "provider", "dsh"); !errors.Is(e, ErrReauthentication) {
+		t.Fatal(e)
+	}
+	if e = s.WithAccountDispatch(ctx, l, "dsh", v, func(context.Context) error { t.Error("rejected credential sent"); return nil }); !errors.Is(e, ErrReauthentication) {
+		t.Fatal(e)
+	}
+	if _, _, e = s.GetPrivateVersionForManagement(ctx, sc, "provider", "dsh"); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.PutPrivate(ctx, sc, "provider", "dsh", []byte("new")); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.MarkPrivateReauthentication(ctx, l, "provider", "dsh", v); !errors.Is(e, ErrConflict) {
+		t.Fatal("late rejection affected replacement", e)
+	}
+	_, next, e := s.GetPrivateVersion(ctx, sc, "provider", "dsh")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.Release(ctx, l); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.MarkPrivateReauthentication(ctx, l, "provider", "dsh", next); !errors.Is(e, ErrForbidden) {
+		t.Fatal("released lease authorized", e)
+	}
+}

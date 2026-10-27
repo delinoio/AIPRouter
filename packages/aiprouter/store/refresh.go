@@ -282,3 +282,31 @@ func (s *Store) WithAccountDispatch(ctx context.Context, l Lease, id, version st
 		return start(ctx)
 	})
 }
+
+// MarkPrivateReauthentication records a definitive authentication rejection for
+// the credentials used by this lease. A late response cannot quarantine a newer
+// credential version. Explicit replacement is required to restore usability.
+func (s *Store) MarkPrivateReauthentication(ctx context.Context, l Lease, kind, id, expectedVersion string) error {
+	if kind == "" || id == "" || expectedVersion == "" {
+		return ErrConflict
+	}
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		if e := s.checkLease(ctx, tx, l); e != nil {
+			return e
+		}
+		sc := l.Principal.Scope
+		var current string
+		e := tx.QueryRowContext(ctx, "SELECT version FROM private_data WHERE org_id=$1 AND user_id=$2 AND kind=$3 AND id=$4", sc.OrganizationID, sc.UserID, kind, id).Scan(&current)
+		if e == sql.ErrNoRows {
+			return ErrConflict
+		}
+		if e != nil {
+			return e
+		}
+		if current != expectedVersion {
+			return ErrConflict
+		}
+		_, e = tx.ExecContext(ctx, "INSERT INTO private_refresh(org_id,user_id,kind,id,version,claim_hash,state) VALUES($1,$2,$3,$4,$5,$6,'uncertain') ON CONFLICT(org_id,user_id,kind,id) DO UPDATE SET version=excluded.version,claim_hash=excluded.claim_hash,state='uncertain'", sc.OrganizationID, sc.UserID, kind, id, expectedVersion, core.Hash(core.Token()))
+		return e
+	})
+}
