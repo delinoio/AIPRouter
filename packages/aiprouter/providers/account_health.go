@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -64,6 +65,31 @@ func (a *Auth) accountHealth(ctx context.Context, s core.Scope, c Credential) (H
 			m, err = read("GET", "https://api2.cursor.sh/api/usage/summary", nil, h)
 			if err == nil {
 				out.Windows = cursorUsage(obj(obj(m, "individualUsage"), "plan"), m["billingCycleEnd"])
+			}
+		}
+		if len(out.Windows) == 0 && !terminalHealth(err) && ctx.Err() == nil {
+			m, err = read("GET", "https://api2.cursor.sh/auth/usage", nil, h)
+			if err == nil {
+				keys := make([]string, 0, len(m))
+				for k := range m {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				keys = append([]string{"gpt-4"}, keys...)
+				for _, k := range keys {
+					r := obj(m, k)
+					used, uok := finite(first(r, "numRequests", "used"))
+					limit, lok := finite(first(r, "maxRequestUsage", "limit", "maxRequests"))
+					if uok && lok && limit > 0 {
+						w := QuotaWindow{Kind: "monthly", UsedPercent: math.Min(100, 100*used/limit)}
+						start := resetTime(first(m, "startOfMonth", "billingCycleStart"))
+						if !start.IsZero() {
+							w.ResetAt = start.UTC().AddDate(0, 1, 0)
+						}
+						out.Windows = []QuotaWindow{w}
+						break
+					}
+				}
 			}
 		}
 	case "xai":
@@ -145,6 +171,37 @@ func (a *Auth) accountHealth(ctx context.Context, s core.Scope, c Credential) (H
 		m, err = read("GET", "https://api.commandcode.ai/alpha/billing/credits"+q, nil, h)
 		if err == nil {
 			m = unwrapped(m)
+			credits := obj(m, "credits")
+			if credits != nil {
+				sub, subErr := read("GET", "https://api.commandcode.ai/alpha/billing/subscriptions"+q, nil, h)
+				if subErr == nil {
+					start := str(unwrapped(sub), "currentPeriodStart")
+					if safeString(start) {
+						sep := "?"
+						if q != "" {
+							sep = "&"
+						}
+						usage, usageErr := read("GET", "https://api.commandcode.ai/alpha/usage/summary"+q+sep+"since="+url.QueryEscape(start), nil, h)
+						if usageErr == nil {
+							used, uok := finite(first(unwrapped(usage), "totalCost", "totalMonthlyCredits"))
+							remain := 0.0
+							present := false
+							for _, key := range []string{"monthlyCredits", "purchasedCredits", "freeCredits"} {
+								if n, ok := finite(credits[key]); ok {
+									remain += n
+									present = true
+								}
+							}
+							if uok && present {
+								out.Balances = []Balance{{Unit: "USD", Used: used, Remaining: remain, Total: used + remain}}
+							}
+						}
+					}
+				}
+				if ctx.Err() != nil {
+					return out, ctx.Err()
+				}
+			}
 			limits := obj(m, "windowLimits")
 			for _, pair := range [][2]string{{"fiveHour", "five-hour"}, {"weekly", "weekly"}} {
 				if w, ok := ratioWindow(pair[1], obj(limits, pair[0]), "cap", "used"); ok {

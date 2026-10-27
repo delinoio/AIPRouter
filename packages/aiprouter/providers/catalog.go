@@ -148,14 +148,15 @@ func Lookup(id string) (Preset, bool) {
 
 // Connection contains private data. Never serialize it into a public catalog response.
 type Connection struct {
-	Provider     string          `json:"provider"`
-	BaseURL      string          `json:"baseUrl,omitempty"`
-	Wire         Wire            `json:"wire,omitempty"`
-	Auth         AuthKind        `json:"auth,omitempty"`
-	APIKey       string          `json:"apiKey,omitempty"`
-	Credential   *Credential     `json:"credential,omitempty"`
-	DefaultModel string          `json:"defaultModel,omitempty"`
-	ModelWires   map[string]Wire `json:"modelWires,omitempty"`
+	CodexClientVersion string          `json:"codexClientVersion,omitempty"`
+	Provider           string          `json:"provider"`
+	BaseURL            string          `json:"baseUrl,omitempty"`
+	Wire               Wire            `json:"wire,omitempty"`
+	Auth               AuthKind        `json:"auth,omitempty"`
+	APIKey             string          `json:"apiKey,omitempty"`
+	Credential         *Credential     `json:"credential,omitempty"`
+	DefaultModel       string          `json:"defaultModel,omitempty"`
+	ModelWires         map[string]Wire `json:"modelWires,omitempty"`
 }
 type Route struct {
 	Preset                             Preset

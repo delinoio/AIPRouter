@@ -4,6 +4,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"sort"
@@ -15,6 +16,8 @@ import (
 )
 
 type Model struct {
+	Provider                          string
+	Raw                               json.RawMessage
 	ID                                string
 	Name                              string
 	ContextWindow, MaxOutputTokens    int
@@ -22,8 +25,10 @@ type Model struct {
 	InputModalities, ReasoningEfforts []string
 }
 type ModelCatalog struct {
-	State  ValidationState
-	Models []Model
+	State              ValidationState
+	Models             []Model
+	CodexCatalog       []json.RawMessage
+	CodexClientVersion string
 }
 
 // Discover returns account-scoped evidence. The caller owns freshness, generation
@@ -37,6 +42,10 @@ func (a *Auth) Discover(ctx context.Context, s core.Scope, c Connection) (ModelC
 	}
 	cr := c.Credential
 	switch c.Provider {
+	case "openai":
+		if cr != nil {
+			return a.codexModels(ctx, s, *cr, c.CodexClientVersion)
+		}
 	case "zed":
 		if cr == nil {
 			return ModelCatalog{}, nil, ErrReauthenticate
@@ -47,7 +56,7 @@ func (a *Auth) Discover(ctx context.Context, s core.Scope, c Connection) (ModelC
 		}
 		out := ModelCatalog{State: ValidationAccepted}
 		for _, m := range z.Models {
-			out.Models = append(out.Models, Model{ID: m.ID, Name: m.Name, ContextWindow: int(m.ContextLength), MaxOutputTokens: int(m.MaxOutputTokens), ReasoningEfforts: m.SupportedEffortLevels})
+			out.Models = append(out.Models, Model{ID: m.ID, Name: m.Name, Provider: m.Provider, Raw: append(json.RawMessage(nil), m.Raw...), ContextWindow: int(m.ContextLength), MaxOutputTokens: int(m.MaxOutputTokens), ReasoningEfforts: m.SupportedEffortLevels})
 		}
 		return out, &fresh, nil
 	case "cursor", "kiro", "google-antigravity", "workbuddy-ai", "devin":
@@ -58,7 +67,7 @@ func (a *Auth) Discover(ctx context.Context, s core.Scope, c Connection) (ModelC
 		if err != nil {
 			return ModelCatalog{}, nil, err
 		}
-		return ModelCatalog{ValidationAccepted, models}, nil, nil
+		return ModelCatalog{State: ValidationAccepted, Models: models}, nil, nil
 	default:
 		v, err := a.ValidateRemote(ctx, s, c)
 		out := ModelCatalog{State: v.State}
@@ -67,10 +76,16 @@ func (a *Auth) Discover(ctx context.Context, s core.Scope, c Connection) (ModelC
 		}
 		return out, nil, err
 	}
+	v, err := a.ValidateRemote(ctx, s, c)
+	out := ModelCatalog{State: v.State}
+	for _, id := range v.Models {
+		out.Models = append(out.Models, Model{ID: id})
+	}
+	return out, nil, err
 }
 
 func modelID(id string) bool {
-	return safeString(id) && len(id) <= 512 && strings.TrimSpace(id) == id && !strings.ContainsAny(id, "\t\x7f") && utf8.ValidString(id)
+	return safeString(id) && len(id) <= 1024 && strings.TrimSpace(id) == id && !strings.ContainsFunc(id, func(r rune) bool { return r < 32 || (r >= 127 && r <= 159) || r == 0x2028 || r == 0x2029 }) && utf8.ValidString(id)
 }
 func positive(m map[string]any, k string) int {
 	n, ok := m[k].(float64)
@@ -183,7 +198,11 @@ func (a *Auth) specialModels(ctx context.Context, s core.Scope, c Credential) ([
 		method = "GET"
 		endpoint = "https://www.workbuddy.ai/v3/config"
 	}
-	m, status, err := a.request(ctx, s, method, endpoint, body, h)
+	b, status, _, err := a.requestBytes(ctx, s, method, endpoint, body, h, 4<<20)
+	var m map[string]any
+	if err == nil && status == 200 && json.Unmarshal(b, &m) != nil {
+		err = ErrResponse
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +213,7 @@ func (a *Auth) specialModels(ctx context.Context, s core.Scope, c Credential) ([
 	switch c.Provider {
 	case "google-antigravity":
 		models := obj(m, "models")
-		if models == nil || len(models) > 10000 {
+		if models == nil || len(models) > 2000 {
 			return nil, ErrResponse
 		}
 		ids := make([]string, 0, len(models))
@@ -219,7 +238,7 @@ func (a *Auth) specialModels(ctx context.Context, s core.Scope, c Credential) ([
 	default:
 		rows, _ = m["models"].([]any)
 	}
-	if len(rows) == 0 || len(rows) > 10000 {
+	if len(rows) == 0 || len(rows) > 2000 {
 		return nil, ErrResponse
 	}
 	out := []Model{}
@@ -254,11 +273,11 @@ func workBuddyModels(m map[string]any) ([]Model, error) {
 	}
 	d := obj(m, "data")
 	agents, ok := d["agents"].([]any)
-	if !ok || len(agents) > 10000 {
+	if !ok || len(agents) > 2000 {
 		return nil, ErrResponse
 	}
 	rows, ok := d["models"].([]any)
-	if !ok || len(rows) > 10000 {
+	if !ok || len(rows) > 2000 {
 		return nil, ErrResponse
 	}
 	defs := map[string]map[string]any{}
@@ -274,7 +293,7 @@ func workBuddyModels(m map[string]any) ([]Model, error) {
 			break
 		}
 	}
-	if roster == nil || len(roster) > 10000 {
+	if roster == nil || len(roster) > 2000 {
 		return nil, ErrResponse
 	}
 	out := []Model{}
@@ -334,7 +353,7 @@ func cursorModels(b []byte) ([]Model, error) {
 		}
 		b = b[k:]
 		count++
-		if count > 10000 {
+		if count > 2000 {
 			return nil, ErrResponse
 		}
 		m := Model{}

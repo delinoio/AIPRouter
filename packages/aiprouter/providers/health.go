@@ -32,6 +32,9 @@ type QuotaWindow struct {
 
 // Monetary/credit balances never imply a quota percentage or routing entitlement.
 type Balance struct {
+	Kind                           string
+	ExpiringAmount                 float64
+	ExpiresAt                      time.Time
 	Unit                           string
 	Total, Used, Remaining, Frozen float64
 }
@@ -99,6 +102,8 @@ func (a *Auth) ProbeHealth(ctx context.Context, s core.Scope, c Credential) (Hea
 		return out, ErrReauthenticate
 	}
 	switch c.Provider {
+	case "google-antigravity":
+		return a.googleHealth(ctx, s, c)
 	case "cursor", "xai", "meta-muse", "devin", "kimi", "kimi-responses", "command-code":
 		return a.accountHealth(ctx, s, c)
 	}
@@ -283,7 +288,40 @@ func (a *Auth) ProbeHealth(ctx context.Context, s core.Scope, c Credential) (Hea
 			b.Remaining += remaining
 			b.Frozen += frozen
 		}
-		out.Balances = []Balance{b}
+		if b.Total == 0 && c.Metadata["enterpriseId"] != "" {
+			team, e := a.workBuddy(ctx, s, "POST", "/billing/meter/get-enterprise-user-usage", map[string]any{}, h)
+			if e != nil {
+				return out, e
+			}
+			total, tok := finite(team["limitNum"])
+			used, uok := finite(team["credit"])
+			if !tok || !uok {
+				return out, ErrResponse
+			}
+			b = Balance{Unit: "credits", Total: total, Used: used, Remaining: math.Max(0, total-used)}
+		}
+		groups, _ := d["CreditGroups"].([]any)
+		for _, raw := range groups {
+			r, _ := raw.(map[string]any)
+			kind := str(r, "Kind")
+			if !contains([]string{"plan_base", "plan_bonus", "addon", "benefit"}, kind) {
+				kind = "other"
+			}
+			if g, ok := workBuddyAmount(r); ok {
+				g.Kind = kind
+				out.Balances = append(out.Balances, g)
+			}
+		}
+		if b.Remaining > 0 {
+			amount, at, e := a.workBuddyExpiry(ctx, s, d, h)
+			if e == nil {
+				b.ExpiringAmount = amount
+				b.ExpiresAt = at
+			} else if ctx.Err() != nil {
+				return out, ctx.Err()
+			}
+		}
+		out.Balances = append([]Balance{b}, out.Balances...)
 	case "google-antigravity":
 		out.Windows = antigravityWindows(m)
 	}
@@ -299,7 +337,9 @@ func antigravityWindows(m map[string]any) []QuotaWindow {
 		g, _ := raw.(map[string]any)
 		name := strings.ToLower(str(g, "displayName") + " " + str(g, "description"))
 		family := ""
-		if strings.Contains(name, "gemini") {
+		if argonToken.MatchString(str(g, "displayName")) {
+			family = "gemini-4-argon"
+		} else if strings.Contains(name, "gemini") {
 			family = "gemini"
 		} else if strings.Contains(name, "claude") || strings.Contains(name, "3p") || strings.Contains(name, "gpt") {
 			family = "claude"
@@ -320,6 +360,15 @@ func antigravityWindows(m map[string]any) []QuotaWindow {
 			if kind == "" {
 				continue
 			}
+			bucketIdentity := str(b, "bucketId") + " " + str(b, "displayName")
+			bucketFamily := family
+			if argonToken.MatchString(bucketIdentity) {
+				bucketFamily = "gemini-4-argon"
+			} else if strings.Contains(strings.ToLower(bucketIdentity), "gemini") {
+				bucketFamily = "gemini"
+			} else if strings.Contains(strings.ToLower(bucketIdentity), "claude") {
+				bucketFamily = "claude"
+			}
 			remaining := obj(b, "remaining")
 			if remaining == nil {
 				remaining = b
@@ -331,7 +380,7 @@ func antigravityWindows(m map[string]any) []QuotaWindow {
 			if !ok || n > 1 {
 				continue
 			}
-			out = append(out, QuotaWindow{Kind: kind, Model: family, UsedPercent: (1 - n) * 100, ResetAt: resetTime(b["resetTime"])})
+			out = append(out, QuotaWindow{Kind: kind, Model: bucketFamily, UsedPercent: (1 - n) * 100, ResetAt: resetTime(b["resetTime"])})
 		}
 	}
 	return out
