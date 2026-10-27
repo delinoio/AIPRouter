@@ -54,7 +54,7 @@ const (
 type PolicyMode string
 
 const (
-	Automatic PolicyMode = "auto"
+	Automatic PolicyMode = "automatic"
 	Flat      PolicyMode = "flat"
 	Custom    PolicyMode = "custom"
 )
