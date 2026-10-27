@@ -59,7 +59,7 @@ Costs are estimates, not invoices. Missing usage or price is unknown, not zero; 
 | OAuth/provider connection fails                    | Confirm the specific integration, account authorization, callback, model, and destination policy. Do not assume generic OAuth settings work.         |
 | Stream stops                                       | Record the request ID and redacted error. Check cancellation and path-specific timeout/proxy behavior before replaying a possibly completed request. |
 | Continuation is missing                            | State may be expired, evicted, removed, or lost on recovery. Start a new conversation explicitly.                                                    |
-| Image download fails                               | Check URL expiry and object expiry/deletion. Request a new authorized URL only if the artifact still exists; do not make the bucket public.          |
+| Image or hosted video download fails               | Check URL expiry and object expiry/deletion. Request a new authorized URL only if the artifact still exists; do not make the bucket public.          |
 | CLI cannot store a key                             | Repair OS credential-store access; keep client settings unchanged. Revoke any outstanding issued key in the web console.                             |
 | Relay port is occupied                             | Identify the listener and choose a distinct supported profile port, then review affected settings. Do not silently change ports or bind publicly.    |
 | Disconnect cannot reach server                     | Finish local cleanup, preserve conflict backups, then revoke the dedicated key through the web console when reachable.                               |

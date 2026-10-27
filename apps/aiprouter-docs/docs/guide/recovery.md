@@ -39,7 +39,7 @@ A backup does not stop service admission by itself. Arrange the required consist
 5. Record the application version and backup time without secrets or request content.
 6. Test restoration in isolation and verify the invalidation requirements below before accepting the backup as recoverable.
 
-Temporary conversations may be lost during disaster recovery. Generated images are temporary artifacts, not a permanent response archive. Existing backups expire under the operator's policy; deleting live data does not rewrite old backup copies.
+Temporary conversations may be lost during disaster recovery. Generated images and hosted videos are temporary artifacts, not a permanent response archive. Existing backups expire under the operator's policy; deleting live data does not rewrite old backup copies.
 
 ## Upgrade
 

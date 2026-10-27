@@ -17,9 +17,13 @@ Never ask an owner, administrator, or operator to copy another member's provider
 
 ## Provider authorization in the console
 
-For an OAuth integration, select **Continue with OAuth** and use **Open provider sign-in** only after verifying the destination. Enter the displayed user code at the provider if requested. If the provider returns an authorization code and state, enter both in the authorization dialog and select **Complete authorization**. Closing the dialog does not cancel the flow; use **Cancel authorization** to cancel it explicitly.
+For an OAuth integration, select **Continue with OAuth**, choose an authentication method offered for that provider, and supply any requested method-specific settings. Use **Open provider sign-in** only after verifying its destination and requested permissions. OIDC login and provider authorization remain separate flows.
 
-The console displays the service's pending, completed, expired, or failure state. An unavailable response is not a successful connection. Provider-specific OAuth completion, refresh, and custom model discovery remain unavailable unless the matching service version supports them; the presence of the console controls alone does not establish that support. Exact callback and account prerequisites must be confirmed per provider.
+For device or browser-poll methods, enter the displayed user code at the provider if requested and keep the authorization dialog open to see the result. The console respects the service's updated polling interval. For a method that requires manual completion, paste the returned authorization code, token, or full callback URL into the masked completion field. Supply authorization state if the dialog requires it. This server does not open a local callback listener; do not invent or register a generic callback route.
+
+Closing the dialog does not cancel the flow. Use **Cancel authorization** to cancel explicitly. A completed flow creates or reconnects your scoped provider connection; expired, canceled, failed, and unavailable results are not successful connections. Completion and refresh can trigger model discovery, but missing model evidence is not proof of account entitlement.
+
+OAuth completion, cancellation, refresh, and model discovery are implemented for the corresponding supported provider methods. Provider-specific restrictions still apply. If a connection reports **Authorization required**, reconnect through the explicit authorization workflow rather than repeatedly retrying an uncertain credential rotation. Automated provider fixtures do not establish live login, refresh, or native callback acceptance.
 
 ## Pools, models, and combinations
 
@@ -27,7 +31,11 @@ Add only your own accounts to your personal pool in the selected organization. S
 
 In Pools, select **Create pool**, name it, choose the strategy, and add your own connections in the intended order. In Routing, select **Create route**, enter the model alias used by your clients, choose a strategy, and add connection or pool targets with model IDs. Direct routing requires one target. Review target order and any weights before saving. Resolve unavailable targets and dependent routes before disconnecting a provider.
 
-The UI exposes priority, round-robin, and weighted choices where specified by its interface. Non-priority pool scheduling and weighted/round-robin routing require matching server support. Their implementation is being completed; do not interpret a visible option or saved configuration as verified dispatch behavior. If the service reports unavailable, retain a supported configuration rather than assuming a fallback was applied.
+Pools support priority, round-robin, and least-recently-used selection. Routes support direct, fallback, round-robin, and weighted selection. These strategies now have server selection support; use positive weights for weighted targets and do not add duplicate pool members or route targets. Direct routes require exactly one target.
+
+Keep a pool's provider and transport compatible. An incompatible pool is rejected; use separate route targets for cross-provider fallback. Paused, expired, uncertain, or cooled-down accounts can be ineligible even when listed in your settings. Bound continuation/recovery cannot silently rotate to another account. Strategy availability does not establish every provider-specific retry, quota, or probe behavior.
+
+To opt in to generic OAuth session affinity, select **Keep generic OAuth sessions on the same account** in the pool editor. The default is off. Supported generic sessions can retain account affinity for 24 hours within their key/provider/session scope; Codex and Anthropic retain provider-specific session rules. Affinity does not override current authorization, account eligibility, or revocation. Deselect the option and save to remove the opt-in.
 
 Model discovery can be unavailable for a custom or uncatalogued provider. The routing editor permits an explicit model ID; obtain it from the actual provider, not a guessed alias. No last-verified timestamp is available for provider connections: **Added** identifies creation, not successful verification.
 

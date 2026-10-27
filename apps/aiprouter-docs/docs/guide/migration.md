@@ -18,7 +18,7 @@ AIPRouter does not automatically import opencodex settings, credentials, routing
 5. Preview and confirm client changes, including separate consent for remote keys placed in client settings.
 6. Test non-sensitive requests, streaming, tools, errors, and continuation for the actual client/provider pairs you use.
 
-Existing conversations and usage history do not migrate. Begin new conversations explicitly. Keep any needed temporary output under your own approved handling policy; AIPRouter does not provide permanent image retention.
+Existing conversations and usage history do not migrate. Begin new conversations explicitly. Keep any needed temporary output under your own approved handling policy; AIPRouter does not provide permanent image or video retention.
 
 ## Cut over or return
 

@@ -61,12 +61,21 @@ Keep the internal routes available only to trusted health checks and monitoring.
 
 ## Required R2 storage
 
-1. Create a private R2 bucket for temporary generated images.
+1. Create a private R2 bucket for temporary generated images and hosted video output.
 2. Supply its endpoint, bucket, and access credentials through the configuration above.
 3. Give the service the object access needed to upload, retrieve, and delete its artifacts.
 4. Verify object creation and deletion, and signed download expiry, with non-sensitive evaluation data.
 
-Do not make the bucket public to repair a failed signed download. Required limits are 200 files per user per organization, 50 MiB per image, and 100 MiB decoded image data per response. Files expire after 24 hours; oldest-file eviction can remove them earlier.
+Do not make the bucket public to repair a failed signed download. Images and hosted videos share a quota of **200 files per user within each organization**. Files expire after **24 hours**; oldest-first eviction can remove either media type earlier when the shared count is exceeded.
+
+| Output                            | Per-file limit    | Combined output limit                   |
+| --------------------------------- | ----------------- | --------------------------------------- |
+| Generated images                  | 50 MiB per image  | 100 MiB decoded image data per response |
+| Hosted video helper (`video/mp4`) | 200 MiB per video | 600 MiB per helper turn                 |
+
+The video helper is available only through the supported hosted workflow. It does not add a public `/v1/videos` API. These video limits do not change the image limits. The result supplies an opaque artifact identifier and an authorized signed download URL, not a server-local file path. Indirect media downloads remain subject to destination approval and the original request's send budget.
+
+Both media types use the same organization/user authorization, expiry, and deletion rules. They are temporary output, not a permanent archive. The limits and interface described here do not establish live provider or R2 acceptance.
 
 A signed URL is a bearer capability. Anyone holding it can download until it expires, for at most five minutes and never beyond artifact expiry. Authorization is checked when the URL is issued, not again for each download. Deleting the object makes an existing URL unusable. Do not put signed URLs in public logs or tickets.
 

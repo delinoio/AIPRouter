@@ -16,17 +16,19 @@ The compatibility target is opencodex revision `88aaa754566d119b6b8fc898f8fb4760
 
 This table is an overview, not an exhaustive inventory or list of supported providers. A release needs a complete interface/provider/authentication/client matrix with evidence for each included path and an explicit exclusion for each omitted path.
 
+Hosted video-helper output uses `video/mp4` with a 200 MiB per-video and 600 MiB per-turn limit. It shares the 200-file per-organization/user quota, 24-hour expiry, and at-most-five-minute signed URLs with images. Image limits remain 50 MiB per image and 100 MiB decoded per response. There is no public `/v1/videos` API. See [R2 media guidance](configuration.md); live media acceptance is not claimed.
+
 ## Implemented workflows and remaining limits
 
 The console implements account and organization workflows, provider/pool/routing editors, keys, usage views, and operator controls. The CLI implements browser device approval, protected credentials, named profiles, client configuration/restoration, and loopback service control. [Client guidance](clients.md) lists the current handlers, including native Codex catalog/cache configuration and Claude gateway/Desktop profiles.
 
 The Compose packaging includes the console and API together, PostgreSQL, optional monitoring, proxy examples, and offline maintenance. Automated fixture evidence exists for parts of these workflows. It does not establish production image execution, live identity/provider accounts, native credential stores, or real application compatibility. A final source-revision acceptance assessment remains separate.
 
-Provider OAuth and refresh, advanced pool/routing scheduling, and usage filtering/aggregation are still being completed. Keep unavailable errors visible until the corresponding service implementation and tests establish support. Optional [native TLS compatibility](native-compatibility.md) has separate build gates, consent, and cleanup requirements; the native command/runtime tests do not establish real OS trust or installed-application acceptance. Account-UI trial activation remains unavailable pending production account-attestation confirmation.
+Provider OAuth/refresh and advanced pool/routing selection are implemented, with automated fixtures rather than live provider acceptance. Complete provider-specific retry, quota, and discovery parity is not implied. Usage filtering/aggregation still requires its final service verification. Keep unavailable errors visible for unsupported provider methods or missing evidence. Optional [native TLS compatibility](native-compatibility.md) has separate build gates, consent, and cleanup requirements; the native command/runtime tests do not establish real OS trust or installed-application acceptance. Account-UI trial activation remains unavailable pending production account-attestation confirmation.
 
 ## Explicit differences
 
-AIPRouter isolates personal credentials and routing by both organization and user. It requires OIDC, scoped inference keys, bounded encrypted temporary state, and R2 image expiry. Revocation, removal, cancellation, and database outages stop additional sends. Historical cost estimates retain the price used for the request. Local program execution as a provider and associated execution-agent features are excluded.
+AIPRouter isolates personal credentials and routing by both organization and user. It requires OIDC, scoped inference keys, bounded encrypted temporary state, and R2 media expiry. Revocation, removal, cancellation, and database outages stop additional sends. Historical cost estimates retain the price used for the request. Local program execution as a provider and associated execution-agent features are excluded.
 
 HTTP local model servers with operator approval, client configuration, and loopback relays remain in scope. User export and automatic import of settings, credentials, and usage are excluded.
 

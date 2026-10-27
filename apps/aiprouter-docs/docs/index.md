@@ -23,6 +23,6 @@ See [organizations](guide/organizations.md), [providers](guide/providers.md), an
 
 ## Product boundaries
 
-AIPRouter is not a hosted SaaS, billing service, or remote command executor. It does not provide shared organization credentials, automatic import, user data export, or permanent conversation/image storage. Configuring a client and using an HTTP loopback relay are distinct from executing that client as a provider backend; the latter is excluded.
+AIPRouter is not a hosted SaaS, billing service, or remote command executor. It does not provide shared organization credentials, automatic import, user data export, or permanent conversation or media storage. Configuring a client and using an HTTP loopback relay are distinct from executing that client as a provider backend; the latter is excluded.
 
 Repository-owned AIPRouter software is licensed under Apache-2.0. Imported components retain their own licenses and notices.
