@@ -3,8 +3,8 @@
 package kiro
 
 import (
-	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
@@ -32,7 +32,61 @@ func inputMessages(body object, wire inference.Wire) ([]object, string, error) {
 				case "", "message":
 					messages = append(messages, m)
 				case "function_call":
-					messages = append(messages, object{"role": "assistant", "tool_calls": []any{object{"id": m["call_id"], "function": object{"name": m["name"], "arguments": m["arguments"]}}}})
+					messages = append(messages, object{"role": "assistant", "tool_calls": []any{object{"id": m["call_id"], "function": object{"name": wireName(str(m["namespace"]), str(m["name"])), "arguments": m["arguments"]}}}})
+				case "custom_tool_call":
+					name := str(m["name"])
+					requestedName := name
+					namespace := str(m["namespace"])
+					if namespace == "functions" {
+						namespace = ""
+					}
+					declared, err := normalizeTools(body, wire)
+					if err != nil {
+						return nil, "", err
+					}
+					matches := 0
+					for _, tool := range declared {
+						if tool.definition.Kind == CustomTool && tool.definition.Name == requestedName && (namespace == "" || tool.definition.Namespace == namespace) {
+							name = tool.definition.WireName
+							matches++
+						}
+					}
+					if matches != 1 {
+						return nil, "", failure(400, "kiro_ambiguous_custom_history")
+					}
+					value, ok := m["input"].(string)
+					if !ok {
+						return nil, "", failure(400, "kiro_invalid_custom_input")
+					}
+					args, _ := json.Marshal(object{"input": value})
+					messages = append(messages, object{"role": "assistant", "tool_calls": []any{object{"id": m["call_id"], "function": object{"name": name, "arguments": string(args)}}}})
+				case "custom_tool_call_output":
+					messages = append(messages, object{"role": "tool", "tool_call_id": m["call_id"], "content": m["output"]})
+				case "additional_tools":
+					// Tool declarations are incorporated by normalizeTools.
+				case "tool_search_call":
+					declared, err := normalizeTools(body, wire)
+					if err != nil {
+						return nil, "", err
+					}
+					name := "tool_search"
+					for _, tool := range declared {
+						if tool.definition.Kind == SearchTool {
+							name = tool.definition.WireName
+							break
+						}
+					}
+					args := m["arguments"]
+					if _, ok := args.(string); !ok {
+						b, _ := json.Marshal(args)
+						args = string(b)
+					}
+					messages = append(messages, object{"role": "assistant", "tool_calls": []any{object{"id": m["call_id"], "function": object{"name": name, "arguments": args}}}})
+				case "tool_search_output":
+					if m["call_id"] != nil {
+						b, _ := json.Marshal(m["tools"])
+						messages = append(messages, object{"role": "tool", "tool_call_id": m["call_id"], "content": string(b)})
+					}
 				case "function_call_output":
 					messages = append(messages, object{"role": "tool", "tool_call_id": m["call_id"], "content": m["output"]})
 				default:
@@ -112,6 +166,7 @@ func content(v any) (string, []any, error) {
 	}
 	var text string
 	var images []any
+	remoteImages, malformedImages := 0, 0
 	for _, raw := range parts {
 		p := obj(raw)
 		switch str(p["type"]) {
@@ -122,46 +177,31 @@ func content(v any) (string, []any, error) {
 			}
 			text = joinText(text, s)
 		case "image_url", "input_image", "image":
-			url := str(p["image_url"])
-			if url == "" {
-				url = str(obj(p["image_url"])["url"])
+			img, marker := inlineImage(p)
+			if img != nil {
+				images = append(images, img)
 			}
-			mime, data := "", ""
-			if source := obj(p["source"]); source != nil {
-				if str(source["type"]) != "base64" {
-					return "", nil, failure(400, "kiro_remote_image_requires_executor")
+			if marker != "" {
+				if strings.Contains(marker, "remote image references") {
+					remoteImages++
+				} else {
+					malformedImages++
 				}
-				mime, data = str(source["media_type"]), str(source["data"])
-			} else {
-				header, encoded, ok := strings.Cut(url, ",")
-				if !ok || !strings.HasPrefix(header, "data:") || !strings.HasSuffix(header, ";base64") {
-					return "", nil, failure(400, "kiro_remote_image_requires_executor")
-				}
-				mime, data = strings.TrimSuffix(strings.TrimPrefix(header, "data:"), ";base64"), encoded
 			}
-			format := strings.TrimPrefix(mime, "image/")
-			if format == "jpg" {
-				format = "jpeg"
-			}
-			if format != "png" && format != "jpeg" && format != "gif" && format != "webp" {
-				return "", nil, failure(400, "kiro_image_format_unsupported")
-			}
-			if data == "" {
-				return "", nil, failure(400, "kiro_invalid_image")
-			}
-			if len(data) > 6<<20 {
-				return "", nil, failure(413, "kiro_image_too_large")
-			}
-			if _, err := base64.StdEncoding.Strict().DecodeString(data); err != nil {
-				return "", nil, failure(400, "kiro_invalid_image")
-			}
-			images = append(images, object{"format": format, "source": object{"bytes": data}})
-			if len(images) > 20 {
-				return "", nil, failure(400, "kiro_image_count_limit")
-			}
+
 		default:
 			return "", nil, failure(400, "kiro_content_unsupported")
 		}
+	}
+	if remoteImages == 1 {
+		text = joinText(text, "[image omitted: remote image references are not supported by this provider]")
+	} else if remoteImages > 1 {
+		text = joinText(text, fmt.Sprintf("[%d images omitted: remote image references are not supported by this provider]", remoteImages))
+	}
+	if malformedImages == 1 {
+		text = joinText(text, "[image omitted: malformed inline image data URL]")
+	} else if malformedImages > 1 {
+		text = joinText(text, fmt.Sprintf("[%d images omitted: malformed inline image data URLs]", malformedImages))
 	}
 	return text, images, nil
 }
@@ -199,19 +239,21 @@ func sanitizeSchema(in object, depth int) object {
 			continue
 		}
 		if m, ok := value.(map[string]any); ok {
-			value = sanitizeSchema(m, depth+1)
-			if value == nil {
+			child := sanitizeSchema(m, depth+1)
+			if child == nil {
 				return nil
 			}
+			value = child
 		}
 		if a, ok := value.([]any); ok {
 			copy := make([]any, len(a))
 			for i, v := range a {
 				if m, ok := v.(map[string]any); ok {
-					copy[i] = sanitizeSchema(m, depth+1)
-					if copy[i] == nil {
+					child := sanitizeSchema(m, depth+1)
+					if child == nil {
 						return nil
 					}
+					copy[i] = child
 				} else {
 					copy[i] = v
 				}

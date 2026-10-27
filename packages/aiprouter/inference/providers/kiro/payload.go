@@ -30,10 +30,12 @@ type registry struct {
 	forward, reverse map[string]string
 	advertised       map[string]string
 	used             map[string]bool
+	definitions      map[string]ToolDefinition
+	catalog          []ToolDefinition
 }
 
 func newRegistry() *registry {
-	return &registry{forward: map[string]string{}, reverse: map[string]string{}, advertised: map[string]string{}, used: map[string]bool{completionTool: true}}
+	return &registry{definitions: map[string]ToolDefinition{}, forward: map[string]string{}, reverse: map[string]string{}, advertised: map[string]string{}, used: map[string]bool{completionTool: true}}
 }
 func (r *registry) alias(name string) (string, error) {
 	if name == "" || name == completionTool {
@@ -95,56 +97,11 @@ func buildPayload(body object, wire inference.Wire, model, profile string, cli b
 	if err != nil {
 		return nil, false, err
 	}
-	tools := []any{}
-	for _, raw := range arr(body["tools"]) {
-		t := obj(raw)
-		if wire == inference.Chat {
-			if str(t["type"]) != "function" {
-				return nil, false, inference.ErrUnsupported
-			}
-			t = obj(t["function"])
-		}
-		if wire == inference.Responses && str(t["type"]) != "function" {
-			return nil, false, inference.ErrUnsupported
-		}
-		name, err := names.alias(str(t["name"]))
-		if err != nil {
-			return nil, false, err
-		}
-		if choice == "none" {
-			continue
-		}
-		names.advertised[name] = str(t["name"])
-		schema := obj(t["parameters"])
-		if wire == inference.Anthropic {
-			schema = obj(t["input_schema"])
-		}
-		schema = sanitizeSchema(schema, 0)
-		if schema == nil {
-			return nil, false, failure(400, "kiro_schema_too_deep")
-		}
-		flattenSchema(schema)
-		description := str(t["description"])
-		if description == "" {
-			description = "Tool: " + str(t["name"])
-		}
-		limit := 1024
-		if model == "gpt-5.6-sol" {
-			limit = 9216
-		}
-		runes := []rune(description)
-		if len(runes) > limit {
-			description = string(runes[:limit-1]) + "…"
-		}
-		tools = append(tools, object{"toolSpecification": object{"name": name, "description": description, "inputSchema": object{"json": schema}}})
+	tools, notice, err := convertTools(body, wire, model, names)
+	if err != nil {
+		return nil, false, err
 	}
-	catalog, _ := json.Marshal(tools)
-	// Fail explicitly instead of silently dropping a client tool when the pinned
-	// catalog's count/byte budget is exceeded. Priority-based omission needs the
-	// central normalized tool catalog, which this interface does not provide.
-	if len(tools) > 48 || len(catalog) > 96000 {
-		return nil, false, failure(400, "kiro_tool_catalog_limit")
-	}
+	system = joinText(system, notice)
 	completion := len(tools) > 0
 	if completion {
 		tools = append(tools, object{"toolSpecification": object{"name": completionTool, "description": "End the turn with the complete final answer or a blocking question. No result follows this terminal call.", "inputSchema": object{"json": object{"type": "object", "properties": object{"answer": object{"type": "string"}}, "required": []string{"answer"}}}}})
@@ -153,8 +110,14 @@ func buildPayload(body object, wire inference.Wire, model, profile string, cli b
 	turns := []*turn{}
 	pending := map[string]string{}
 	ids := map[string]string{}
+	adjacentResultID := ""
+	var adjacentResult object
 	for _, message := range messages {
 		role := str(message["role"])
+		if role != "tool" {
+			adjacentResultID = ""
+			adjacentResult = nil
+		}
 		if role == "system" || role == "developer" {
 			text, _, err := content(message["content"])
 			if err != nil {
@@ -206,6 +169,20 @@ func buildPayload(body object, wire inference.Wire, model, profile string, cli b
 			}
 		} else if role == "tool" {
 			rawID := str(message["tool_call_id"])
+			if rawID != "" && rawID == adjacentResultID && adjacentResult != nil && len(turns) > 0 {
+				if strings.TrimSpace(text) != "" {
+					parts := arr(adjacentResult["content"])
+					if len(parts) == 1 && str(obj(parts[0])["text"]) == "The tool completed without textual output." {
+						parts = nil
+					}
+					adjacentResult["content"] = append(parts, object{"text": text})
+				}
+				if message["is_error"] == true {
+					adjacentResult["status"] = "error"
+				}
+				turns[len(turns)-1].images = append(turns[len(turns)-1].images, images...)
+				continue
+			}
 			id := invalidName.ReplaceAllString(rawID, "_")
 			if len(id) > 64 {
 				id = id[:64]
@@ -223,6 +200,7 @@ func buildPayload(body object, wire inference.Wire, model, profile string, cli b
 			}
 			t.role, t.text = "user", ""
 			t.results = []any{object{"toolUseId": id, "status": status, "content": []any{object{"text": text}}}}
+			adjacentResultID, adjacentResult = rawID, obj(t.results[0])
 		}
 		if len(turns) > 0 && turns[len(turns)-1].role == t.role {
 			last := turns[len(turns)-1]
@@ -260,12 +238,7 @@ func buildPayload(body object, wire inference.Wire, model, profile string, cli b
 		origin = "KIRO_CLI"
 	}
 	entries := []any{}
-	imageCount := 0
 	for _, t := range turns {
-		imageCount += len(t.images)
-		if len(t.images) > 20 || imageCount > 100 {
-			return nil, false, failure(400, "kiro_image_count_limit")
-		}
 		if t.role == "assistant" {
 			if strings.TrimSpace(t.text) == "" && len(t.uses) == 0 {
 				return nil, false, failure(400, "kiro_empty_assistant")

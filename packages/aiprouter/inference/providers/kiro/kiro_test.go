@@ -165,7 +165,6 @@ func TestInputRefusals(t *testing.T) {
 		`{"messages":[{"role":"user","content":"x"}],"service_tier":"priority"}`,
 		`{"messages":[{"role":"user","content":"x"}],"response_format":{"type":"json_schema"}}`,
 		`{"messages":[{"role":"tool","tool_call_id":"missing","content":"x"}]}`,
-		`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.com/x.png"}}]}]}`,
 		`{"messages":[{"role":"assistant","phase":"final_answer","content":"Done"}]}`,
 	} {
 		if _, err := New().Build(WithRequestState(context.Background()), input(body)); err == nil {
@@ -500,7 +499,7 @@ func TestHTTPFailureAndConsumerClose(t *testing.T) {
 }
 
 func TestSignatureReplayAndInlineImage(t *testing.T) {
-	_, _, r := build(t, `{"messages":[{"role":"user","content":"First"},{"role":"assistant","content":"Answer","kiro_reasoning":"signature:.KTR~~opaque"},{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aW1hZ2U="}}]}]}`)
+	_, _, r := build(t, `{"messages":[{"role":"user","content":"First"},{"role":"assistant","content":"Answer","kiro_reasoning":"signature:.KTR~~opaque"},{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,`+testPNG(t, 1, 1)+`"}}]}]}`)
 	var body object
 	json.Unmarshal(r.Body, &body)
 	state := obj(body["conversationState"])

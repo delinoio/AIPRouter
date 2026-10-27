@@ -21,17 +21,20 @@ const Wire inference.Wire = "kiro"
 const DefaultAttemptTimeout = 200 * time.Second
 const builderProfile = "arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX"
 const completionTool = "codex_kiro_final_answer"
-const maxRequestBytes = 16 << 20
+const maxRequestBytes = 32 << 20
 const maxRetainedBytes = 32 << 20
 
 type object = map[string]any
 type stateKey struct{}
 type requestState struct {
-	mu         sync.Mutex
-	model      string
-	aliases    map[string]string
-	completion bool
-	built      bool
+	mu          sync.Mutex
+	model       string
+	aliases     map[string]string
+	completion  bool
+	built       bool
+	owner       inference.Principal
+	metadata    Metadata
+	definitions map[string]ToolDefinition
 }
 
 // Adapter contains no credentials, mutable request state, or HTTP client.
@@ -122,6 +125,18 @@ func (*Adapter) Build(ctx context.Context, in inference.AdapterInput) (inference
 	if err != nil {
 		return empty, err
 	}
+	if seed, ok := ctx.Value(continuationKey{}).(continuationSeed); ok {
+		if seed.owner != in.Principal {
+			return empty, inference.ErrUnauthorized
+		}
+		obj(payload["conversationState"])["conversationId"] = seed.id
+	}
+	if seed, ok := ctx.Value(imagePositionsKey{}).(imagePositionSeed); ok && seed.owner != in.Principal {
+		return empty, inference.ErrUnauthorized
+	}
+	if err := normalizePayloadImages(ctx, payload); err != nil {
+		return empty, err
+	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return empty, err
@@ -165,5 +180,8 @@ func (*Adapter) Build(ctx context.Context, in inference.AdapterInput) (inference
 		headers.Set("X-Amzn-Kiro-Profile-Arn", profile)
 	}
 	state.model, state.aliases, state.completion, state.built = model, registry.advertised, completion, true
-	return inference.AdapterRequest{URL: endpoint.String(), Headers: headers, Body: encoded, ResponseWire: inference.Chat}, nil
+	state.owner, state.definitions = in.Principal, registry.definitions
+	state.metadata.ConversationID = str(obj(payload["conversationState"])["conversationId"])
+	state.metadata.Tools = append([]ToolDefinition(nil), registry.catalog...)
+	return inference.AdapterRequest{URL: endpoint.String(), Headers: headers, Body: encoded, ResponseWire: inference.Chat, AttemptTimeout: DefaultAttemptTimeout}, nil
 }

@@ -53,6 +53,7 @@ func (*Adapter) Decode(ctx context.Context, response *http.Response) (*http.Resp
 	}
 	state.mu.Lock()
 	model, aliases, completion, built := state.model, state.aliases, state.completion, state.built
+	definitions := state.definitions
 	state.mu.Unlock()
 	if !built {
 		return nil, failure(500, "kiro_request_not_built")
@@ -68,11 +69,21 @@ func (*Adapter) Decode(ctx context.Context, response *http.Response) (*http.Resp
 	go func() {
 		defer stop()
 		defer closeSource()
-		s := streamState{ctx: ctx, out: writer, id: "chatcmpl-" + id, created: time.Now().Unix(), model: model, aliases: aliases, completionRequired: completion, tools: map[string]*streamTool{}, usage: object{}}
+		s := streamState{ctx: ctx, out: writer, id: "chatcmpl-" + id, created: time.Now().Unix(), model: model, aliases: aliases, definitions: definitions, request: state, completionRequired: completion, tools: map[string]*streamTool{}, usage: object{}}
 		err := s.run(response.Body)
 		if ctx.Err() != nil {
 			err = ctx.Err()
 		}
+		state.mu.Lock()
+		state.metadata.Terminal = err == nil
+		if err != nil {
+			state.metadata.FailureCode = "kiro_stream_failed"
+			var typed *inference.Error
+			if errors.As(err, &typed) {
+				state.metadata.FailureCode = typed.Code
+			}
+		}
+		state.mu.Unlock()
 		if err != nil && ctx.Err() == nil {
 			var e *inference.Error
 			if !errors.As(err, &e) {
@@ -106,12 +117,15 @@ type streamState struct {
 	id                    string
 	created               int64
 	aliases               map[string]string
+	definitions           map[string]ToolDefinition
+	request               *requestState
 	completionRequired    bool
 	tools                 map[string]*streamTool
 	order                 []string
 	active                string
 	usage                 object
 	stopReason            string
+	contextMeasured       bool
 	sawText, sawReasoning bool
 	retained              int
 	answer                string
@@ -183,6 +197,11 @@ func (s *streamState) run(source io.Reader) error {
 	}
 	if err := s.text("", true); err != nil {
 		return err
+	}
+	if len(s.order) == 0 && !s.answerSeen {
+		if err := s.recoverTextTools(); err != nil {
+			return err
+		}
 	}
 	for _, id := range s.order {
 		if !s.tools[id].stopped {
@@ -337,6 +356,10 @@ func (s *streamState) event(kind string, m object) error {
 			if !finiteNumber(value) {
 				return failure(502, "kiro_invalid_context_usage")
 			}
+			n := value.(float64)
+			if !s.contextMeasured {
+				s.record(func(metadata *Metadata) { metadata.ContextUsagePercentage = &n })
+			}
 		}
 		if usage, ok := m["tokenUsage"]; ok && usage != nil {
 			return s.tokenUsage(usage)
@@ -345,6 +368,9 @@ func (s *streamState) event(kind string, m object) error {
 		if !finiteNumber(m["contextUsagePercentage"]) {
 			return failure(502, "kiro_invalid_context_usage")
 		}
+		n := m["contextUsagePercentage"].(float64)
+		s.contextMeasured = true
+		s.record(func(metadata *Metadata) { metadata.ContextUsagePercentage = &n })
 	case "meteringEvent":
 		if _, ok := m["unit"].(string); !ok {
 			return failure(502, "kiro_invalid_metering")
@@ -360,12 +386,46 @@ func (s *streamState) event(kind string, m object) error {
 		if _, err := optionalString(m, "unitPlural"); err != nil {
 			return err
 		}
+		if len(str(m["unit"])) > 128 || len(str(m["unitPlural"])) > 128 {
+			return failure(502, "kiro_metering_unit_limit")
+		}
+		if s.request != nil {
+			s.request.mu.Lock()
+			meta := &s.request.metadata
+			found := false
+			for i := range meta.Metering {
+				if meta.Metering[i].Unit == str(m["unit"]) {
+					meta.Metering[i].Usage += n
+					if math.IsInf(meta.Metering[i].Usage, 0) {
+						s.request.mu.Unlock()
+						return failure(502, "kiro_metering_overflow")
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				if len(meta.Metering) >= 64 {
+					s.request.mu.Unlock()
+					return failure(502, "kiro_metering_limit")
+				}
+				meta.Metering = append(meta.Metering, Metering{str(m["unit"]), str(m["unitPlural"]), n})
+			}
+			s.request.mu.Unlock()
+		}
 		// Credits and context pressure are not token counts. Do not invent usage.
 	case "messageMetadataEvent", "initial-response":
 		for _, key := range []string{"conversationId", "utteranceId"} {
 			if _, err := optionalString(m, key); err != nil {
 				return err
 			}
+		}
+		id := str(m["conversationId"])
+		if id == "" {
+			id = str(m["utteranceId"])
+		}
+		if conversationPattern.MatchString(id) {
+			s.record(func(metadata *Metadata) { metadata.ConversationID = id })
 		}
 	case "invalidStateEvent":
 		return failure(502, "kiro_invalid_state")
@@ -424,7 +484,26 @@ func (s *streamState) tokenUsage(value any) error {
 	if hasWrite {
 		s.usage["cache_creation_input_tokens"] = write
 	}
+	s.record(func(metadata *Metadata) {
+		sum := input + read + write
+		metadata.Usage = inference.Usage{InputTokens: &sum, OutputTokens: &output}
+		if hasRead {
+			metadata.Usage.CacheReadTokens = &read
+		}
+		if hasWrite {
+			metadata.Usage.CacheWriteTokens = &write
+		}
+	})
 	return nil
+}
+
+func (s *streamState) record(update func(*Metadata)) {
+	if s.request == nil {
+		return
+	}
+	s.request.mu.Lock()
+	defer s.request.mu.Unlock()
+	update(&s.request.metadata)
 }
 
 func (s *streamState) tool(m object) error {
@@ -489,6 +568,11 @@ func (s *streamState) tool(m object) error {
 	}
 	if json.Unmarshal([]byte(arguments), &args) != nil || args == nil {
 		return failure(502, "kiro_invalid_tool_arguments")
+	}
+	if definition := s.definitions[t.name]; definition.Kind == CustomTool {
+		if _, ok := args["input"].(string); !ok {
+			return failure(502, "kiro_invalid_custom_arguments")
+		}
 	}
 	t.stopped = true
 	s.active = ""
@@ -574,5 +658,11 @@ func (s *streamState) flushCommentary() error {
 	}
 	text := s.deferredText.String()
 	s.deferredText.Reset()
+	if len(s.order) > 0 {
+		text = s.reconcileNativeText(text)
+	}
+	if text == "" {
+		return nil
+	}
 	return s.chunk(object{"content": text}, nil)
 }
