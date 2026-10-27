@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -306,5 +308,144 @@ func TestSignedToolReceiptCrossWireCanonicalIdentity(t *testing.T) {
 		} else if expected != tokens[0] {
 			t.Fatal("cross-wire tool binding changed")
 		}
+	}
+}
+
+type dictationDialer struct {
+	up        *fixtureSocket
+	protocols []string
+	header    http.Header
+}
+
+func (d *dictationDialer) Dial(context.Context, string, http.Header, *http.Client) (Socket, error) {
+	return nil, ErrUnsupported
+}
+func (d *dictationDialer) DialProtocols(_ context.Context, _ string, h http.Header, p []string, _ *http.Client) (Socket, error) {
+	d.protocols = p
+	d.header = h.Clone()
+	return d.up, nil
+}
+func TestDictationRouteEnforcesFramesAndProtocols(t *testing.T) {
+	h, _, auth, _, _ := harness(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected HTTP inference") }, Chat)
+	route := h.c.Router.(testRouter)
+	route.route.Targets[0].Auth = OAuth
+	route.route.Targets[0].Provider = "openai"
+	h.c.Router = route
+	dialer := &dictationDialer{up: newFixtureSocket()}
+	h.c.SocketDialer = dialer
+	down := newFixtureSocket()
+	down.in <- []byte(`{"type":"audio.append","audio":"AAA="}`)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	e := h.ServeRealtimeSocket(ctx, "client-secret", "/v1/audio/transcriptions/stream", nil, down)
+	if publicError(e).Code != "invalid_frame" {
+		t.Fatal(e)
+	}
+	if len(dialer.protocols) != 3 || dialer.protocols[1] != "openai-bearer.provider-secret" || dialer.header.Get("Authorization") != "" {
+		t.Fatal("invalid dictation authentication framing")
+	}
+	select {
+	case <-dialer.up.out:
+		t.Fatal("invalid audio sent upstream")
+	default:
+	}
+	if auth.released.Load() != 1 {
+		t.Fatal("admission not released after pumps joined")
+	}
+}
+
+func TestNativeCompact404UsesRemainingBudget(t *testing.T) {
+	calls := 0
+	h, _, _, _, u := harness(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if strings.HasSuffix(r.URL.Path, "/compact") {
+			w.WriteHeader(404)
+			io.WriteString(w, `{}`)
+			return
+		}
+		io.WriteString(w, fixture(Responses))
+	}, Responses)
+	w := call(h, "/v1/responses/compact", `{"model":"m","input":"original task"}`)
+	if w.Code != 200 || calls != 2 || u.records[0].Sends != 2 || !strings.Contains(w.Body.String(), checkpointPrefix) {
+		t.Fatalf("%d %s calls=%d", w.Code, w.Body, calls)
+	}
+	router := h.c.Router.(testRouter)
+	router.route.MaxSends = 1
+	h.c.Router = router
+	w = call(h, "/v1/responses/compact", `{"model":"m","input":"original task"}`)
+	if w.Code != 429 || calls != 3 {
+		t.Fatalf("fallback minted budget: %d calls=%d", w.Code, calls)
+	}
+}
+func TestWebPDimensionEstimate(t *testing.T) {
+	raw := make([]byte, 30)
+	copy(raw, "RIFF")
+	copy(raw[8:], "WEBPVP8X")
+	raw[24] = 0xff
+	raw[25] = 3
+	raw[27] = 0xff
+	raw[28] = 1
+	dims, e := attachmentDimensions(raw)
+	if e != nil || dims.Width != 1024 || dims.Height != 512 {
+		t.Fatal(dims, e)
+	}
+}
+
+func TestOAuthStateSurvivesTokenRefreshButNotAccountReplacement(t *testing.T) {
+	s := scopedAdapterState{t: Target{Provider: "p", Model: "m", Auth: OAuth}, c: Credential{AccountID: "a", Secret: "old"}}
+	key := s.key("state")
+	s.c.Secret = "new"
+	if key != s.key("state") {
+		t.Fatal("OAuth renewal destroyed account state")
+	}
+	s.c.StateBinding = "replacement-generation"
+	if key == s.key("state") {
+		t.Fatal("account replacement reused state")
+	}
+	s.t.Auth = APIKey
+	s.c.StateBinding = ""
+	key = s.key("state")
+	s.c.Secret = "other-key"
+	if key == s.key("state") {
+		t.Fatal("API key replacement reused state")
+	}
+}
+
+func TestRecoveryBatchReservesBeforeCallback(t *testing.T) {
+	h, s, a, _, _ := harness(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{}`) }, Chat)
+	rec := &UsageRecord{Sends: 1}
+	x := &requestExecutor{h: h, target: Target{BaseURL: s.URL}, record: rec, maxSends: 2}
+	called := false
+	_, e := x.Recover(context.Background(), 2, func(ex AdapterExecutor) (*http.Response, error) { called = true; return nil, nil })
+	if e == nil || called {
+		t.Fatal("insufficient recovery admitted callback")
+	}
+	x.maxSends = 3
+	_, e = x.Recover(context.Background(), 2, func(ex AdapterExecutor) (*http.Response, error) {
+		called = true
+		r, e := ex.Do(context.Background(), AdapterRequest{URL: s.URL})
+		if r != nil {
+			r.Body.Close()
+		}
+		return nil, e
+	})
+	if e != nil || !called || rec.Sends != 2 || x.reserved != 0 {
+		t.Fatalf("%v %v %+v reserved%d", e, called, rec, x.reserved)
+	}
+	a.denied.Store(true)
+	called = false
+	_, e = x.Recover(context.Background(), 1, func(AdapterExecutor) (*http.Response, error) { called = true; return nil, nil })
+	if e == nil || called {
+		t.Fatal("revoked recovery admitted callback")
+	}
+}
+func TestDestinationRulesNarrowPublicAndApprovedOrigins(t *testing.T) {
+	var dials int
+	resolver := fixedResolver{netip.MustParseAddr("8.8.8.8"), netip.MustParseAddr("1.1.1.1")}
+	policy := DestinationPolicy{Resolver: resolver, ApprovedOrigins: []string{"https://example.com"}, Rules: []DestinationRule{{Origin: "https://example.com", AllowedCIDRs: []string{"8.8.8.0/24"}}}, DialContext: func(context.Context, string, string) (net.Conn, error) { dials++; return nil, ErrDestination }}
+	req, _ := http.NewRequest("GET", "https://example.com", nil)
+	_, e := policy.Do(context.Background(), req, func(ctx context.Context, start func(context.Context) error) error { return start(ctx) }, nil)
+	if e == nil || dials != 0 {
+		t.Fatal("mixed DNS escaped CIDR restriction")
 	}
 }

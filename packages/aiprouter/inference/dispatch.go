@@ -27,7 +27,7 @@ func gateClient(client *http.Client, ctx context.Context, p Principal, a Authori
 	base := client.Transport.(*http.Transport).Clone()
 	dial := base.DialContext
 	wrap := func(c net.Conn) net.Conn {
-		return &gatedConn{Conn: c, ctx: ctx, sent: sent, start: onSend, gate: func(start func(context.Context) error) error {
+		return &gatedConn{Conn: withSupportIdle(ctx, c), ctx: ctx, sent: sent, start: onSend, gate: func(start func(context.Context) error) error {
 			if d, ok := a.(Dispatcher); ok {
 				return d.Dispatch(ctx, p, start)
 			}
@@ -40,14 +40,18 @@ func gateClient(client *http.Client, ctx context.Context, p Principal, a Authori
 	base.ForceAttemptHTTP2 = false
 	base.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 	base.DialContext = func(c context.Context, n, addr string) (net.Conn, error) {
-		conn, e := dial(c, n, addr)
+		connectionCtx, stop := supportConnectContext(c)
+		defer stop()
+		conn, e := dial(connectionCtx, n, addr)
 		if e != nil {
 			return nil, e
 		}
 		return wrap(conn), nil
 	}
 	base.DialTLSContext = func(c context.Context, n, addr string) (net.Conn, error) {
-		conn, e := dial(c, n, addr)
+		connectionCtx, stop := supportConnectContext(c)
+		defer stop()
+		conn, e := dial(connectionCtx, n, addr)
 		if e != nil {
 			return nil, e
 		}
@@ -60,7 +64,7 @@ func gateClient(client *http.Client, ctx context.Context, p Principal, a Authori
 		cfg.ServerName = host
 		cfg.NextProtos = []string{"http/1.1"}
 		secure := tls.Client(conn, cfg)
-		handshake, cancel := context.WithTimeout(c, 30*time.Second)
+		handshake, cancel := context.WithTimeout(connectionCtx, 30*time.Second)
 		defer cancel()
 		if e = secure.HandshakeContext(handshake); e != nil {
 			conn.Close()
@@ -88,6 +92,9 @@ func (c *gatedConn) Write(b []byte) (int, error) {
 	c.once.Do(func() {
 		first = true
 		c.err = c.gate(func(ctx context.Context) error {
+			if e := validateNegotiationExpiry(c.ctx); e != nil {
+				return e
+			}
 			if e := ctx.Err(); e != nil {
 				return e
 			}

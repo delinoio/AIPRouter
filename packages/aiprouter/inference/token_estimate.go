@@ -4,6 +4,7 @@ package inference
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"image"
 	_ "image/gif"
@@ -75,7 +76,7 @@ func estimateMessageTokens(b object, model string, projection TokenProjection) i
 					}
 					raw, e := base64.StdEncoding.DecodeString(data)
 					if e == nil {
-						if dims, _, err := image.DecodeConfig(bytes.NewReader(raw)); err == nil && dims.Width > 0 && dims.Height > 0 {
+						if dims, err := attachmentDimensions(raw); err == nil && dims.Width > 0 && dims.Height > 0 {
 							count = int64(math.Ceil(float64(dims.Width) * float64(dims.Height) / 750))
 							if count < 256 {
 								count = 256
@@ -137,4 +138,31 @@ func writeTokenEstimate(w http.ResponseWriter, b object, t Target, a Adapter) er
 	}
 	w.Header().Set("Content-Type", "application/json")
 	return json.NewEncoder(w).Encode(object{"input_tokens": estimateMessageTokens(b, t.Model, projection)})
+}
+
+func attachmentDimensions(raw []byte) (image.Config, error) {
+	if len(raw) >= 30 && string(raw[:4]) == "RIFF" && string(raw[8:12]) == "WEBP" {
+		width, height := 0, 0
+		switch string(raw[12:16]) {
+		case "VP8X":
+			width = 1 + int(raw[24]) + int(raw[25])<<8 + int(raw[26])<<16
+			height = 1 + int(raw[27]) + int(raw[28])<<8 + int(raw[29])<<16
+		case "VP8 ":
+			if bytes.Equal(raw[23:26], []byte{0x9d, 1, 0x2a}) {
+				width = int(binary.LittleEndian.Uint16(raw[26:28]) & 0x3fff)
+				height = int(binary.LittleEndian.Uint16(raw[28:30]) & 0x3fff)
+			}
+		case "VP8L":
+			if raw[20] == 0x2f {
+				packed := binary.LittleEndian.Uint32(raw[21:25])
+				width = int(packed&0x3fff) + 1
+				height = int((packed>>14)&0x3fff) + 1
+			}
+		}
+		if width > 0 && height > 0 {
+			return image.Config{Width: width, Height: height}, nil
+		}
+	}
+	config, _, e := image.DecodeConfig(bytes.NewReader(raw))
+	return config, e
 }

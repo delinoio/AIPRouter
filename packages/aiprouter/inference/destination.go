@@ -24,7 +24,13 @@ type DestinationPolicy struct {
 	ProxyURL        string
 	NoProxy         []string
 	ApprovedOrigins []string
+	Rules           []DestinationRule
 	Resolver        Resolver
+	// DialContext receives only an already validated, pinned IP:port. It cannot
+	// replace destination validation or the subsequent first-plaintext-write gate.
+	DialContext func(context.Context, string, string) (net.Conn, error)
+	// TLSConfig may add trust roots/client identity; verification cannot be disabled.
+	TLSConfig *tls.Config
 }
 
 func origin(u *url.URL) string {
@@ -80,7 +86,11 @@ func (p DestinationPolicy) client(raw string) (*http.Client, bool, error) {
 			return nil, false, err
 		}
 	}
-	allowed := p.approved(u)
+	rules, err := p.rulesForOrigin(origin(u))
+	if err != nil {
+		return nil, false, err
+	}
+	allowed := p.approved(u) || len(rules) > 0
 	if u.Scheme != "https" && !allowed {
 		return nil, false, ErrDestination
 	}
@@ -88,7 +98,18 @@ func (p DestinationPolicy) client(raw string) (*http.Client, bool, error) {
 	if resolver == nil {
 		resolver = net.DefaultResolver
 	}
-	tr := &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, ForceAttemptHTTP2: true, TLSHandshakeTimeout: 30 * time.Second, ResponseHeaderTimeout: 300 * time.Second, DisableKeepAlives: true}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	if p.TLSConfig != nil {
+		tlsConfig = p.TLSConfig.Clone()
+		if tlsConfig.InsecureSkipVerify {
+			return nil, false, ErrDestination
+		}
+		if tlsConfig.MinVersion < tls.VersionTLS12 {
+			tlsConfig.MinVersion = tls.VersionTLS12
+		}
+		tlsConfig.ServerName = ""
+	}
+	tr := &http.Transport{Proxy: nil, TLSClientConfig: tlsConfig, ForceAttemptHTTP2: true, TLSHandshakeTimeout: 30 * time.Second, ResponseHeaderTimeout: 300 * time.Second, DisableKeepAlives: true}
 	tr.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, e := net.SplitHostPort(address)
 		if e != nil || !strings.EqualFold(host, u.Hostname()) {
@@ -102,7 +123,7 @@ func (p DestinationPolicy) client(raw string) (*http.Client, bool, error) {
 			return nil, ErrDestination
 		}
 		for _, ip := range ips {
-			if !ip.IsValid() || (!allowed && !publicIP(ip)) {
+			if !ip.IsValid() || (!allowed && !publicIP(ip)) || !matchesRules(ip, rules) {
 				return nil, ErrDestination
 			}
 		}
@@ -124,7 +145,11 @@ func (p DestinationPolicy) client(raw string) (*http.Client, bool, error) {
 			if useProxy {
 				c, e = p.dialProxy(ctx, net.JoinHostPort(ip.String(), port))
 			} else {
-				c, e = d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				if p.DialContext != nil {
+					c, e = p.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				} else {
+					c, e = d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				}
 			}
 			if e == nil {
 				return c, nil

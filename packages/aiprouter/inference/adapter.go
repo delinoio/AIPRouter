@@ -97,3 +97,31 @@ type AttemptUsage interface{ RecordUsage(Usage) }
 type ContinuationHistory interface {
 	RecordContinuationHistory(json.RawMessage, Wire) error
 }
+
+// AdapterRecoveryExecutor reserves a bounded recovery batch before callback side
+// effects. It authorizes admission first; each reserved send still has a live write
+// gate. Unused reservations are released when callback returns. Callback must join
+// all sends before return and must generation-fence any credential mutation itself.
+type AdapterRecoveryExecutor interface {
+	Recover(context.Context, int, func(AdapterExecutor) (*http.Response, error)) (*http.Response, error)
+}
+
+// ResponseInspector normalizes bounded pre-output protocol refusals before HTTP
+// recovery. It must preserve all inspected bytes on success and cannot send/retry.
+type ResponseInspector interface {
+	InspectResponse(context.Context, AdapterInput, *http.Response) (*http.Response, error)
+}
+
+// AdapterRecoveryReason enumerates pinned, pre-visible semantic recoveries only.
+type AdapterRecoveryReason uint8
+
+const (
+	RecoveryInvalidArgument AdapterRecoveryReason = iota + 1
+	RecoveryToolResultEcho
+	RecoveryRoutingCommentary
+	RecoveryContextOverflow
+)
+
+type AdapterRecoveryAuthorizer interface {
+	AuthorizeRecovery(context.Context, AdapterRecoveryReason) error
+}

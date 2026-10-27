@@ -36,7 +36,7 @@ type scopedAdapterState struct {
 }
 
 func (s scopedAdapterState) key(id string) string {
-	sum := sha256.Sum256([]byte(s.p.OrganizationID + "\x00" + s.p.UserID + "\x00" + s.p.KeyID + "\x00" + strconv.FormatInt(s.p.MembershipGeneration, 10) + "\x00" + s.t.Provider + "\x00" + s.t.BaseURL + "\x00" + s.t.Model + "\x00" + s.c.AccountID + "\x00" + s.c.Secret + "\x00" + id))
+	sum := sha256.Sum256([]byte(s.p.OrganizationID + "\x00" + s.p.UserID + "\x00" + s.p.KeyID + "\x00" + strconv.FormatInt(s.p.MembershipGeneration, 10) + "\x00" + s.t.Provider + "\x00" + s.t.BaseURL + "\x00" + s.t.Model + "\x00" + s.c.AccountID + "\x00" + s.credentialBinding() + "\x00" + id))
 	return hex.EncodeToString(sum[:])
 }
 func (s scopedAdapterState) Load(ctx context.Context, id string) ([]byte, error) {
@@ -46,7 +46,7 @@ func (s scopedAdapterState) Load(ctx context.Context, id string) ([]byte, error)
 	if e := s.h.guard(ctx, s.p); e != nil {
 		return nil, e
 	}
-	state, e := s.h.c.ProviderStates.LoadProviderState(ctx, s.p, string(s.t.Wire), s.key(id))
+	state, e := s.h.c.ProviderStates.LoadProviderState(ctx, s.statePrincipal(), string(s.t.Wire), s.key(id))
 	if e != nil || !state.ExpiresAt.After(time.Now()) {
 		return nil, ErrContinuation
 	}
@@ -68,7 +68,7 @@ func (s scopedAdapterState) Save(ctx context.Context, id string, data []byte, tt
 	if e := s.h.guard(ctx, s.p); e != nil {
 		return e
 	}
-	return s.h.c.ProviderStates.SaveProviderState(ctx, s.p, string(s.t.Wire), s.key(id), ProviderState{Data: data, ExpiresAt: time.Now().Add(ttl)})
+	return s.h.c.ProviderStates.SaveProviderState(ctx, s.statePrincipal(), string(s.t.Wire), s.key(id), ProviderState{Data: data, ExpiresAt: time.Now().Add(ttl)})
 }
 
 // AdapterStateLookup distinguishes absent state from failed authorization/storage.
@@ -94,7 +94,7 @@ func (s scopedAdapterState) Lookup(ctx context.Context, id string) ([]byte, bool
 	if !ok {
 		return nil, false, ErrUnsupported
 	}
-	state, found, e := backend.LookupProviderState(ctx, s.p, string(s.t.Wire), s.key(id))
+	state, found, e := backend.LookupProviderState(ctx, s.statePrincipal(), string(s.t.Wire), s.key(id))
 	if e != nil {
 		return nil, false, e
 	}
@@ -134,7 +134,7 @@ func (s scopedAdapterState) Update(ctx context.Context, id string, ttl time.Dura
 			return &Error{400, "invalid_provider_state", 0}
 		}
 	}
-	return backend.UpdateProviderState(ctx, s.p, string(s.t.Wire), s.key(id), time.Now().Add(ttl), func(current []byte) ([]byte, error) {
+	return backend.UpdateProviderState(ctx, s.statePrincipal(), string(s.t.Wire), s.key(id), time.Now().Add(ttl), func(current []byte) ([]byte, error) {
 		next, e := merge(current)
 		if e != nil {
 			return nil, e
@@ -144,4 +144,23 @@ func (s scopedAdapterState) Update(ctx context.Context, id string, ttl time.Dura
 		}
 		return next, nil
 	})
+}
+
+func (s scopedAdapterState) credentialBinding() string {
+	if s.c.StateBinding != "" {
+		return s.c.StateBinding
+	}
+	// OAuth token renewal preserves the connected account identity. The credential
+	// service must reject refreshes that change that upstream identity.
+	if s.t.Auth == OAuth {
+		return s.c.AccountID
+	}
+	return s.c.Secret
+}
+
+func (s scopedAdapterState) statePrincipal() Principal {
+	p := s.p
+	p.AccountID = s.c.AccountID
+	p.CredentialVersion = s.c.CredentialVersion
+	return p
 }

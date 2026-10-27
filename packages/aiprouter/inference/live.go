@@ -303,11 +303,30 @@ func (h *Handler) ServeRealtimeSocket(ctx context.Context, token, path string, q
 		headers[k] = append([]string{}, v...)
 	}
 	headers.Set("Authorization", "Bearer "+c.Secret)
+	dictation := path == "/v1/audio/transcriptions/stream"
+	var protocols []string
+	if dictation {
+		if c.Secret == "" || strings.ContainsAny(c.Secret, " \t\r\n,") {
+			return ErrNoCredential
+		}
+		headers.Del("Authorization")
+		protocols = []string{"chatgpt-dictation", "openai-bearer." + c.Secret, "codex-desktop"}
+	}
 	if strings.HasPrefix(path, "/v1/live") {
 		headers.Set("openai-alpha", "quicksilver=v2")
 	}
 	gateClient(client, ctx, p, h.c.Authorizer, func() { h.event(ctx, "upstream_send") })
-	up, e := h.c.SocketDialer.Dial(ctx, strings.TrimRight(t.BaseURL, "/")+suffix, headers, client)
+	var up Socket
+	endpoint := strings.TrimRight(t.BaseURL, "/") + suffix
+	if dictation {
+		dialer, ok := h.c.SocketDialer.(SubprotocolSocketDialer)
+		if !ok {
+			return ErrUnsupported
+		}
+		up, e = dialer.DialProtocols(ctx, endpoint, headers, protocols, client)
+	} else {
+		up, e = h.c.SocketDialer.Dial(ctx, endpoint, headers, client)
+	}
 	if e != nil {
 		return e
 	}
@@ -316,12 +335,26 @@ func (h *Handler) ServeRealtimeSocket(ctx context.Context, token, path string, q
 	done := make(chan error, 2)
 	copyFrames := func(dst, src Socket, fromClient bool) {
 		for {
-			b, e := src.Read(ctx)
+			var b []byte
+			var e error
+			if framed, ok := src.(FrameSocket); ok && fromClient {
+				var text bool
+				b, text, e = framed.ReadFrame(ctx)
+				if e == nil && !text {
+					e = &Error{400, "invalid_frame", 0}
+				}
+			} else {
+				b, e = src.Read(ctx)
+			}
 			if e != nil {
 				done <- e
 				return
 			}
-			if len(b) > 2<<20 {
+			limit := 50 << 20
+			if dictation && fromClient {
+				limit = 64 << 10
+			}
+			if len(b) > limit {
 				done <- &Error{413, "frame_too_large", 0}
 				return
 			}
@@ -330,7 +363,7 @@ func (h *Handler) ServeRealtimeSocket(ctx context.Context, token, path string, q
 					done <- e
 					return
 				}
-				if !json.Valid(b) || (strings.Contains(path, "dictation") && !frames.validate(b)) {
+				if !json.Valid(b) || (dictation && !frames.validate(b)) {
 					done <- &Error{400, "invalid_frame", 0}
 					return
 				}
@@ -350,11 +383,31 @@ func (h *Handler) ServeRealtimeSocket(ctx context.Context, token, path string, q
 	}
 	go copyFrames(up, down, true)
 	go copyFrames(down, up, false)
+	remaining := 2
 	select {
 	case e = <-done:
-		cancel()
-		return e
+		remaining--
 	case <-ctx.Done():
-		return ctx.Err()
+		e = ctx.Err()
 	}
+	cancel()
+	up.Close()
+	down.Close()
+	// Socket implementations must unblock Read/Write on Close or cancellation.
+	// Join both directions before releasing this request's admission lease.
+	for ; remaining > 0; remaining-- {
+		<-done
+	}
+	return e
+}
+
+// SubprotocolSocketDialer negotiates provider-mandated protocols. It must use the
+// supplied gated client and must never log credential-bearing protocol values.
+type SubprotocolSocketDialer interface {
+	DialProtocols(context.Context, string, http.Header, []string, *http.Client) (Socket, error)
+}
+
+// FrameSocket exposes text/binary framing for strict inbound protocol validation.
+type FrameSocket interface {
+	ReadFrame(context.Context) ([]byte, bool, error)
 }

@@ -252,7 +252,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	id := newID()
 	metadata := requestMetadata{id: id, headers: make(http.Header)}
-	for _, k := range []string{"session-id", "session_id", "thread-id", "x-codex-parent-thread-id", "x-client-request-id"} {
+	for _, k := range []string{"session-id", "session_id", "x-session-id", "thread-id", "x-codex-parent-thread-id", "x-client-request-id"} {
 		if v := r.Header.Get(k); v != "" && len(v) <= 2048 {
 			metadata.headers.Set(k, v)
 		}
@@ -280,7 +280,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rec.Outcome = OutcomeSuccess
 	}
 	if err != nil {
-		rec.Outcome = OutcomeGatewayError
+		if rec.Outcome == "" {
+			rec.Outcome = OutcomeGatewayError
+		}
 		if typed, ok := err.(*Error); ok {
 			if typed.Code == "upstream_refused" {
 				rec.Outcome = OutcomeUpstreamError
@@ -374,7 +376,7 @@ func (h *Handler) save(ctx context.Context, p Principal, b, out object, rec *Usa
 	if len(data) > 32<<20 {
 		return &Error{502, "continuation_too_large", 0}
 	}
-	return h.c.Continuations.Save(ctx, p, str(out["id"]), Continuation{Provider: rec.Provider, AccountID: rec.AccountID, Model: str(b["model"]), Input: data, ExpiresAt: time.Now().Add(24 * time.Hour)})
+	return h.c.Continuations.Save(ctx, p, str(out["id"]), Continuation{Provider: rec.Provider, AccountID: rec.AccountID, Model: str(b["model"]), RoutedModel: rec.Model, Input: data, ExpiresAt: time.Now().Add(24 * time.Hour)})
 }
 func (h *Handler) guard(ctx context.Context, p Principal) error {
 	if e := ctx.Err(); e != nil {
@@ -407,6 +409,8 @@ func wait(ctx context.Context, d time.Duration) error {
 }
 func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principal, in Wire, op Operation, b object, rec *UsageRecord) error {
 	ctx = context.WithValue(ctx, inboundWireKey{}, in)
+	rawBody, _ := json.Marshal(b)
+	ctx = context.WithValue(ctx, routingRequestKey{}, routingRequest{h: h, p: p, record: rec, body: rawBody})
 	var route Route
 	var e error
 	if forced, ok := ctx.Value(compactionRouteKey{}).(Route); ok {
@@ -419,6 +423,9 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 	}
 	if len(route.Targets) == 0 {
 		return ErrNoCredential
+	}
+	if cap, ok := ctx.Value(routingBudgetKey{}).(int); ok && cap < route.MaxSends {
+		route.MaxSends = cap
 	}
 	if route.MaxSends < 1 {
 		return &Error{503, "invalid_send_budget", 0}
@@ -447,7 +454,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 		}
 		var cred Credential
 		if state, ok := ctx.Value(continuationKey{}).(Continuation); ok && state.Provider != "" {
-			if t.Provider != state.Provider {
+			if t.Provider != state.Provider || t.Model != state.RoutedModel {
 				return ErrContinuation
 			}
 			if bound, ok := h.c.Credentials.(BoundCredentials); ok {
@@ -464,6 +471,8 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 		if e != nil {
 			return e
 		}
+		logicalTarget := t
+		selectedCredential := cred
 		refreshed := false
 		rateRetries, transientSends := 0, 0
 		endpointHops := 0
@@ -473,11 +482,35 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			if rec.Sends >= route.MaxSends {
 				return &Error{429, "request_send_budget_exhausted", 0}
 			}
+			attemptBase := ctx
+			t, cred = logicalTarget, selectedCredential
+			if h.c.Negotiator != nil {
+				original, _ := json.Marshal(b)
+				var expires time.Time
+				t, cred, expires, e = h.c.Negotiator.Negotiate(ctx, p, logicalTarget, selectedCredential, original, h.c.Destinations)
+				if e != nil {
+					return e
+				}
+				if cred.AccountID != selectedCredential.AccountID {
+					return ErrContinuation
+				}
+				attemptBase = context.WithValue(ctx, negotiationExpiryKey{}, expires)
+				if e = validateNegotiationExpiry(attemptBase); e != nil {
+					return e
+				}
+				adapter = h.c.Adapters[t.Wire]
+				if adapter == nil && t.Wire != Chat && t.Wire != Responses && t.Wire != Anthropic {
+					return ErrUnsupported
+				}
+			}
 			scope := scopedAdapterState{h: h, p: p, t: t, c: cred}
 			if e = h.validateReplay(ctx, b, scope); e != nil {
 				return e
 			}
-			attemptCtx := context.WithValue(ctx, replayScopeKey{}, scope)
+			attemptCtx := context.WithValue(attemptBase, replayScopeKey{}, scope)
+			if t.Policy != nil {
+				attemptCtx = context.WithValue(attemptCtx, responseRewriterKey{}, t.Policy.NewResponseRewriter())
+			}
 			if prepare, ok := adapter.(ContextPreparer); ok {
 				attemptCtx = prepare.PrepareContext(attemptCtx)
 			}
@@ -485,12 +518,27 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			if attemptTimeout == 0 && t.Wire == Wire("kiro") {
 				attemptTimeout = 200 * time.Second
 			}
-			payload := clone(b)
+			requestBody := clone(b)
+			if t.ReasoningEffort != "" {
+				switch in {
+				case Responses:
+					reasoning := clone(obj(requestBody["reasoning"]))
+					reasoning["effort"] = t.ReasoningEffort
+					requestBody["reasoning"] = reasoning
+				case Chat:
+					requestBody["reasoning_effort"] = t.ReasoningEffort
+				case Anthropic:
+					outputConfig := clone(obj(requestBody["output_config"]))
+					outputConfig["effort"] = t.ReasoningEffort
+					requestBody["output_config"] = outputConfig
+				}
+			}
+			payload := requestBody
 			if op == ImageGeneration || op == ImageEdit {
 				payload["response_format"] = "b64_json"
 			}
-			if op == Generate && adapter == nil {
-				payload, e = translateRequest(b, in, t.Wire)
+			if op == Generate && (adapter == nil || t.Wire == Chat || t.Wire == Responses || t.Wire == Anthropic) {
+				payload, e = translateRequest(requestBody, in, t.Wire)
 				if e != nil {
 					return e
 				}
@@ -500,6 +548,18 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			}
 			if t.Wire == Responses && op == Generate {
 				payload["store"] = false
+			}
+			if op == Generate && (adapter == nil || t.Wire == Chat || t.Wire == Responses || t.Wire == Anthropic) {
+				attemptCtx, payload, e = h.prepareReasoningReplay(attemptCtx, p, t, cred, payload)
+				if e != nil {
+					return e
+				}
+				if t.Policy != nil {
+					payload, e = t.Policy.TransformRequest(payload)
+					if e != nil {
+						return &Error{400, "invalid_provider_policy_request", 0}
+					}
+				}
 			}
 			path := wirePath(t.Wire)
 			switch op {
@@ -516,6 +576,14 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			}
 			responseTarget := t
 			endpoint := strings.TrimRight(t.BaseURL, "/") + path
+			if op == Generate && t.Endpoint != "" {
+				u, err := url.Parse(t.Endpoint)
+				base, _ := url.Parse(t.BaseURL)
+				if err != nil || u.User != nil || u.Fragment != "" || origin(u) != origin(base) {
+					return ErrDestination
+				}
+				endpoint = t.Endpoint
+			}
 			var adapterHeaders http.Header
 			var adapterInput AdapterInput
 			var builtRequest AdapterRequest
@@ -523,6 +591,9 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			var executionCancel context.CancelFunc
 			if adapter != nil {
 				adapterInput = AdapterInput{Principal: p, Target: t, Credential: cred, Operation: op, Wire: in, Body: data}
+				if t.Wire == Chat || t.Wire == Responses || t.Wire == Anthropic {
+					adapterInput.Wire = t.Wire
+				}
 				if meta, ok := ctx.Value(requestMetadataKey{}).(requestMetadata); ok {
 					adapterInput.RequestID = meta.id
 					adapterInput.ClientHeaders = meta.headers.Clone()
@@ -575,6 +646,10 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					}
 					if built.AttemptTimeout > 0 {
 						attemptTimeout = built.AttemptTimeout
+					}
+					built, err = ApplyRequestPolicy(t, built)
+					if err != nil {
+						return err
 					}
 					builtRequest = built
 					endpoint = built.URL
@@ -694,10 +769,26 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					return ErrAmbiguous
 				}
 			}
+			if inspector, ok := adapter.(ResponseInspector); ok && executedResponse == nil {
+				original := resp
+				inspected, err := inspector.InspectResponse(sendCtx, adapterInput, resp)
+				if err != nil {
+					original.Body.Close()
+					cancel()
+					return err
+				}
+				if inspected == nil || inspected.Body == nil {
+					original.Body.Close()
+					cancel()
+					return &Error{502, "invalid_adapter_response", 0}
+				}
+				resp = inspected
+			}
 			rec.Status = resp.StatusCode
 			if resp.StatusCode >= 500 {
 				rec.UnmeasuredAttempts++
 			}
+			var terminalRefusal *Error
 			var headerDecision *RecoveryDecision
 			if policy := h.c.RecoveryPolicies[t.Wire]; policy != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				decision, err := policy.RecoverHTTP(sendCtx, adapterInput, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Attempt: transientSends, Repairs: repairCount, EndpointHops: endpointHops, Refreshed: refreshed})
@@ -706,6 +797,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					cancel()
 					return err
 				}
+				terminalRefusal = decision.Error
 				if decision.Action != RecoveryDefault && decision.Action != "" {
 					headerDecision = &decision
 				}
@@ -765,7 +857,13 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					return ErrAmbiguous
 				}
 			}
-			if repairer, ok := adapter.(RequestRepairer); ok && resp.StatusCode == 400 && executedResponse == nil && repairCount < 2 && rec.Sends < route.MaxSends {
+			if op == Compact && resp.StatusCode == 404 {
+				cancel()
+				bound := Continuation{Provider: t.Provider, AccountID: cred.AccountID, Model: str(b["model"]), RoutedModel: t.Model}
+				fallbackCtx := context.WithValue(ctx, continuationKey{}, bound)
+				return h.compactFallback(fallbackCtx, w, p, b, Route{Targets: []Target{t}, MaxSends: route.MaxSends}, rec)
+			}
+			if repairer, ok := adapter.(RequestRepairer); ok && (resp.StatusCode == 400 || resp.StatusCode == 422) && executedResponse == nil && repairCount < 2 && rec.Sends < route.MaxSends {
 				repaired, changed, err := repairer.RepairRequest(attemptCtx, adapterInput, builtRequest, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: errorBody, Attempt: transientSends, Repairs: repairCount, EndpointHops: endpointHops, Refreshed: refreshed})
 				if err != nil {
 					cancel()
@@ -814,10 +912,15 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					cancel()
 					return err
 				}
+				terminalRefusal = decision.Error
 				if decision.Action != RecoveryDefault && decision.Action != "" {
 					if decision.Action == RecoveryStop || rec.Sends >= route.MaxSends || op == ImageGeneration || op == ImageEdit {
 						cancel()
 						if decision.Error != nil {
+							rec.Outcome = OutcomeUpstreamError
+							if decision.Error.Status == 429 {
+								rec.Outcome = OutcomeRateLimited
+							}
 							return decision.Error
 						}
 						return &Error{resp.StatusCode, "upstream_refused", 0}
@@ -834,17 +937,25 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 							cancel()
 							return &Error{resp.StatusCode, "upstream_refused", 0}
 						}
-						cred, e = h.c.Credentials.Refresh(ctx, p, t, cred)
+						cred, e = h.c.Credentials.Refresh(ctx, p, logicalTarget, selectedCredential)
+						selectedCredential = cred
 						refreshed = true
 					case RecoveryRotate:
 						if continued {
 							cancel()
 							return ErrContinuation
 						}
-						next, err := h.c.Credentials.Select(ctx, p, t, cred.AccountID)
+						next, err := h.c.Credentials.Select(ctx, p, logicalTarget, selectedCredential.AccountID)
 						e = err
 						if e == ErrNoCredential {
 							cancel()
+							if decision.Error != nil {
+								rec.Outcome = OutcomeUpstreamError
+								if decision.Error.Status == 429 {
+									rec.Outcome = OutcomeRateLimited
+								}
+								return decision.Error
+							}
 							return &Error{resp.StatusCode, "upstream_refused", 0}
 						}
 						if e == nil {
@@ -853,6 +964,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 								return ErrNoCredential
 							}
 							cred = next
+							selectedCredential = next
 							visited[next.AccountID] = true
 						}
 					case RecoveryFallback:
@@ -884,6 +996,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 							return e
 						}
 						t.BaseURL = decision.Endpoint
+						logicalTarget.BaseURL = decision.Endpoint
 						endpointHops++
 					}
 					cancel()
@@ -922,7 +1035,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			}
 			if reporter, ok := h.c.Credentials.(FailureReporter); ok && resp.StatusCode == 429 {
 				if e = h.guard(ctx, p); e == nil {
-					e = reporter.Failed(ctx, p, t, cred, resp.StatusCode, delay)
+					e = reporter.Failed(ctx, p, logicalTarget, selectedCredential, resp.StatusCode, delay)
 				}
 				if e != nil {
 					resp.Body.Close()
@@ -936,9 +1049,10 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					cancel()
 					return e
 				}
-				updated, err := h.c.Credentials.Refresh(ctx, p, t, cred)
+				updated, err := h.c.Credentials.Refresh(ctx, p, logicalTarget, selectedCredential)
 				if err == nil {
 					cred = updated
+					selectedCredential = updated
 					retry = true
 					refreshed = true
 				}
@@ -965,9 +1079,10 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 						cancel()
 						return e
 					}
-					next, err := h.c.Credentials.Select(ctx, p, t, cred.AccountID)
+					next, err := h.c.Credentials.Select(ctx, p, logicalTarget, selectedCredential.AccountID)
 					if err == nil && !visited[next.AccountID] {
 						cred = next
+						selectedCredential = next
 						visited[next.AccountID] = true
 						retry = true
 						rateRetries = 0
@@ -997,6 +1112,13 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			cancel()
 			if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 				return ErrDestination
+			}
+			if terminalRefusal != nil {
+				rec.Outcome = OutcomeUpstreamError
+				if terminalRefusal.Status == 429 {
+					rec.Outcome = OutcomeRateLimited
+				}
+				return terminalRefusal
 			}
 			if resp.StatusCode == 429 {
 				return &Error{429, "upstream_rate_limited", delay}
@@ -1041,8 +1163,17 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 		return &Error{502, "invalid_upstream_json", 0}
 	}
 	rec.ResponseID = str(out["id"])
+	if t.Wire == Chat {
+		if e = h.CaptureReasoningReplay(ctx, out); e != nil {
+			return e
+		}
+	}
 	rec.Usage = readUsage(out, t.Wire)
 	rec.ServiceTier = str(out["service_tier"])
+	out, e = h.RewriteProviderResponse(ctx, out)
+	if e != nil {
+		return e
+	}
 	if op == Generate && in != t.Wire {
 		r, e := parseResult(out, t.Wire)
 		if e != nil {
@@ -1058,7 +1189,7 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 			return e
 		}
 	}
-	if op == Generate {
+	if op == Generate || op == Compact {
 		if e := h.CaptureReplayReceipts(ctx, out); e != nil {
 			return e
 		}

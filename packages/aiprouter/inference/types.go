@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/policy"
 	"log/slog"
 	"net/http"
 	"time"
@@ -40,6 +41,7 @@ const (
 
 type Principal struct {
 	OrganizationID, UserID, KeyID string
+	AccountID, CredentialVersion  string
 	MembershipGeneration          int64
 }
 
@@ -63,6 +65,9 @@ type Route struct {
 	MaxSends int
 }
 type Target struct {
+	ReasoningEffort          string
+	Policy                   *policy.Resolved
+	Endpoint                 string
 	Transport                Transport
 	AttemptTimeout           time.Duration
 	Provider, BaseURL, Model string
@@ -83,6 +88,9 @@ type RetryPolicy struct {
 }
 type Credential struct {
 	AccountID, Secret string
+	// StateBinding identifies an upstream account generation, stable across token refresh.
+	StateBinding      string
+	CredentialVersion string
 	Headers           http.Header
 }
 
@@ -99,6 +107,7 @@ type Continuation struct {
 	ResponseID          string
 	Provider, AccountID string
 	Model               string
+	RoutedModel         string
 	Input               json.RawMessage
 	ExpiresAt           time.Time
 }
@@ -163,6 +172,7 @@ type ArtifactStore interface {
 	URL(context.Context, Principal, string) (string, error)
 }
 type Config struct {
+	Negotiator           Negotiator
 	ProviderStates       ProviderStates
 	RecoveryPolicies     map[Wire]HTTPRecoveryPolicy
 	RecoveryDestinations RecoveryDestinations

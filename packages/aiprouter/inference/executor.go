@@ -22,6 +22,14 @@ type requestExecutor struct {
 }
 
 func (x *requestExecutor) Do(ctx context.Context, r AdapterRequest) (*http.Response, error) {
+	return x.do(ctx, r, false)
+}
+func (x *requestExecutor) do(ctx context.Context, r AdapterRequest, reserved bool) (*http.Response, error) {
+	var policyErr error
+	r, policyErr = ApplyRequestPolicy(x.target, r)
+	if policyErr != nil {
+		return nil, policyErr
+	}
 	cancel := func() {}
 	if r.AttemptTimeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, r.AttemptTimeout)
@@ -33,11 +41,13 @@ func (x *requestExecutor) Do(ctx context.Context, r AdapterRequest) (*http.Respo
 		}
 	}()
 	x.mu.Lock()
-	if x.record.Sends+x.reserved >= x.maxSends {
+	if !reserved && x.record.Sends+x.reserved >= x.maxSends {
 		x.mu.Unlock()
 		return nil, &Error{429, "request_send_budget_exhausted", 0}
 	}
-	x.reserved++
+	if !reserved {
+		x.reserved++
+	}
 	x.mu.Unlock()
 	claimed := false
 	defer func() {
@@ -174,5 +184,73 @@ func (x *requestExecutor) RecordContinuationHistory(raw json.RawMessage, wire Wi
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	x.record.continuationInput = body["input"]
+	return nil
+}
+
+func (x *requestExecutor) Recover(ctx context.Context, n int, run func(AdapterExecutor) (*http.Response, error)) (*http.Response, error) {
+	if n < 1 || n > x.maxSends || run == nil {
+		return nil, &Error{429, "request_send_budget_exhausted", 0}
+	}
+	lease := &recoveryExecutor{requestExecutor: x}
+	// Dispatch holds the authoritative fence only for reservation, never callback I/O.
+	e := x.h.c.Authorizer.(Dispatcher).Dispatch(ctx, x.p, func(gated context.Context) error {
+		if e := gated.Err(); e != nil {
+			return e
+		}
+		x.mu.Lock()
+		defer x.mu.Unlock()
+		if x.record.Sends+x.reserved+n > x.maxSends {
+			return &Error{429, "request_send_budget_exhausted", 0}
+		}
+		x.reserved += n
+		lease.remaining = n
+		return nil
+	})
+	if e != nil {
+		return nil, e
+	}
+	defer lease.release()
+	return run(lease)
+}
+
+type recoveryExecutor struct {
+	*requestExecutor
+	leaseMu   sync.Mutex
+	remaining int
+}
+
+func (x *recoveryExecutor) Do(ctx context.Context, r AdapterRequest) (*http.Response, error) {
+	x.leaseMu.Lock()
+	if x.remaining < 1 {
+		x.leaseMu.Unlock()
+		return nil, &Error{429, "request_send_budget_exhausted", 0}
+	}
+	x.remaining--
+	x.leaseMu.Unlock()
+	return x.requestExecutor.do(ctx, r, true)
+}
+func (x *recoveryExecutor) release() {
+	x.leaseMu.Lock()
+	defer x.leaseMu.Unlock()
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.reserved -= x.remaining
+	x.remaining = 0
+}
+
+func (x *requestExecutor) AuthorizeRecovery(ctx context.Context, reason AdapterRecoveryReason) error {
+	switch reason {
+	case RecoveryInvalidArgument, RecoveryToolResultEcho, RecoveryRoutingCommentary, RecoveryContextOverflow:
+	default:
+		return ErrUnsupported
+	}
+	if e := x.h.guard(ctx, x.p); e != nil {
+		return e
+	}
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.record.Sends+x.reserved >= x.maxSends {
+		return &Error{429, "request_send_budget_exhausted", 0}
+	}
 	return nil
 }

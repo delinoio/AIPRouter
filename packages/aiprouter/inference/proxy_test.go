@@ -2,7 +2,9 @@
 package inference
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 	"net/url"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestExplicitProxyTunnelAndNoDirectFallback(t *testing.T) {
@@ -92,5 +95,56 @@ func TestNoProxyDomainBoundaries(t *testing.T) {
 		if p.bypassProxy(u, netip.MustParseAddr("8.8.8.8")) != fixture.want {
 			t.Fatal(fixture.host)
 		}
+	}
+}
+
+func TestSOCKS5AuthenticatesAndPinsAddress(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	done := make(chan error, 1)
+	go func() {
+		greeting := make([]byte, 3)
+		if _, e := io.ReadFull(server, greeting); e != nil {
+			done <- e
+			return
+		}
+		if !bytes.Equal(greeting, []byte{5, 1, 2}) {
+			done <- fmt.Errorf("unexpected SOCKS auth greeting")
+			return
+		}
+		server.Write([]byte{5, 2})
+		head := make([]byte, 2)
+		io.ReadFull(server, head)
+		user := make([]byte, int(head[1]))
+		io.ReadFull(server, user)
+		n := make([]byte, 1)
+		io.ReadFull(server, n)
+		password := make([]byte, int(n[0]))
+		io.ReadFull(server, password)
+		if string(user) != "operator" || string(password) != "proxy-secret" {
+			done <- fmt.Errorf("bad proxy credentials")
+			return
+		}
+		server.Write([]byte{1, 0})
+		request := make([]byte, 10)
+		if _, e := io.ReadFull(server, request); e != nil {
+			done <- e
+			return
+		}
+		if !bytes.Equal(request, []byte{5, 1, 0, 1, 8, 8, 8, 8, 1, 187}) {
+			done <- fmt.Errorf("SOCKS destination was not pinned")
+			return
+		}
+		_, e := server.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+		done <- e
+	}()
+	u, _ := url.Parse("socks5://operator:proxy-secret@proxy.invalid")
+	client.SetDeadline(time.Now().Add(time.Second))
+	if e := socksTunnel(client, u, "8.8.8.8:443"); e != nil {
+		t.Fatal(e)
+	}
+	if e := <-done; e != nil {
+		t.Fatal(e)
 	}
 }
