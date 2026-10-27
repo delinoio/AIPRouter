@@ -81,6 +81,34 @@ func TestRoutingRecoveryProbeChargedOnlyAtGrant(t *testing.T) {
 	}
 }
 
+func TestRoutingRecoveryBlockedInitialDoesNotCreateDemand(t *testing.T) {
+	f := newRecoveryHTTPSAcceptance(t, func(http.ResponseWriter, *http.Request) { t.Error("blocked gate reached upstream") })
+	a := &inferenceAdapter{s: f.s, telemetry: f.srv.telemetry}
+	ctx := context.Background()
+	p, release, err := a.Admit(ctx, f.key)
+	acceptanceOK(t, err)
+	defer release()
+	l, err := a.current(p)
+	acceptanceOK(t, err)
+	_, version, err := a.providerVersion(ctx, f.scope, f.data.Metadata.Id)
+	acceptanceOK(t, err)
+	permit, err := f.s.AcquireNativeHealthPermitForRecovery(ctx, l, store.NativeHealthKey{AccountID: f.data.Metadata.Id, CredentialVersion: version, Lane: store.NativeHealthTransient}, false, "blocked-pool", store.NativeRecoveryInitial)
+	acceptanceOK(t, err)
+	f.data.Credential.AccessToken = "replacement-fixture"
+	f.save()
+	sent := false
+	err = f.s.WithNativeHealthDispatch(ctx, l, []store.NativeHealthPermit{permit}, func(context.Context) error { sent = true; return nil })
+	if err == nil || sent {
+		t.Fatalf("stale generation crossed physical gate: %v", err)
+	}
+	var initials int
+	err = f.db.QueryRowContext(ctx, `SELECT COALESCE(sum(initials),0) FROM "`+f.schema+`".native_recovery_buckets WHERE pool_key=$1`, "blocked-pool").Scan(&initials)
+	acceptanceOK(t, err)
+	if initials != 0 {
+		t.Fatalf("blocked initial created demand: %d", initials)
+	}
+}
+
 func TestRoutingRecoveryBudgetPhysicalInitials(t *testing.T) {
 	var model, support atomic.Int32
 	f := newRecoveryHTTPSAcceptance(t, func(w http.ResponseWriter, r *http.Request) {
