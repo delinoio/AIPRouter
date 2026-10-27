@@ -445,3 +445,61 @@ test("fast policy retains explicit false and per-model false entries", async () 
     false,
   );
 });
+
+test("native pool settings preserve optional defaults, routes, and signed priority", async () => {
+  const {
+    PoolSchema,
+    CreatePoolRequestSchema,
+    UpdatePoolRequestSchema,
+    NativePoolOptionsSchema,
+    NativePoolStrategy,
+    NativeQuotaWindow,
+  } = await import("../src/index.js");
+  const nativeOptions = {
+    strategy: NativePoolStrategy.QUOTA,
+    stickyLimit: 1,
+    autoSwitchThreshold: 0,
+    cacheAffinity: false,
+    quotaWindow: NativeQuotaWindow.WEEKLY,
+    excludedPlans: ["Free"],
+    enabled: false,
+    nativeMessages: false,
+    routes: [
+      {
+        name: "claude",
+        match: "claude-*",
+        connectionIds: ["second", "first"],
+        fallback: true,
+      },
+    ],
+  };
+  const pool = create(PoolSchema, {
+    nativeOptions,
+    members: [
+      {
+        connectionId: "first",
+        priority: 2,
+        nativeOptions: {
+          priority: -100,
+          autoSwitchThreshold: 0,
+          useRemainingQuota: true,
+          allowCredits: true,
+        },
+      },
+    ],
+  });
+  assert.deepEqual(fromJson(PoolSchema, toJson(PoolSchema, pool)), pool);
+  assert.deepEqual(fromBinary(PoolSchema, toBinary(PoolSchema, pool)), pool);
+  assert.equal(create(NativePoolOptionsSchema).enabled, undefined);
+  assert.equal(create(NativePoolOptionsSchema).autoSwitchThreshold, undefined);
+  assert.equal(create(UpdatePoolRequestSchema).nativeOptions, undefined);
+  assert.ok(
+    create(UpdatePoolRequestSchema, { nativeOptions: {} }).nativeOptions,
+  );
+  assert.equal(
+    create(CreatePoolRequestSchema, { nativeOptions }).nativeOptions?.enabled,
+    false,
+  );
+  assert.equal(pool.members[0]?.priority, 2);
+  assert.equal(pool.members[0]?.nativeOptions?.priority, -100);
+});

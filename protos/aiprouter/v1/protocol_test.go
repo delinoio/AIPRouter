@@ -454,3 +454,47 @@ func TestFastPolicyFalseMapValues(t *testing.T) {
 		}
 	}
 }
+
+func TestNativePoolOptionsPresenceAndPriority(t *testing.T) {
+	options := &v1.NativePoolOptions{
+		Strategy:    v1.NativePoolStrategy_NATIVE_POOL_STRATEGY_RESET_FIRST,
+		StickyLimit: proto.Uint32(1), AutoSwitchThreshold: proto.Uint32(0), CacheAffinity: proto.Bool(false),
+		QuotaWindow: v1.NativeQuotaWindow_NATIVE_QUOTA_WINDOW_WEEKLY, ExcludedPlans: []string{"Free"},
+		Enabled: proto.Bool(false), NativeMessages: proto.Bool(false),
+		Routes: []*v1.NativeModelRoute{{Name: "claude", Match: "claude-*", ConnectionIds: []string{"second", "first"}, Fallback: true}},
+	}
+	member := &v1.PoolMember{ConnectionId: "first", Priority: 2, NativeOptions: &v1.NativePoolMemberOptions{Priority: proto.Int32(-100), AutoSwitchThreshold: proto.Uint32(0), UseRemainingQuota: true, AllowCredits: true}}
+	// Encoding preserves settings independently; provider-specific combinations are validated by management.
+	for _, value := range []proto.Message{&v1.Pool{NativeOptions: options, Members: []*v1.PoolMember{member}}, &v1.CreatePoolRequest{NativeOptions: options}, &v1.UpdatePoolRequest{}, &v1.UpdatePoolRequest{NativeOptions: &v1.NativePoolOptions{}}, &v1.UpdatePoolRequest{NativeOptions: options}} {
+		for _, jsonWire := range []bool{false, true} {
+			var wire []byte
+			var err error
+			if jsonWire {
+				wire, err = protojson.Marshal(value)
+			} else {
+				wire, err = proto.Marshal(value)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded := value.ProtoReflect().New().Interface()
+			if jsonWire {
+				err = protojson.Unmarshal(wire, decoded)
+			} else {
+				err = proto.Unmarshal(wire, decoded)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !proto.Equal(value, decoded) {
+				t.Fatalf("native options lost: %v", decoded)
+			}
+		}
+	}
+	if (&v1.NativePoolOptions{}).Enabled != nil || (&v1.NativePoolOptions{}).AutoSwitchThreshold != nil {
+		t.Fatal("source defaults must remain absent")
+	}
+	if member.Priority != 2 || *member.NativeOptions.Priority != -100 {
+		t.Fatal("native and ordinal priority must stay independent")
+	}
+}

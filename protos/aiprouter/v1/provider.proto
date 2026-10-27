@@ -119,10 +119,76 @@ message ProviderOAuth {
   // Public challenge state for callback correlation; never a verifier or device secret.
   optional string callback_state = 8;
 }
+enum NativePoolStrategy {
+  NATIVE_POOL_STRATEGY_UNSPECIFIED = 0;
+  NATIVE_POOL_STRATEGY_QUOTA = 1;
+  NATIVE_POOL_STRATEGY_ROUND_ROBIN = 2;
+  NATIVE_POOL_STRATEGY_FILL_FIRST = 3;
+  // Codex only.
+  NATIVE_POOL_STRATEGY_RESET_FIRST = 4;
+}
+
+enum NativeQuotaWindow {
+  NATIVE_QUOTA_WINDOW_UNSPECIFIED = 0;
+  NATIVE_QUOTA_WINDOW_FIVE_HOUR = 1;
+  NATIVE_QUOTA_WINDOW_WEEKLY = 2;
+  NATIVE_QUOTA_WINDOW_MAX_UTILIZATION = 3;
+}
+
+// Ordered Anthropic allowlist, evaluated only while native pooling is enabled.
+// At most 32 rules, with unique names and match patterns. First matching rule wins.
+message NativeModelRoute {
+  // Unique safe name: [A-Za-z0-9][A-Za-z0-9_-]{0,63}.
+  string name = 1;
+  // Unique model glob, at most 128 characters; * and ? are wildcards.
+  // Allowed characters: letters, digits, underscore, dot, slash, colon, *, ?, hyphen.
+  string match = 2;
+  // 1..32 unique stored personal connection IDs, in selection order. Never local accounts.
+  repeated string connection_ids = 3;
+  // If no listed connection is eligible, allow the full eligible roster; default false.
+  bool fallback = 4;
+}
+
+// Provider-native settings for explicitly managed personal pools. Keep anthropic
+// and anthropic2 settings independent; never resolve local CLI credentials.
+message NativePoolOptions {
+  // UNSPECIFIED uses QUOTA. RESET_FIRST is Codex-only.
+  NativePoolStrategy strategy = 1;
+  // Absent uses 1; explicit values must be 1..100.
+  optional uint32 sticky_limit = 2;
+  // Absent uses 80; 0 disables voluntary quota switching; otherwise 1..100.
+  optional uint32 auto_switch_threshold = 3;
+  // Codex only; absent uses true.
+  optional bool cache_affinity = 4;
+  // Anthropic only; UNSPECIFIED uses FIVE_HOUR.
+  NativeQuotaWindow quota_window = 5;
+  // Codex only; case-insensitive plan exclusions.
+  repeated string excluded_plans = 6;
+  // Source/import default is false. Management materializes true when omitted on
+  // explicit native pool creation; explicit false is honored. Generic resolvers
+  // must not infer enablement from absence.
+  optional bool enabled = 7;
+  // Anthropic only; absent uses true. False selects legacy translation.
+  optional bool native_messages = 8;
+  repeated NativeModelRoute routes = 9;
+}
+
+message NativePoolMemberOptions {
+  // Absent inherits pool threshold; explicit values must be 0..100.
+  optional uint32 auto_switch_threshold = 1;
+  // Default false; true makes the effective threshold zero.
+  bool use_remaining_quota = 2;
+  // Codex only; default false.
+  bool allow_credits = 3;
+  // Native priority, -100..100, higher first. Does not reinterpret PoolMember.priority.
+  optional sint32 priority = 4;
+}
+
 message PoolMember {
   string connection_id = 1;
   uint32 priority = 2;
   uint32 weight = 3;
+  NativePoolMemberOptions native_options = 4;
 }
 message Pool {
   string id = 1;
@@ -133,6 +199,8 @@ message Pool {
   // Opt-in generic OAuth session affinity only; default false.
   // Does not enable or change Codex or Anthropic provider-specific affinity.
   bool affinity_enabled = 6;
+  // Full native settings. Omitted update settings clear the previous options.
+  NativePoolOptions native_options = 7;
 }
 
 // JEV decision settings are private to the authenticated user in the selected organization.
@@ -353,6 +421,7 @@ message CreatePoolRequest {
   // Opt-in generic OAuth session affinity only; default false.
   // Does not enable or change Codex or Anthropic provider-specific affinity.
   bool affinity_enabled = 5;
+  NativePoolOptions native_options = 6;
 }
 message CreatePoolResponse {
   Pool pool = 1;
@@ -366,6 +435,8 @@ message UpdatePoolRequest {
   // Opt-in generic OAuth session affinity only; default false.
   // Does not enable or change Codex or Anthropic provider-specific affinity.
   bool affinity_enabled = 6;
+  // Full native settings. Omitted update settings clear the previous options.
+  NativePoolOptions native_options = 7;
 }
 message UpdatePoolResponse {
   Pool pool = 1;
