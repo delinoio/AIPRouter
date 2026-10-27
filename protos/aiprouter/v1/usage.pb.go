@@ -603,6 +603,7 @@ type AuditRecord struct {
 	Action        AuditAction            `protobuf:"varint,4,opt,name=action,proto3,enum=aiprouter.v1.AuditAction" json:"action,omitempty"`
 	ResourceId    string                 `protobuf:"bytes,5,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
 	RequestId     string                 `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Outcome       AuditOutcome           `protobuf:"varint,7,opt,name=outcome,proto3,enum=aiprouter.v1.AuditOutcome" json:"outcome,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -679,6 +680,13 @@ func (x *AuditRecord) GetRequestId() string {
 	return ""
 }
 
+func (x *AuditRecord) GetOutcome() AuditOutcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return AuditOutcome_AUDIT_OUTCOME_UNSPECIFIED
+}
+
 type ListUsageRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	OrganizationId string                 `protobuf:"bytes,1,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
@@ -686,8 +694,12 @@ type ListUsageRequest struct {
 	UserId         *string                `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
 	ModelId        *string                `protobuf:"bytes,4,opt,name=model_id,json=modelId,proto3,oneof" json:"model_id,omitempty"`
 	Page           *PageRequest           `protobuf:"bytes,5,opt,name=page,proto3" json:"page,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Filters are conjunctive within the authorized organization/user scope.
+	// Absence means no filter; explicit UNSPECIFIED selects unknown outcomes.
+	ProviderId    *string         `protobuf:"bytes,6,opt,name=provider_id,json=providerId,proto3,oneof" json:"provider_id,omitempty"`
+	Outcome       *RequestOutcome `protobuf:"varint,7,opt,name=outcome,proto3,enum=aiprouter.v1.RequestOutcome,oneof" json:"outcome,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListUsageRequest) Reset() {
@@ -755,6 +767,20 @@ func (x *ListUsageRequest) GetPage() *PageRequest {
 	return nil
 }
 
+func (x *ListUsageRequest) GetProviderId() string {
+	if x != nil && x.ProviderId != nil {
+		return *x.ProviderId
+	}
+	return ""
+}
+
+func (x *ListUsageRequest) GetOutcome() RequestOutcome {
+	if x != nil && x.Outcome != nil {
+		return *x.Outcome
+	}
+	return RequestOutcome_REQUEST_OUTCOME_UNSPECIFIED
+}
+
 type ListUsageResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Records       []*UsageRecord         `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
@@ -813,8 +839,12 @@ type GetUsageSummaryRequest struct {
 	TimeRange      *TimeRange             `protobuf:"bytes,2,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
 	UserId         *string                `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
 	ModelId        *string                `protobuf:"bytes,4,opt,name=model_id,json=modelId,proto3,oneof" json:"model_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Filters are conjunctive within the authorized organization/user scope.
+	// Absence means no filter; explicit UNSPECIFIED selects unknown outcomes.
+	ProviderId    *string         `protobuf:"bytes,5,opt,name=provider_id,json=providerId,proto3,oneof" json:"provider_id,omitempty"`
+	Outcome       *RequestOutcome `protobuf:"varint,6,opt,name=outcome,proto3,enum=aiprouter.v1.RequestOutcome,oneof" json:"outcome,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetUsageSummaryRequest) Reset() {
@@ -875,6 +905,20 @@ func (x *GetUsageSummaryRequest) GetModelId() string {
 	return ""
 }
 
+func (x *GetUsageSummaryRequest) GetProviderId() string {
+	if x != nil && x.ProviderId != nil {
+		return *x.ProviderId
+	}
+	return ""
+}
+
+func (x *GetUsageSummaryRequest) GetOutcome() RequestOutcome {
+	if x != nil && x.Outcome != nil {
+		return *x.Outcome
+	}
+	return RequestOutcome_REQUEST_OUTCOME_UNSPECIFIED
+}
+
 type GetUsageSummaryResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Summary       *UsageSummary          `protobuf:"bytes,1,opt,name=summary,proto3" json:"summary,omitempty"`
@@ -926,8 +970,12 @@ type ListDailyUsageRequest struct {
 	UserId         *string                `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
 	ModelId        *string                `protobuf:"bytes,4,opt,name=model_id,json=modelId,proto3,oneof" json:"model_id,omitempty"`
 	Page           *PageRequest           `protobuf:"bytes,5,opt,name=page,proto3" json:"page,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Filters are conjunctive within the authorized organization/user scope.
+	// Absence means no filter; explicit UNSPECIFIED selects unknown outcomes.
+	ProviderId    *string         `protobuf:"bytes,6,opt,name=provider_id,json=providerId,proto3,oneof" json:"provider_id,omitempty"`
+	Outcome       *RequestOutcome `protobuf:"varint,7,opt,name=outcome,proto3,enum=aiprouter.v1.RequestOutcome,oneof" json:"outcome,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListDailyUsageRequest) Reset() {
@@ -995,6 +1043,20 @@ func (x *ListDailyUsageRequest) GetPage() *PageRequest {
 	return nil
 }
 
+func (x *ListDailyUsageRequest) GetProviderId() string {
+	if x != nil && x.ProviderId != nil {
+		return *x.ProviderId
+	}
+	return ""
+}
+
+func (x *ListDailyUsageRequest) GetOutcome() RequestOutcome {
+	if x != nil && x.Outcome != nil {
+		return *x.Outcome
+	}
+	return RequestOutcome_REQUEST_OUTCOME_UNSPECIFIED
+}
+
 type ListDailyUsageResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Days          []*DailyUsage          `protobuf:"bytes,1,rep,name=days,proto3" json:"days,omitempty"`
@@ -1052,8 +1114,13 @@ type ListOrganizationAuditRequest struct {
 	OrganizationId string                 `protobuf:"bytes,1,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
 	TimeRange      *TimeRange             `protobuf:"bytes,2,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
 	Page           *PageRequest           `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Conjunctive filters never widen the existing audit visibility scope.
+	// Absent outcome means all; explicit UNSPECIFIED selects unknown outcomes.
+	Action        *AuditAction  `protobuf:"varint,4,opt,name=action,proto3,enum=aiprouter.v1.AuditAction,oneof" json:"action,omitempty"`
+	ActorUserId   *string       `protobuf:"bytes,5,opt,name=actor_user_id,json=actorUserId,proto3,oneof" json:"actor_user_id,omitempty"`
+	Outcome       *AuditOutcome `protobuf:"varint,6,opt,name=outcome,proto3,enum=aiprouter.v1.AuditOutcome,oneof" json:"outcome,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListOrganizationAuditRequest) Reset() {
@@ -1105,6 +1172,27 @@ func (x *ListOrganizationAuditRequest) GetPage() *PageRequest {
 		return x.Page
 	}
 	return nil
+}
+
+func (x *ListOrganizationAuditRequest) GetAction() AuditAction {
+	if x != nil && x.Action != nil {
+		return *x.Action
+	}
+	return AuditAction_AUDIT_ACTION_UNSPECIFIED
+}
+
+func (x *ListOrganizationAuditRequest) GetActorUserId() string {
+	if x != nil && x.ActorUserId != nil {
+		return *x.ActorUserId
+	}
+	return ""
+}
+
+func (x *ListOrganizationAuditRequest) GetOutcome() AuditOutcome {
+	if x != nil && x.Outcome != nil {
+		return *x.Outcome
+	}
+	return AuditOutcome_AUDIT_OUTCOME_UNSPECIFIED
 }
 
 type ListOrganizationAuditResponse struct {
@@ -1245,7 +1333,7 @@ const file_aiprouter_v1_usage_proto_rawDesc = "" +
 	"\bmodel_id\x18\x03 \x01(\tR\amodelId\x124\n" +
 	"\asummary\x18\x04 \x01(\v2\x1a.aiprouter.v1.UsageSummaryR\asummaryB\n" +
 	"\n" +
-	"\b_user_id\"\x88\x02\n" +
+	"\b_user_id\"\xbe\x02\n" +
 	"\vAuditRecord\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12;\n" +
 	"\voccurred_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
@@ -1255,50 +1343,76 @@ const file_aiprouter_v1_usage_proto_rawDesc = "" +
 	"\vresource_id\x18\x05 \x01(\tR\n" +
 	"resourceId\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x06 \x01(\tR\trequestIdB\x10\n" +
-	"\x0e_actor_user_id\"\xf9\x01\n" +
+	"request_id\x18\x06 \x01(\tR\trequestId\x124\n" +
+	"\aoutcome\x18\a \x01(\x0e2\x1a.aiprouter.v1.AuditOutcomeR\aoutcomeB\x10\n" +
+	"\x0e_actor_user_id\"\xf8\x02\n" +
 	"\x10ListUsageRequest\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x126\n" +
 	"\n" +
 	"time_range\x18\x02 \x01(\v2\x17.aiprouter.v1.TimeRangeR\ttimeRange\x12\x1c\n" +
 	"\auser_id\x18\x03 \x01(\tH\x00R\x06userId\x88\x01\x01\x12\x1e\n" +
 	"\bmodel_id\x18\x04 \x01(\tH\x01R\amodelId\x88\x01\x01\x12-\n" +
-	"\x04page\x18\x05 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04pageB\n" +
+	"\x04page\x18\x05 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04page\x12$\n" +
+	"\vprovider_id\x18\x06 \x01(\tH\x02R\n" +
+	"providerId\x88\x01\x01\x12;\n" +
+	"\aoutcome\x18\a \x01(\x0e2\x1c.aiprouter.v1.RequestOutcomeH\x03R\aoutcome\x88\x01\x01B\n" +
 	"\n" +
 	"\b_user_idB\v\n" +
-	"\t_model_id\"x\n" +
+	"\t_model_idB\x0e\n" +
+	"\f_provider_idB\n" +
+	"\n" +
+	"\b_outcome\"x\n" +
 	"\x11ListUsageResponse\x123\n" +
 	"\arecords\x18\x01 \x03(\v2\x19.aiprouter.v1.UsageRecordR\arecords\x12.\n" +
-	"\x04page\x18\x02 \x01(\v2\x1a.aiprouter.v1.PageResponseR\x04page\"\xd0\x01\n" +
+	"\x04page\x18\x02 \x01(\v2\x1a.aiprouter.v1.PageResponseR\x04page\"\xcf\x02\n" +
 	"\x16GetUsageSummaryRequest\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x126\n" +
 	"\n" +
 	"time_range\x18\x02 \x01(\v2\x17.aiprouter.v1.TimeRangeR\ttimeRange\x12\x1c\n" +
 	"\auser_id\x18\x03 \x01(\tH\x00R\x06userId\x88\x01\x01\x12\x1e\n" +
-	"\bmodel_id\x18\x04 \x01(\tH\x01R\amodelId\x88\x01\x01B\n" +
+	"\bmodel_id\x18\x04 \x01(\tH\x01R\amodelId\x88\x01\x01\x12$\n" +
+	"\vprovider_id\x18\x05 \x01(\tH\x02R\n" +
+	"providerId\x88\x01\x01\x12;\n" +
+	"\aoutcome\x18\x06 \x01(\x0e2\x1c.aiprouter.v1.RequestOutcomeH\x03R\aoutcome\x88\x01\x01B\n" +
 	"\n" +
 	"\b_user_idB\v\n" +
-	"\t_model_id\"O\n" +
+	"\t_model_idB\x0e\n" +
+	"\f_provider_idB\n" +
+	"\n" +
+	"\b_outcome\"O\n" +
 	"\x17GetUsageSummaryResponse\x124\n" +
-	"\asummary\x18\x01 \x01(\v2\x1a.aiprouter.v1.UsageSummaryR\asummary\"\xfe\x01\n" +
+	"\asummary\x18\x01 \x01(\v2\x1a.aiprouter.v1.UsageSummaryR\asummary\"\xfd\x02\n" +
 	"\x15ListDailyUsageRequest\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x126\n" +
 	"\n" +
 	"time_range\x18\x02 \x01(\v2\x17.aiprouter.v1.TimeRangeR\ttimeRange\x12\x1c\n" +
 	"\auser_id\x18\x03 \x01(\tH\x00R\x06userId\x88\x01\x01\x12\x1e\n" +
 	"\bmodel_id\x18\x04 \x01(\tH\x01R\amodelId\x88\x01\x01\x12-\n" +
-	"\x04page\x18\x05 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04pageB\n" +
+	"\x04page\x18\x05 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04page\x12$\n" +
+	"\vprovider_id\x18\x06 \x01(\tH\x02R\n" +
+	"providerId\x88\x01\x01\x12;\n" +
+	"\aoutcome\x18\a \x01(\x0e2\x1c.aiprouter.v1.RequestOutcomeH\x03R\aoutcome\x88\x01\x01B\n" +
 	"\n" +
 	"\b_user_idB\v\n" +
-	"\t_model_id\"v\n" +
+	"\t_model_idB\x0e\n" +
+	"\f_provider_idB\n" +
+	"\n" +
+	"\b_outcome\"v\n" +
 	"\x16ListDailyUsageResponse\x12,\n" +
 	"\x04days\x18\x01 \x03(\v2\x18.aiprouter.v1.DailyUsageR\x04days\x12.\n" +
-	"\x04page\x18\x02 \x01(\v2\x1a.aiprouter.v1.PageResponseR\x04page\"\xae\x01\n" +
+	"\x04page\x18\x02 \x01(\v2\x1a.aiprouter.v1.PageResponseR\x04page\"\xf3\x02\n" +
 	"\x1cListOrganizationAuditRequest\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x126\n" +
 	"\n" +
 	"time_range\x18\x02 \x01(\v2\x17.aiprouter.v1.TimeRangeR\ttimeRange\x12-\n" +
-	"\x04page\x18\x03 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04page\"\x84\x01\n" +
+	"\x04page\x18\x03 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04page\x126\n" +
+	"\x06action\x18\x04 \x01(\x0e2\x19.aiprouter.v1.AuditActionH\x00R\x06action\x88\x01\x01\x12'\n" +
+	"\ractor_user_id\x18\x05 \x01(\tH\x01R\vactorUserId\x88\x01\x01\x129\n" +
+	"\aoutcome\x18\x06 \x01(\x0e2\x1a.aiprouter.v1.AuditOutcomeH\x02R\aoutcome\x88\x01\x01B\t\n" +
+	"\a_actionB\x10\n" +
+	"\x0e_actor_user_idB\n" +
+	"\n" +
+	"\b_outcome\"\x84\x01\n" +
 	"\x1dListOrganizationAuditResponse\x123\n" +
 	"\arecords\x18\x01 \x03(\v2\x19.aiprouter.v1.AuditRecordR\arecords\x12.\n" +
 	"\x04page\x18\x02 \x01(\v2\x1a.aiprouter.v1.PageResponseR\x04page2\xab\x02\n" +
@@ -1343,9 +1457,10 @@ var file_aiprouter_v1_usage_proto_goTypes = []any{
 	(RequestOutcome)(0),                   // 17: aiprouter.v1.RequestOutcome
 	(*Money)(nil),                         // 18: aiprouter.v1.Money
 	(AuditAction)(0),                      // 19: aiprouter.v1.AuditAction
-	(*TimeRange)(nil),                     // 20: aiprouter.v1.TimeRange
-	(*PageRequest)(nil),                   // 21: aiprouter.v1.PageRequest
-	(*PageResponse)(nil),                  // 22: aiprouter.v1.PageResponse
+	(AuditOutcome)(0),                     // 20: aiprouter.v1.AuditOutcome
+	(*TimeRange)(nil),                     // 21: aiprouter.v1.TimeRange
+	(*PageRequest)(nil),                   // 22: aiprouter.v1.PageRequest
+	(*PageResponse)(nil),                  // 23: aiprouter.v1.PageResponse
 }
 var file_aiprouter_v1_usage_proto_depIdxs = []int32{
 	1,  // 0: aiprouter.v1.AppliedPrice.rates:type_name -> aiprouter.v1.PriceRates
@@ -1361,33 +1476,39 @@ var file_aiprouter_v1_usage_proto_depIdxs = []int32{
 	4,  // 10: aiprouter.v1.DailyUsage.summary:type_name -> aiprouter.v1.UsageSummary
 	16, // 11: aiprouter.v1.AuditRecord.occurred_at:type_name -> google.protobuf.Timestamp
 	19, // 12: aiprouter.v1.AuditRecord.action:type_name -> aiprouter.v1.AuditAction
-	20, // 13: aiprouter.v1.ListUsageRequest.time_range:type_name -> aiprouter.v1.TimeRange
-	21, // 14: aiprouter.v1.ListUsageRequest.page:type_name -> aiprouter.v1.PageRequest
-	3,  // 15: aiprouter.v1.ListUsageResponse.records:type_name -> aiprouter.v1.UsageRecord
-	22, // 16: aiprouter.v1.ListUsageResponse.page:type_name -> aiprouter.v1.PageResponse
-	20, // 17: aiprouter.v1.GetUsageSummaryRequest.time_range:type_name -> aiprouter.v1.TimeRange
-	4,  // 18: aiprouter.v1.GetUsageSummaryResponse.summary:type_name -> aiprouter.v1.UsageSummary
-	20, // 19: aiprouter.v1.ListDailyUsageRequest.time_range:type_name -> aiprouter.v1.TimeRange
-	21, // 20: aiprouter.v1.ListDailyUsageRequest.page:type_name -> aiprouter.v1.PageRequest
-	5,  // 21: aiprouter.v1.ListDailyUsageResponse.days:type_name -> aiprouter.v1.DailyUsage
-	22, // 22: aiprouter.v1.ListDailyUsageResponse.page:type_name -> aiprouter.v1.PageResponse
-	20, // 23: aiprouter.v1.ListOrganizationAuditRequest.time_range:type_name -> aiprouter.v1.TimeRange
-	21, // 24: aiprouter.v1.ListOrganizationAuditRequest.page:type_name -> aiprouter.v1.PageRequest
-	6,  // 25: aiprouter.v1.ListOrganizationAuditResponse.records:type_name -> aiprouter.v1.AuditRecord
-	22, // 26: aiprouter.v1.ListOrganizationAuditResponse.page:type_name -> aiprouter.v1.PageResponse
-	7,  // 27: aiprouter.v1.UsageService.ListUsage:input_type -> aiprouter.v1.ListUsageRequest
-	9,  // 28: aiprouter.v1.UsageService.GetUsageSummary:input_type -> aiprouter.v1.GetUsageSummaryRequest
-	11, // 29: aiprouter.v1.UsageService.ListDailyUsage:input_type -> aiprouter.v1.ListDailyUsageRequest
-	13, // 30: aiprouter.v1.AuditService.ListOrganizationAudit:input_type -> aiprouter.v1.ListOrganizationAuditRequest
-	8,  // 31: aiprouter.v1.UsageService.ListUsage:output_type -> aiprouter.v1.ListUsageResponse
-	10, // 32: aiprouter.v1.UsageService.GetUsageSummary:output_type -> aiprouter.v1.GetUsageSummaryResponse
-	12, // 33: aiprouter.v1.UsageService.ListDailyUsage:output_type -> aiprouter.v1.ListDailyUsageResponse
-	14, // 34: aiprouter.v1.AuditService.ListOrganizationAudit:output_type -> aiprouter.v1.ListOrganizationAuditResponse
-	31, // [31:35] is the sub-list for method output_type
-	27, // [27:31] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	20, // 13: aiprouter.v1.AuditRecord.outcome:type_name -> aiprouter.v1.AuditOutcome
+	21, // 14: aiprouter.v1.ListUsageRequest.time_range:type_name -> aiprouter.v1.TimeRange
+	22, // 15: aiprouter.v1.ListUsageRequest.page:type_name -> aiprouter.v1.PageRequest
+	17, // 16: aiprouter.v1.ListUsageRequest.outcome:type_name -> aiprouter.v1.RequestOutcome
+	3,  // 17: aiprouter.v1.ListUsageResponse.records:type_name -> aiprouter.v1.UsageRecord
+	23, // 18: aiprouter.v1.ListUsageResponse.page:type_name -> aiprouter.v1.PageResponse
+	21, // 19: aiprouter.v1.GetUsageSummaryRequest.time_range:type_name -> aiprouter.v1.TimeRange
+	17, // 20: aiprouter.v1.GetUsageSummaryRequest.outcome:type_name -> aiprouter.v1.RequestOutcome
+	4,  // 21: aiprouter.v1.GetUsageSummaryResponse.summary:type_name -> aiprouter.v1.UsageSummary
+	21, // 22: aiprouter.v1.ListDailyUsageRequest.time_range:type_name -> aiprouter.v1.TimeRange
+	22, // 23: aiprouter.v1.ListDailyUsageRequest.page:type_name -> aiprouter.v1.PageRequest
+	17, // 24: aiprouter.v1.ListDailyUsageRequest.outcome:type_name -> aiprouter.v1.RequestOutcome
+	5,  // 25: aiprouter.v1.ListDailyUsageResponse.days:type_name -> aiprouter.v1.DailyUsage
+	23, // 26: aiprouter.v1.ListDailyUsageResponse.page:type_name -> aiprouter.v1.PageResponse
+	21, // 27: aiprouter.v1.ListOrganizationAuditRequest.time_range:type_name -> aiprouter.v1.TimeRange
+	22, // 28: aiprouter.v1.ListOrganizationAuditRequest.page:type_name -> aiprouter.v1.PageRequest
+	19, // 29: aiprouter.v1.ListOrganizationAuditRequest.action:type_name -> aiprouter.v1.AuditAction
+	20, // 30: aiprouter.v1.ListOrganizationAuditRequest.outcome:type_name -> aiprouter.v1.AuditOutcome
+	6,  // 31: aiprouter.v1.ListOrganizationAuditResponse.records:type_name -> aiprouter.v1.AuditRecord
+	23, // 32: aiprouter.v1.ListOrganizationAuditResponse.page:type_name -> aiprouter.v1.PageResponse
+	7,  // 33: aiprouter.v1.UsageService.ListUsage:input_type -> aiprouter.v1.ListUsageRequest
+	9,  // 34: aiprouter.v1.UsageService.GetUsageSummary:input_type -> aiprouter.v1.GetUsageSummaryRequest
+	11, // 35: aiprouter.v1.UsageService.ListDailyUsage:input_type -> aiprouter.v1.ListDailyUsageRequest
+	13, // 36: aiprouter.v1.AuditService.ListOrganizationAudit:input_type -> aiprouter.v1.ListOrganizationAuditRequest
+	8,  // 37: aiprouter.v1.UsageService.ListUsage:output_type -> aiprouter.v1.ListUsageResponse
+	10, // 38: aiprouter.v1.UsageService.GetUsageSummary:output_type -> aiprouter.v1.GetUsageSummaryResponse
+	12, // 39: aiprouter.v1.UsageService.ListDailyUsage:output_type -> aiprouter.v1.ListDailyUsageResponse
+	14, // 40: aiprouter.v1.AuditService.ListOrganizationAudit:output_type -> aiprouter.v1.ListOrganizationAuditResponse
+	37, // [37:41] is the sub-list for method output_type
+	33, // [33:37] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_aiprouter_v1_usage_proto_init() }
@@ -1404,6 +1525,7 @@ func file_aiprouter_v1_usage_proto_init() {
 	file_aiprouter_v1_usage_proto_msgTypes[7].OneofWrappers = []any{}
 	file_aiprouter_v1_usage_proto_msgTypes[9].OneofWrappers = []any{}
 	file_aiprouter_v1_usage_proto_msgTypes[11].OneofWrappers = []any{}
+	file_aiprouter_v1_usage_proto_msgTypes[13].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

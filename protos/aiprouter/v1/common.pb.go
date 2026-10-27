@@ -1257,6 +1257,118 @@ func (HealthState) EnumDescriptor() ([]byte, []int) {
 	return file_aiprouter_v1_common_proto_rawDescGZIP(), []int{19}
 }
 
+// UNSPECIFIED means the recorded outcome is unknown, never implicit success.
+type AuditOutcome int32
+
+const (
+	AuditOutcome_AUDIT_OUTCOME_UNSPECIFIED AuditOutcome = 0
+	AuditOutcome_AUDIT_OUTCOME_SUCCEEDED   AuditOutcome = 1
+	AuditOutcome_AUDIT_OUTCOME_FAILED      AuditOutcome = 2
+	AuditOutcome_AUDIT_OUTCOME_DENIED      AuditOutcome = 3
+)
+
+// Enum value maps for AuditOutcome.
+var (
+	AuditOutcome_name = map[int32]string{
+		0: "AUDIT_OUTCOME_UNSPECIFIED",
+		1: "AUDIT_OUTCOME_SUCCEEDED",
+		2: "AUDIT_OUTCOME_FAILED",
+		3: "AUDIT_OUTCOME_DENIED",
+	}
+	AuditOutcome_value = map[string]int32{
+		"AUDIT_OUTCOME_UNSPECIFIED": 0,
+		"AUDIT_OUTCOME_SUCCEEDED":   1,
+		"AUDIT_OUTCOME_FAILED":      2,
+		"AUDIT_OUTCOME_DENIED":      3,
+	}
+)
+
+func (x AuditOutcome) Enum() *AuditOutcome {
+	p := new(AuditOutcome)
+	*p = x
+	return p
+}
+
+func (x AuditOutcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AuditOutcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_aiprouter_v1_common_proto_enumTypes[20].Descriptor()
+}
+
+func (AuditOutcome) Type() protoreflect.EnumType {
+	return &file_aiprouter_v1_common_proto_enumTypes[20]
+}
+
+func (x AuditOutcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AuditOutcome.Descriptor instead.
+func (AuditOutcome) EnumDescriptor() ([]byte, []int) {
+	return file_aiprouter_v1_common_proto_rawDescGZIP(), []int{20}
+}
+
+// Mirrors the personal provider library authentication methods.
+type ProviderOAuthMethod int32
+
+const (
+	ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_UNSPECIFIED     ProviderOAuthMethod = 0
+	ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_PKCE            ProviderOAuthMethod = 1
+	ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_DEVICE          ProviderOAuthMethod = 2
+	ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_BROWSER_POLL    ProviderOAuthMethod = 3
+	ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_EXPLICIT_TOKEN  ProviderOAuthMethod = 4
+	ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_NATIVE_CALLBACK ProviderOAuthMethod = 5
+)
+
+// Enum value maps for ProviderOAuthMethod.
+var (
+	ProviderOAuthMethod_name = map[int32]string{
+		0: "PROVIDER_O_AUTH_METHOD_UNSPECIFIED",
+		1: "PROVIDER_O_AUTH_METHOD_PKCE",
+		2: "PROVIDER_O_AUTH_METHOD_DEVICE",
+		3: "PROVIDER_O_AUTH_METHOD_BROWSER_POLL",
+		4: "PROVIDER_O_AUTH_METHOD_EXPLICIT_TOKEN",
+		5: "PROVIDER_O_AUTH_METHOD_NATIVE_CALLBACK",
+	}
+	ProviderOAuthMethod_value = map[string]int32{
+		"PROVIDER_O_AUTH_METHOD_UNSPECIFIED":     0,
+		"PROVIDER_O_AUTH_METHOD_PKCE":            1,
+		"PROVIDER_O_AUTH_METHOD_DEVICE":          2,
+		"PROVIDER_O_AUTH_METHOD_BROWSER_POLL":    3,
+		"PROVIDER_O_AUTH_METHOD_EXPLICIT_TOKEN":  4,
+		"PROVIDER_O_AUTH_METHOD_NATIVE_CALLBACK": 5,
+	}
+)
+
+func (x ProviderOAuthMethod) Enum() *ProviderOAuthMethod {
+	p := new(ProviderOAuthMethod)
+	*p = x
+	return p
+}
+
+func (x ProviderOAuthMethod) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ProviderOAuthMethod) Descriptor() protoreflect.EnumDescriptor {
+	return file_aiprouter_v1_common_proto_enumTypes[21].Descriptor()
+}
+
+func (ProviderOAuthMethod) Type() protoreflect.EnumType {
+	return &file_aiprouter_v1_common_proto_enumTypes[21]
+}
+
+func (x ProviderOAuthMethod) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ProviderOAuthMethod.Descriptor instead.
+func (ProviderOAuthMethod) EnumDescriptor() ([]byte, []int) {
+	return file_aiprouter_v1_common_proto_rawDescGZIP(), []int{21}
+}
+
 type PageRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PageSize      uint32                 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
@@ -1951,7 +2063,19 @@ const file_aiprouter_v1_common_proto_rawDesc = "" +
 	"\x18HEALTH_STATE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14HEALTH_STATE_HEALTHY\x10\x01\x12\x19\n" +
 	"\x15HEALTH_STATE_DEGRADED\x10\x02\x12\x1c\n" +
-	"\x18HEALTH_STATE_UNAVAILABLE\x10\x03:X\n" +
+	"\x18HEALTH_STATE_UNAVAILABLE\x10\x03*~\n" +
+	"\fAuditOutcome\x12\x1d\n" +
+	"\x19AUDIT_OUTCOME_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17AUDIT_OUTCOME_SUCCEEDED\x10\x01\x12\x18\n" +
+	"\x14AUDIT_OUTCOME_FAILED\x10\x02\x12\x18\n" +
+	"\x14AUDIT_OUTCOME_DENIED\x10\x03*\x81\x02\n" +
+	"\x13ProviderOAuthMethod\x12&\n" +
+	"\"PROVIDER_O_AUTH_METHOD_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bPROVIDER_O_AUTH_METHOD_PKCE\x10\x01\x12!\n" +
+	"\x1dPROVIDER_O_AUTH_METHOD_DEVICE\x10\x02\x12'\n" +
+	"#PROVIDER_O_AUTH_METHOD_BROWSER_POLL\x10\x03\x12)\n" +
+	"%PROVIDER_O_AUTH_METHOD_EXPLICIT_TOKEN\x10\x04\x12*\n" +
+	"&PROVIDER_O_AUTH_METHOD_NATIVE_CALLBACK\x10\x05:X\n" +
 	"\n" +
 	"auth_scope\x12\x1e.google.protobuf.MethodOptions\x18\xb9\x8e\x03 \x01(\x0e2\x17.aiprouter.v1.AuthScopeR\tauthScopeB?Z=github.com/delinoio/AIPRouter/protos/aiprouter/v1;aiprouterv1b\x06proto3"
 
@@ -1967,7 +2091,7 @@ func file_aiprouter_v1_common_proto_rawDescGZIP() []byte {
 	return file_aiprouter_v1_common_proto_rawDescData
 }
 
-var file_aiprouter_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 20)
+var file_aiprouter_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 22)
 var file_aiprouter_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_aiprouter_v1_common_proto_goTypes = []any{
 	(AuthScope)(0),                     // 0: aiprouter.v1.AuthScope
@@ -1990,29 +2114,31 @@ var file_aiprouter_v1_common_proto_goTypes = []any{
 	(PriceSource)(0),                   // 17: aiprouter.v1.PriceSource
 	(AuditAction)(0),                   // 18: aiprouter.v1.AuditAction
 	(HealthState)(0),                   // 19: aiprouter.v1.HealthState
-	(*PageRequest)(nil),                // 20: aiprouter.v1.PageRequest
-	(*PageResponse)(nil),               // 21: aiprouter.v1.PageResponse
-	(*TimeRange)(nil),                  // 22: aiprouter.v1.TimeRange
-	(*Money)(nil),                      // 23: aiprouter.v1.Money
-	(*ErrorDetail)(nil),                // 24: aiprouter.v1.ErrorDetail
-	(*Model)(nil),                      // 25: aiprouter.v1.Model
-	(*InferenceKey)(nil),               // 26: aiprouter.v1.InferenceKey
-	(*timestamppb.Timestamp)(nil),      // 27: google.protobuf.Timestamp
-	(*descriptorpb.MethodOptions)(nil), // 28: google.protobuf.MethodOptions
+	(AuditOutcome)(0),                  // 20: aiprouter.v1.AuditOutcome
+	(ProviderOAuthMethod)(0),           // 21: aiprouter.v1.ProviderOAuthMethod
+	(*PageRequest)(nil),                // 22: aiprouter.v1.PageRequest
+	(*PageResponse)(nil),               // 23: aiprouter.v1.PageResponse
+	(*TimeRange)(nil),                  // 24: aiprouter.v1.TimeRange
+	(*Money)(nil),                      // 25: aiprouter.v1.Money
+	(*ErrorDetail)(nil),                // 26: aiprouter.v1.ErrorDetail
+	(*Model)(nil),                      // 27: aiprouter.v1.Model
+	(*InferenceKey)(nil),               // 28: aiprouter.v1.InferenceKey
+	(*timestamppb.Timestamp)(nil),      // 29: google.protobuf.Timestamp
+	(*descriptorpb.MethodOptions)(nil), // 30: google.protobuf.MethodOptions
 }
 var file_aiprouter_v1_common_proto_depIdxs = []int32{
-	27, // 0: aiprouter.v1.TimeRange.start:type_name -> google.protobuf.Timestamp
-	27, // 1: aiprouter.v1.TimeRange.end:type_name -> google.protobuf.Timestamp
+	29, // 0: aiprouter.v1.TimeRange.start:type_name -> google.protobuf.Timestamp
+	29, // 1: aiprouter.v1.TimeRange.end:type_name -> google.protobuf.Timestamp
 	2,  // 2: aiprouter.v1.ErrorDetail.reason:type_name -> aiprouter.v1.ErrorReason
 	9,  // 3: aiprouter.v1.Model.capabilities:type_name -> aiprouter.v1.ModelCapability
 	8,  // 4: aiprouter.v1.Model.api_shapes:type_name -> aiprouter.v1.ApiShape
 	10, // 5: aiprouter.v1.Model.reasoning_efforts:type_name -> aiprouter.v1.ReasoningEffort
 	3,  // 6: aiprouter.v1.InferenceKey.kind:type_name -> aiprouter.v1.KeyKind
 	4,  // 7: aiprouter.v1.InferenceKey.state:type_name -> aiprouter.v1.KeyState
-	27, // 8: aiprouter.v1.InferenceKey.created_at:type_name -> google.protobuf.Timestamp
-	27, // 9: aiprouter.v1.InferenceKey.expires_at:type_name -> google.protobuf.Timestamp
-	27, // 10: aiprouter.v1.InferenceKey.last_used_at:type_name -> google.protobuf.Timestamp
-	28, // 11: aiprouter.v1.auth_scope:extendee -> google.protobuf.MethodOptions
+	29, // 8: aiprouter.v1.InferenceKey.created_at:type_name -> google.protobuf.Timestamp
+	29, // 9: aiprouter.v1.InferenceKey.expires_at:type_name -> google.protobuf.Timestamp
+	29, // 10: aiprouter.v1.InferenceKey.last_used_at:type_name -> google.protobuf.Timestamp
+	30, // 11: aiprouter.v1.auth_scope:extendee -> google.protobuf.MethodOptions
 	0,  // 12: aiprouter.v1.auth_scope:type_name -> aiprouter.v1.AuthScope
 	13, // [13:13] is the sub-list for method output_type
 	13, // [13:13] is the sub-list for method input_type
@@ -2033,7 +2159,7 @@ func file_aiprouter_v1_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aiprouter_v1_common_proto_rawDesc), len(file_aiprouter_v1_common_proto_rawDesc)),
-			NumEnums:      20,
+			NumEnums:      22,
 			NumMessages:   7,
 			NumExtensions: 1,
 			NumServices:   0,

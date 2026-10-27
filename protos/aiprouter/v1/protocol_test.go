@@ -164,3 +164,61 @@ func TestRecipientInvitationAndDeviceContracts(t *testing.T) {
 		}
 	}
 }
+
+func TestOptionalFiltersPreserveExplicitUnknown(t *testing.T) {
+	messages := []proto.Message{&v1.ListUsageRequest{}, &v1.GetUsageSummaryRequest{}, &v1.ListDailyUsageRequest{}, &v1.ListOrganizationAuditRequest{}, &v1.ListInstanceAuditRequest{}}
+	for _, message := range messages {
+		field := message.ProtoReflect().Descriptor().Fields().ByName("outcome")
+		if field == nil || !field.HasPresence() {
+			t.Fatalf("missing outcome presence: %T", message)
+		}
+		for _, present := range []bool{false, true} {
+			value := proto.Clone(message)
+			if present {
+				value.ProtoReflect().Set(field, protoreflect.ValueOfEnum(0))
+			}
+			wire, err := proto.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded := message.ProtoReflect().New().Interface()
+			if err = proto.Unmarshal(wire, decoded); err != nil {
+				t.Fatal(err)
+			}
+			if decoded.ProtoReflect().Has(field) != present {
+				t.Fatalf("unknown outcome presence lost: %T", message)
+			}
+		}
+	}
+	if (&v1.AuditRecord{}).Outcome != v1.AuditOutcome_AUDIT_OUTCOME_UNSPECIFIED {
+		t.Fatal("missing audit outcome must remain unknown")
+	}
+	if (&v1.InstanceHealth{}).UsageRecording != v1.HealthState_HEALTH_STATE_UNSPECIFIED {
+		t.Fatal("missing recording health must remain unknown")
+	}
+}
+
+func TestOAuthOptionsAndCollectionRevisionRoundTrip(t *testing.T) {
+	values := []proto.Message{
+		&v1.BeginProviderOAuthRequest{Method: v1.ProviderOAuthMethod_PROVIDER_O_AUTH_METHOD_NATIVE_CALLBACK.Enum(), RedirectUri: proto.String("aiprouter://callback"), LoginProvider: proto.String("identity-center"), SsoRegion: proto.String("region"), ApiRegion: proto.String("region"), StartUrl: proto.String("https://start.example.test"), BaseUrl: proto.String("https://api.example.test"), AuthBaseUrl: proto.String("https://auth.example.test"), PortalUrl: proto.String("https://portal.example.test"), RegisterUrl: proto.String("https://register.example.test"), ClientId: proto.String("client")},
+		&v1.ProviderOAuth{CallbackState: proto.String("public-correlation-state")},
+		&v1.ListPriceOverridesResponse{Revision: "collection-1"},
+		&v1.SetPriceOverrideRequest{ExpectedRevision: "collection-1"},
+		&v1.SetPriceOverrideResponse{Revision: "collection-2"},
+		&v1.DeletePriceOverrideRequest{ExpectedRevision: "collection-2"},
+		&v1.DeletePriceOverrideResponse{Revision: "collection-3"},
+	}
+	for _, value := range values {
+		wire, err := proto.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := value.ProtoReflect().New().Interface()
+		if err = proto.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(value, decoded) {
+			t.Fatalf("new fields lost: %T", value)
+		}
+	}
+}

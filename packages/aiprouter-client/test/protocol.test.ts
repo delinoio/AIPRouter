@@ -118,3 +118,67 @@ test("recipient invitation descriptors preserve selectors and lifecycle", async 
   }
   assert.ok(ErrorReason.INVITATION_EMAIL_MISMATCH);
 });
+
+test("usage and audit filters preserve explicit unknown independently of omission", async () => {
+  const {
+    ListUsageRequestSchema,
+    GetUsageSummaryRequestSchema,
+    ListDailyUsageRequestSchema,
+    ListOrganizationAuditRequestSchema,
+    ListInstanceAuditRequestSchema,
+  } = await import("../src/index.js");
+  for (const schema of [
+    ListUsageRequestSchema,
+    GetUsageSummaryRequestSchema,
+    ListDailyUsageRequestSchema,
+    ListOrganizationAuditRequestSchema,
+    ListInstanceAuditRequestSchema,
+  ]) {
+    const unknown = create(schema, { outcome: 0 });
+    assert.equal(fromBinary(schema, toBinary(schema, unknown)).outcome, 0);
+    assert.equal(
+      fromBinary(schema, toBinary(schema, create(schema))).outcome,
+      undefined,
+    );
+  }
+});
+
+test("OAuth native callback and collection CAS descriptors are available", async () => {
+  const {
+    BeginProviderOAuthRequestSchema,
+    ProviderOAuthMethod,
+    ProviderOAuthSchema,
+    ListPriceOverridesResponseSchema,
+    SetPriceOverrideRequestSchema,
+    DeletePriceOverrideResponseSchema,
+  } = await import("../src/index.js");
+  const input = create(BeginProviderOAuthRequestSchema, {
+    method: ProviderOAuthMethod.NATIVE_CALLBACK,
+    redirectUri: "aiprouter://callback",
+    clientId: "client",
+  });
+  assert.deepEqual(
+    fromBinary(
+      BeginProviderOAuthRequestSchema,
+      toBinary(BeginProviderOAuthRequestSchema, input),
+    ),
+    input,
+  );
+  assert.equal(
+    create(ProviderOAuthSchema, { callbackState: "correlation" }).callbackState,
+    "correlation",
+  );
+  assert.equal(
+    create(ListPriceOverridesResponseSchema, { revision: "1" }).revision,
+    "1",
+  );
+  assert.equal(
+    create(SetPriceOverrideRequestSchema, { expectedRevision: "1" })
+      .expectedRevision,
+    "1",
+  );
+  assert.equal(
+    create(DeletePriceOverrideResponseSchema, { revision: "2" }).revision,
+    "2",
+  );
+});

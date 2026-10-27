@@ -6,7 +6,7 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { HealthState, PageRequest, PageResponse, TimeRange } from "./common_pb.js";
+import type { AuditAction, AuditOutcome, HealthState, PageRequest, PageResponse, TimeRange } from "./common_pb.js";
 import { file_aiprouter_v1_common } from "./common_pb.js";
 import type { AuditRecord, PriceRates, UsageSummary } from "./usage_pb.js";
 import { file_aiprouter_v1_usage } from "./usage_pb.js";
@@ -18,7 +18,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aiprouter/v1/operator.proto.
  */
 export const file_aiprouter_v1_operator: GenFile = /*@__PURE__*/
-  fileDesc("ChthaXByb3V0ZXIvdjEvb3BlcmF0b3IucHJvdG8SDGFpcHJvdXRlci52MSJJCg1SZXF1ZXN0TGltaXRzEhsKE3JlcXVlc3RzX3Blcl9taW51dGUYASABKA0SGwoTY29uY3VycmVudF9yZXF1ZXN0cxgCIAEoDSJVChFSZXRlbnRpb25TZXR0aW5ncxIUCgxyZXF1ZXN0X2RheXMYASABKA0SFgoOYWdncmVnYXRlX2RheXMYAiABKA0SEgoKYXVkaXRfZGF5cxgDIAEoDSJHChJBbGxvd2VkRGVzdGluYXRpb24SCgoCaWQYASABKAkSDgoGb3JpZ2luGAIgASgJEhUKDWFsbG93ZWRfY2lkcnMYAyADKAkizQEKEEluc3RhbmNlU2V0dGluZ3MSMwoOcmVxdWVzdF9saW1pdHMYASABKAsyGy5haXByb3V0ZXIudjEuUmVxdWVzdExpbWl0cxIyCglyZXRlbnRpb24YAiABKAsyHy5haXByb3V0ZXIudjEuUmV0ZW50aW9uU2V0dGluZ3MSPgoUYWxsb3dlZF9kZXN0aW5hdGlvbnMYAyADKAsyIC5haXByb3V0ZXIudjEuQWxsb3dlZERlc3RpbmF0aW9uEhAKCHJldmlzaW9uGAQgASgJIswBCg5JbnN0YW5jZUhlYWx0aBIqCgdzZXJ2aWNlGAEgASgOMhkuYWlwcm91dGVyLnYxLkhlYWx0aFN0YXRlEisKCGRhdGFiYXNlGAIgASgOMhkuYWlwcm91dGVyLnYxLkhlYWx0aFN0YXRlEjsKF2xhc3RfY2xlYW51cF9zdWNjZXNzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIkChxjb25zZWN1dGl2ZV9jbGVhbnVwX2ZhaWx1cmVzGAQgASgNIrEBCg1QcmljZU92ZXJyaWRlEgoKAmlkGAEgASgJEhMKC3Byb3ZpZGVyX2lkGAIgASgJEhAKCG1vZGVsX2lkGAMgASgJEhQKDHNlcnZpY2VfdGllchgEIAEoCRInCgVyYXRlcxgFIAEoCzIYLmFpcHJvdXRlci52MS5QcmljZVJhdGVzEi4KCnVwZGF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIhwKGkdldEluc3RhbmNlU2V0dGluZ3NSZXF1ZXN0Ik8KG0dldEluc3RhbmNlU2V0dGluZ3NSZXNwb25zZRIwCghzZXR0aW5ncxgBIAEoCzIeLmFpcHJvdXRlci52MS5JbnN0YW5jZVNldHRpbmdzImwKHVVwZGF0ZUluc3RhbmNlU2V0dGluZ3NSZXF1ZXN0EjAKCHNldHRpbmdzGAEgASgLMh4uYWlwcm91dGVyLnYxLkluc3RhbmNlU2V0dGluZ3MSGQoRZXhwZWN0ZWRfcmV2aXNpb24YAiABKAkiUgoeVXBkYXRlSW5zdGFuY2VTZXR0aW5nc1Jlc3BvbnNlEjAKCHNldHRpbmdzGAEgASgLMh4uYWlwcm91dGVyLnYxLkluc3RhbmNlU2V0dGluZ3MiGgoYR2V0SW5zdGFuY2VIZWFsdGhSZXF1ZXN0IkkKGUdldEluc3RhbmNlSGVhbHRoUmVzcG9uc2USLAoGaGVhbHRoGAEgASgLMhwuYWlwcm91dGVyLnYxLkluc3RhbmNlSGVhbHRoIkYKF0dldEluc3RhbmNlVXNhZ2VSZXF1ZXN0EisKCnRpbWVfcmFuZ2UYASABKAsyFy5haXByb3V0ZXIudjEuVGltZVJhbmdlIkcKGEdldEluc3RhbmNlVXNhZ2VSZXNwb25zZRIrCgdzdW1tYXJ5GAEgASgLMhouYWlwcm91dGVyLnYxLlVzYWdlU3VtbWFyeSJEChlMaXN0UHJpY2VPdmVycmlkZXNSZXF1ZXN0EicKBHBhZ2UYASABKAsyGS5haXByb3V0ZXIudjEuUGFnZVJlcXVlc3QidgoaTGlzdFByaWNlT3ZlcnJpZGVzUmVzcG9uc2USLgoJb3ZlcnJpZGVzGAEgAygLMhsuYWlwcm91dGVyLnYxLlByaWNlT3ZlcnJpZGUSKAoEcGFnZRgCIAEoCzIaLmFpcHJvdXRlci52MS5QYWdlUmVzcG9uc2UifwoXU2V0UHJpY2VPdmVycmlkZVJlcXVlc3QSEwoLcHJvdmlkZXJfaWQYASABKAkSEAoIbW9kZWxfaWQYAiABKAkSFAoMc2VydmljZV90aWVyGAMgASgJEicKBXJhdGVzGAQgASgLMhguYWlwcm91dGVyLnYxLlByaWNlUmF0ZXMiSQoYU2V0UHJpY2VPdmVycmlkZVJlc3BvbnNlEi0KCG92ZXJyaWRlGAEgASgLMhsuYWlwcm91dGVyLnYxLlByaWNlT3ZlcnJpZGUiMQoaRGVsZXRlUHJpY2VPdmVycmlkZVJlcXVlc3QSEwoLb3ZlcnJpZGVfaWQYASABKAkiHQobRGVsZXRlUHJpY2VPdmVycmlkZVJlc3BvbnNlInAKGExpc3RJbnN0YW5jZUF1ZGl0UmVxdWVzdBIrCgp0aW1lX3JhbmdlGAEgASgLMhcuYWlwcm91dGVyLnYxLlRpbWVSYW5nZRInCgRwYWdlGAIgASgLMhkuYWlwcm91dGVyLnYxLlBhZ2VSZXF1ZXN0InEKGUxpc3RJbnN0YW5jZUF1ZGl0UmVzcG9uc2USKgoHcmVjb3JkcxgBIAMoCzIZLmFpcHJvdXRlci52MS5BdWRpdFJlY29yZBIoCgRwYWdlGAIgASgLMhouYWlwcm91dGVyLnYxLlBhZ2VSZXNwb25zZTKJBwoPT3BlcmF0b3JTZXJ2aWNlEnAKE0dldEluc3RhbmNlU2V0dGluZ3MSKC5haXByb3V0ZXIudjEuR2V0SW5zdGFuY2VTZXR0aW5nc1JlcXVlc3QaKS5haXByb3V0ZXIudjEuR2V0SW5zdGFuY2VTZXR0aW5nc1Jlc3BvbnNlIgTI8xgGEnkKFlVwZGF0ZUluc3RhbmNlU2V0dGluZ3MSKy5haXByb3V0ZXIudjEuVXBkYXRlSW5zdGFuY2VTZXR0aW5nc1JlcXVlc3QaLC5haXByb3V0ZXIudjEuVXBkYXRlSW5zdGFuY2VTZXR0aW5nc1Jlc3BvbnNlIgTI8xgGEmoKEUdldEluc3RhbmNlSGVhbHRoEiYuYWlwcm91dGVyLnYxLkdldEluc3RhbmNlSGVhbHRoUmVxdWVzdBonLmFpcHJvdXRlci52MS5HZXRJbnN0YW5jZUhlYWx0aFJlc3BvbnNlIgTI8xgGEmcKEEdldEluc3RhbmNlVXNhZ2USJS5haXByb3V0ZXIudjEuR2V0SW5zdGFuY2VVc2FnZVJlcXVlc3QaJi5haXByb3V0ZXIudjEuR2V0SW5zdGFuY2VVc2FnZVJlc3BvbnNlIgTI8xgGEm0KEkxpc3RQcmljZU92ZXJyaWRlcxInLmFpcHJvdXRlci52MS5MaXN0UHJpY2VPdmVycmlkZXNSZXF1ZXN0GiguYWlwcm91dGVyLnYxLkxpc3RQcmljZU92ZXJyaWRlc1Jlc3BvbnNlIgTI8xgGEmcKEFNldFByaWNlT3ZlcnJpZGUSJS5haXByb3V0ZXIudjEuU2V0UHJpY2VPdmVycmlkZVJlcXVlc3QaJi5haXByb3V0ZXIudjEuU2V0UHJpY2VPdmVycmlkZVJlc3BvbnNlIgTI8xgGEnAKE0RlbGV0ZVByaWNlT3ZlcnJpZGUSKC5haXByb3V0ZXIudjEuRGVsZXRlUHJpY2VPdmVycmlkZVJlcXVlc3QaKS5haXByb3V0ZXIudjEuRGVsZXRlUHJpY2VPdmVycmlkZVJlc3BvbnNlIgTI8xgGEmoKEUxpc3RJbnN0YW5jZUF1ZGl0EiYuYWlwcm91dGVyLnYxLkxpc3RJbnN0YW5jZUF1ZGl0UmVxdWVzdBonLmFpcHJvdXRlci52MS5MaXN0SW5zdGFuY2VBdWRpdFJlc3BvbnNlIgTI8xgGQj9aPWdpdGh1Yi5jb20vZGVsaW5vaW8vQUlQUm91dGVyL3Byb3Rvcy9haXByb3V0ZXIvdjE7YWlwcm91dGVydjFiBnByb3RvMw", [file_aiprouter_v1_common, file_aiprouter_v1_usage, file_google_protobuf_timestamp]);
+  fileDesc("ChthaXByb3V0ZXIvdjEvb3BlcmF0b3IucHJvdG8SDGFpcHJvdXRlci52MSJJCg1SZXF1ZXN0TGltaXRzEhsKE3JlcXVlc3RzX3Blcl9taW51dGUYASABKA0SGwoTY29uY3VycmVudF9yZXF1ZXN0cxgCIAEoDSJVChFSZXRlbnRpb25TZXR0aW5ncxIUCgxyZXF1ZXN0X2RheXMYASABKA0SFgoOYWdncmVnYXRlX2RheXMYAiABKA0SEgoKYXVkaXRfZGF5cxgDIAEoDSJHChJBbGxvd2VkRGVzdGluYXRpb24SCgoCaWQYASABKAkSDgoGb3JpZ2luGAIgASgJEhUKDWFsbG93ZWRfY2lkcnMYAyADKAkizQEKEEluc3RhbmNlU2V0dGluZ3MSMwoOcmVxdWVzdF9saW1pdHMYASABKAsyGy5haXByb3V0ZXIudjEuUmVxdWVzdExpbWl0cxIyCglyZXRlbnRpb24YAiABKAsyHy5haXByb3V0ZXIudjEuUmV0ZW50aW9uU2V0dGluZ3MSPgoUYWxsb3dlZF9kZXN0aW5hdGlvbnMYAyADKAsyIC5haXByb3V0ZXIudjEuQWxsb3dlZERlc3RpbmF0aW9uEhAKCHJldmlzaW9uGAQgASgJIoACCg5JbnN0YW5jZUhlYWx0aBIqCgdzZXJ2aWNlGAEgASgOMhkuYWlwcm91dGVyLnYxLkhlYWx0aFN0YXRlEisKCGRhdGFiYXNlGAIgASgOMhkuYWlwcm91dGVyLnYxLkhlYWx0aFN0YXRlEjsKF2xhc3RfY2xlYW51cF9zdWNjZXNzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIkChxjb25zZWN1dGl2ZV9jbGVhbnVwX2ZhaWx1cmVzGAQgASgNEjIKD3VzYWdlX3JlY29yZGluZxgFIAEoDjIZLmFpcHJvdXRlci52MS5IZWFsdGhTdGF0ZSKxAQoNUHJpY2VPdmVycmlkZRIKCgJpZBgBIAEoCRITCgtwcm92aWRlcl9pZBgCIAEoCRIQCghtb2RlbF9pZBgDIAEoCRIUCgxzZXJ2aWNlX3RpZXIYBCABKAkSJwoFcmF0ZXMYBSABKAsyGC5haXByb3V0ZXIudjEuUHJpY2VSYXRlcxIuCgp1cGRhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIcChpHZXRJbnN0YW5jZVNldHRpbmdzUmVxdWVzdCJPChtHZXRJbnN0YW5jZVNldHRpbmdzUmVzcG9uc2USMAoIc2V0dGluZ3MYASABKAsyHi5haXByb3V0ZXIudjEuSW5zdGFuY2VTZXR0aW5ncyJsCh1VcGRhdGVJbnN0YW5jZVNldHRpbmdzUmVxdWVzdBIwCghzZXR0aW5ncxgBIAEoCzIeLmFpcHJvdXRlci52MS5JbnN0YW5jZVNldHRpbmdzEhkKEWV4cGVjdGVkX3JldmlzaW9uGAIgASgJIlIKHlVwZGF0ZUluc3RhbmNlU2V0dGluZ3NSZXNwb25zZRIwCghzZXR0aW5ncxgBIAEoCzIeLmFpcHJvdXRlci52MS5JbnN0YW5jZVNldHRpbmdzIhoKGEdldEluc3RhbmNlSGVhbHRoUmVxdWVzdCJJChlHZXRJbnN0YW5jZUhlYWx0aFJlc3BvbnNlEiwKBmhlYWx0aBgBIAEoCzIcLmFpcHJvdXRlci52MS5JbnN0YW5jZUhlYWx0aCJGChdHZXRJbnN0YW5jZVVzYWdlUmVxdWVzdBIrCgp0aW1lX3JhbmdlGAEgASgLMhcuYWlwcm91dGVyLnYxLlRpbWVSYW5nZSJHChhHZXRJbnN0YW5jZVVzYWdlUmVzcG9uc2USKwoHc3VtbWFyeRgBIAEoCzIaLmFpcHJvdXRlci52MS5Vc2FnZVN1bW1hcnkiRAoZTGlzdFByaWNlT3ZlcnJpZGVzUmVxdWVzdBInCgRwYWdlGAEgASgLMhkuYWlwcm91dGVyLnYxLlBhZ2VSZXF1ZXN0IogBChpMaXN0UHJpY2VPdmVycmlkZXNSZXNwb25zZRIuCglvdmVycmlkZXMYASADKAsyGy5haXByb3V0ZXIudjEuUHJpY2VPdmVycmlkZRIoCgRwYWdlGAIgASgLMhouYWlwcm91dGVyLnYxLlBhZ2VSZXNwb25zZRIQCghyZXZpc2lvbhgDIAEoCSKaAQoXU2V0UHJpY2VPdmVycmlkZVJlcXVlc3QSEwoLcHJvdmlkZXJfaWQYASABKAkSEAoIbW9kZWxfaWQYAiABKAkSFAoMc2VydmljZV90aWVyGAMgASgJEicKBXJhdGVzGAQgASgLMhguYWlwcm91dGVyLnYxLlByaWNlUmF0ZXMSGQoRZXhwZWN0ZWRfcmV2aXNpb24YBSABKAkiWwoYU2V0UHJpY2VPdmVycmlkZVJlc3BvbnNlEi0KCG92ZXJyaWRlGAEgASgLMhsuYWlwcm91dGVyLnYxLlByaWNlT3ZlcnJpZGUSEAoIcmV2aXNpb24YAiABKAkiTAoaRGVsZXRlUHJpY2VPdmVycmlkZVJlcXVlc3QSEwoLb3ZlcnJpZGVfaWQYASABKAkSGQoRZXhwZWN0ZWRfcmV2aXNpb24YAiABKAkiLwobRGVsZXRlUHJpY2VPdmVycmlkZVJlc3BvbnNlEhAKCHJldmlzaW9uGAEgASgJIpcCChhMaXN0SW5zdGFuY2VBdWRpdFJlcXVlc3QSKwoKdGltZV9yYW5nZRgBIAEoCzIXLmFpcHJvdXRlci52MS5UaW1lUmFuZ2USJwoEcGFnZRgCIAEoCzIZLmFpcHJvdXRlci52MS5QYWdlUmVxdWVzdBIuCgZhY3Rpb24YAyABKA4yGS5haXByb3V0ZXIudjEuQXVkaXRBY3Rpb25IAIgBARIaCg1hY3Rvcl91c2VyX2lkGAQgASgJSAGIAQESMAoHb3V0Y29tZRgFIAEoDjIaLmFpcHJvdXRlci52MS5BdWRpdE91dGNvbWVIAogBAUIJCgdfYWN0aW9uQhAKDl9hY3Rvcl91c2VyX2lkQgoKCF9vdXRjb21lInEKGUxpc3RJbnN0YW5jZUF1ZGl0UmVzcG9uc2USKgoHcmVjb3JkcxgBIAMoCzIZLmFpcHJvdXRlci52MS5BdWRpdFJlY29yZBIoCgRwYWdlGAIgASgLMhouYWlwcm91dGVyLnYxLlBhZ2VSZXNwb25zZTKJBwoPT3BlcmF0b3JTZXJ2aWNlEnAKE0dldEluc3RhbmNlU2V0dGluZ3MSKC5haXByb3V0ZXIudjEuR2V0SW5zdGFuY2VTZXR0aW5nc1JlcXVlc3QaKS5haXByb3V0ZXIudjEuR2V0SW5zdGFuY2VTZXR0aW5nc1Jlc3BvbnNlIgTI8xgGEnkKFlVwZGF0ZUluc3RhbmNlU2V0dGluZ3MSKy5haXByb3V0ZXIudjEuVXBkYXRlSW5zdGFuY2VTZXR0aW5nc1JlcXVlc3QaLC5haXByb3V0ZXIudjEuVXBkYXRlSW5zdGFuY2VTZXR0aW5nc1Jlc3BvbnNlIgTI8xgGEmoKEUdldEluc3RhbmNlSGVhbHRoEiYuYWlwcm91dGVyLnYxLkdldEluc3RhbmNlSGVhbHRoUmVxdWVzdBonLmFpcHJvdXRlci52MS5HZXRJbnN0YW5jZUhlYWx0aFJlc3BvbnNlIgTI8xgGEmcKEEdldEluc3RhbmNlVXNhZ2USJS5haXByb3V0ZXIudjEuR2V0SW5zdGFuY2VVc2FnZVJlcXVlc3QaJi5haXByb3V0ZXIudjEuR2V0SW5zdGFuY2VVc2FnZVJlc3BvbnNlIgTI8xgGEm0KEkxpc3RQcmljZU92ZXJyaWRlcxInLmFpcHJvdXRlci52MS5MaXN0UHJpY2VPdmVycmlkZXNSZXF1ZXN0GiguYWlwcm91dGVyLnYxLkxpc3RQcmljZU92ZXJyaWRlc1Jlc3BvbnNlIgTI8xgGEmcKEFNldFByaWNlT3ZlcnJpZGUSJS5haXByb3V0ZXIudjEuU2V0UHJpY2VPdmVycmlkZVJlcXVlc3QaJi5haXByb3V0ZXIudjEuU2V0UHJpY2VPdmVycmlkZVJlc3BvbnNlIgTI8xgGEnAKE0RlbGV0ZVByaWNlT3ZlcnJpZGUSKC5haXByb3V0ZXIudjEuRGVsZXRlUHJpY2VPdmVycmlkZVJlcXVlc3QaKS5haXByb3V0ZXIudjEuRGVsZXRlUHJpY2VPdmVycmlkZVJlc3BvbnNlIgTI8xgGEmoKEUxpc3RJbnN0YW5jZUF1ZGl0EiYuYWlwcm91dGVyLnYxLkxpc3RJbnN0YW5jZUF1ZGl0UmVxdWVzdBonLmFpcHJvdXRlci52MS5MaXN0SW5zdGFuY2VBdWRpdFJlc3BvbnNlIgTI8xgGQj9aPWdpdGh1Yi5jb20vZGVsaW5vaW8vQUlQUm91dGVyL3Byb3Rvcy9haXByb3V0ZXIvdjE7YWlwcm91dGVydjFiBnByb3RvMw", [file_aiprouter_v1_common, file_aiprouter_v1_usage, file_google_protobuf_timestamp]);
 
 /**
  * Defaults: 120 requests/minute, 10 concurrent. Bounds: 1..6000 and 1..100.
@@ -157,6 +157,13 @@ export type InstanceHealth = Message<"aiprouter.v1.InstanceHealth"> & {
    * @generated from field: uint32 consecutive_cleanup_failures = 4;
    */
   consecutiveCleanupFailures: number;
+
+  /**
+   * Whole-instance recording health. UNSPECIFIED means unknown, not healthy.
+   *
+   * @generated from field: aiprouter.v1.HealthState usage_recording = 5;
+   */
+  usageRecording: HealthState;
 };
 
 /**
@@ -371,6 +378,14 @@ export type ListPriceOverridesResponse = Message<"aiprouter.v1.ListPriceOverride
    * @generated from field: aiprouter.v1.PageResponse page = 2;
    */
   page?: PageResponse | undefined;
+
+  /**
+   * Opaque revision of the entire collection, including an empty collection.
+   * Page tokens must bind this revision; never combine pages from different revisions.
+   *
+   * @generated from field: string revision = 3;
+   */
+  revision: string;
 };
 
 /**
@@ -403,6 +418,14 @@ export type SetPriceOverrideRequest = Message<"aiprouter.v1.SetPriceOverrideRequ
    * @generated from field: aiprouter.v1.PriceRates rates = 4;
    */
   rates?: PriceRates | undefined;
+
+  /**
+   * Required nonempty collection revision from listing or a prior successful mutation.
+   * Atomically reject stale revisions with ABORTED; never silently overwrite.
+   *
+   * @generated from field: string expected_revision = 5;
+   */
+  expectedRevision: string;
 };
 
 /**
@@ -420,6 +443,13 @@ export type SetPriceOverrideResponse = Message<"aiprouter.v1.SetPriceOverrideRes
    * @generated from field: aiprouter.v1.PriceOverride override = 1;
    */
   override?: PriceOverride | undefined;
+
+  /**
+   * New collection revision after the successful mutation, not an item revision.
+   *
+   * @generated from field: string revision = 2;
+   */
+  revision: string;
 };
 
 /**
@@ -437,6 +467,14 @@ export type DeletePriceOverrideRequest = Message<"aiprouter.v1.DeletePriceOverri
    * @generated from field: string override_id = 1;
    */
   overrideId: string;
+
+  /**
+   * Required nonempty collection revision from listing or a prior successful mutation.
+   * Atomically reject stale revisions with ABORTED; never silently overwrite.
+   *
+   * @generated from field: string expected_revision = 2;
+   */
+  expectedRevision: string;
 };
 
 /**
@@ -447,9 +485,15 @@ export const DeletePriceOverrideRequestSchema: GenMessage<DeletePriceOverrideReq
   messageDesc(file_aiprouter_v1_operator, 18);
 
 /**
+ * New collection revision after the successful mutation, not an item revision.
+ *
  * @generated from message aiprouter.v1.DeletePriceOverrideResponse
  */
 export type DeletePriceOverrideResponse = Message<"aiprouter.v1.DeletePriceOverrideResponse"> & {
+  /**
+   * @generated from field: string revision = 1;
+   */
+  revision: string;
 };
 
 /**
@@ -472,6 +516,24 @@ export type ListInstanceAuditRequest = Message<"aiprouter.v1.ListInstanceAuditRe
    * @generated from field: aiprouter.v1.PageRequest page = 2;
    */
   page?: PageRequest | undefined;
+
+  /**
+   * Conjunctive filters never widen the existing audit visibility scope.
+   * Absent outcome means all; explicit UNSPECIFIED selects unknown outcomes.
+   *
+   * @generated from field: optional aiprouter.v1.AuditAction action = 3;
+   */
+  action?: AuditAction | undefined;
+
+  /**
+   * @generated from field: optional string actor_user_id = 4;
+   */
+  actorUserId?: string | undefined;
+
+  /**
+   * @generated from field: optional aiprouter.v1.AuditOutcome outcome = 5;
+   */
+  outcome?: AuditOutcome | undefined;
 };
 
 /**

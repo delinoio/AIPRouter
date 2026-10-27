@@ -38,6 +38,8 @@ message InstanceHealth {
   HealthState database = 2;
   google.protobuf.Timestamp last_cleanup_success_at = 3;
   uint32 consecutive_cleanup_failures = 4;
+  // Whole-instance recording health. UNSPECIFIED means unknown, not healthy.
+  HealthState usage_recording = 5;
 }
 message PriceOverride {
   string id = 1;
@@ -102,23 +104,41 @@ message ListPriceOverridesRequest {
 message ListPriceOverridesResponse {
   repeated PriceOverride overrides = 1;
   PageResponse page = 2;
+  // Opaque revision of the entire collection, including an empty collection.
+  // Page tokens must bind this revision; never combine pages from different revisions.
+  string revision = 3;
 }
 message SetPriceOverrideRequest {
   string provider_id = 1;
   string model_id = 2;
   string service_tier = 3;
   PriceRates rates = 4;
+  // Required nonempty collection revision from listing or a prior successful mutation.
+  // Atomically reject stale revisions with ABORTED; never silently overwrite.
+  string expected_revision = 5;
 }
 message SetPriceOverrideResponse {
   PriceOverride override = 1;
+  // New collection revision after the successful mutation, not an item revision.
+  string revision = 2;
 }
 message DeletePriceOverrideRequest {
   string override_id = 1;
+  // Required nonempty collection revision from listing or a prior successful mutation.
+  // Atomically reject stale revisions with ABORTED; never silently overwrite.
+  string expected_revision = 2;
 }
-message DeletePriceOverrideResponse {}
+message DeletePriceOverrideResponse { // New collection revision after the successful mutation, not an item revision.
+  string revision = 1;
+}
 message ListInstanceAuditRequest {
   TimeRange time_range = 1;
   PageRequest page = 2;
+  // Conjunctive filters never widen the existing audit visibility scope.
+  // Absent outcome means all; explicit UNSPECIFIED selects unknown outcomes.
+  optional AuditAction action = 3;
+  optional string actor_user_id = 4;
+  optional AuditOutcome outcome = 5;
 }
 message ListInstanceAuditResponse {
   repeated AuditRecord records = 1;

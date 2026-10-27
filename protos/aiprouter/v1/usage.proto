@@ -75,6 +75,7 @@ message AuditRecord {
   AuditAction action = 4;
   string resource_id = 5;
   string request_id = 6;
+  AuditOutcome outcome = 7;
 }
 
 // user_id filtering requires current administrator/owner authority unless it is the caller.
@@ -95,6 +96,10 @@ message ListUsageRequest {
   optional string user_id = 3;
   optional string model_id = 4;
   PageRequest page = 5;
+  // Filters are conjunctive within the authorized organization/user scope.
+  // Absence means no filter; explicit UNSPECIFIED selects unknown outcomes.
+  optional string provider_id = 6;
+  optional RequestOutcome outcome = 7;
 }
 message ListUsageResponse {
   repeated UsageRecord records = 1;
@@ -105,6 +110,10 @@ message GetUsageSummaryRequest {
   TimeRange time_range = 2;
   optional string user_id = 3;
   optional string model_id = 4;
+  // Filters are conjunctive within the authorized organization/user scope.
+  // Absence means no filter; explicit UNSPECIFIED selects unknown outcomes.
+  optional string provider_id = 5;
+  optional RequestOutcome outcome = 6;
 }
 message GetUsageSummaryResponse {
   UsageSummary summary = 1;
@@ -115,6 +124,10 @@ message ListDailyUsageRequest {
   optional string user_id = 3;
   optional string model_id = 4;
   PageRequest page = 5;
+  // Filters are conjunctive within the authorized organization/user scope.
+  // Absence means no filter; explicit UNSPECIFIED selects unknown outcomes.
+  optional string provider_id = 6;
+  optional RequestOutcome outcome = 7;
 }
 message ListDailyUsageResponse {
   repeated DailyUsage days = 1;
@@ -129,6 +142,11 @@ message ListOrganizationAuditRequest {
   string organization_id = 1;
   TimeRange time_range = 2;
   PageRequest page = 3;
+  // Conjunctive filters never widen the existing audit visibility scope.
+  // Absent outcome means all; explicit UNSPECIFIED selects unknown outcomes.
+  optional AuditAction action = 4;
+  optional string actor_user_id = 5;
+  optional AuditOutcome outcome = 6;
 }
 message ListOrganizationAuditResponse {
   repeated AuditRecord records = 1;

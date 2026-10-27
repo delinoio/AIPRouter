@@ -273,8 +273,10 @@ type InstanceHealth struct {
 	Database                   HealthState            `protobuf:"varint,2,opt,name=database,proto3,enum=aiprouter.v1.HealthState" json:"database,omitempty"`
 	LastCleanupSuccessAt       *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_cleanup_success_at,json=lastCleanupSuccessAt,proto3" json:"last_cleanup_success_at,omitempty"`
 	ConsecutiveCleanupFailures uint32                 `protobuf:"varint,4,opt,name=consecutive_cleanup_failures,json=consecutiveCleanupFailures,proto3" json:"consecutive_cleanup_failures,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// Whole-instance recording health. UNSPECIFIED means unknown, not healthy.
+	UsageRecording HealthState `protobuf:"varint,5,opt,name=usage_recording,json=usageRecording,proto3,enum=aiprouter.v1.HealthState" json:"usage_recording,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *InstanceHealth) Reset() {
@@ -333,6 +335,13 @@ func (x *InstanceHealth) GetConsecutiveCleanupFailures() uint32 {
 		return x.ConsecutiveCleanupFailures
 	}
 	return 0
+}
+
+func (x *InstanceHealth) GetUsageRecording() HealthState {
+	if x != nil {
+		return x.UsageRecording
+	}
+	return HealthState_HEALTH_STATE_UNSPECIFIED
 }
 
 type PriceOverride struct {
@@ -808,9 +817,12 @@ func (x *ListPriceOverridesRequest) GetPage() *PageRequest {
 }
 
 type ListPriceOverridesResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Overrides     []*PriceOverride       `protobuf:"bytes,1,rep,name=overrides,proto3" json:"overrides,omitempty"`
-	Page          *PageResponse          `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Overrides []*PriceOverride       `protobuf:"bytes,1,rep,name=overrides,proto3" json:"overrides,omitempty"`
+	Page      *PageResponse          `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	// Opaque revision of the entire collection, including an empty collection.
+	// Page tokens must bind this revision; never combine pages from different revisions.
+	Revision      string `protobuf:"bytes,3,opt,name=revision,proto3" json:"revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -859,14 +871,24 @@ func (x *ListPriceOverridesResponse) GetPage() *PageResponse {
 	return nil
 }
 
+func (x *ListPriceOverridesResponse) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
 type SetPriceOverrideRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProviderId    string                 `protobuf:"bytes,1,opt,name=provider_id,json=providerId,proto3" json:"provider_id,omitempty"`
-	ModelId       string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ServiceTier   string                 `protobuf:"bytes,3,opt,name=service_tier,json=serviceTier,proto3" json:"service_tier,omitempty"`
-	Rates         *PriceRates            `protobuf:"bytes,4,opt,name=rates,proto3" json:"rates,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ProviderId  string                 `protobuf:"bytes,1,opt,name=provider_id,json=providerId,proto3" json:"provider_id,omitempty"`
+	ModelId     string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ServiceTier string                 `protobuf:"bytes,3,opt,name=service_tier,json=serviceTier,proto3" json:"service_tier,omitempty"`
+	Rates       *PriceRates            `protobuf:"bytes,4,opt,name=rates,proto3" json:"rates,omitempty"`
+	// Required nonempty collection revision from listing or a prior successful mutation.
+	// Atomically reject stale revisions with ABORTED; never silently overwrite.
+	ExpectedRevision string `protobuf:"bytes,5,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SetPriceOverrideRequest) Reset() {
@@ -927,9 +949,18 @@ func (x *SetPriceOverrideRequest) GetRates() *PriceRates {
 	return nil
 }
 
+func (x *SetPriceOverrideRequest) GetExpectedRevision() string {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return ""
+}
+
 type SetPriceOverrideResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Override      *PriceOverride         `protobuf:"bytes,1,opt,name=override,proto3" json:"override,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Override *PriceOverride         `protobuf:"bytes,1,opt,name=override,proto3" json:"override,omitempty"`
+	// New collection revision after the successful mutation, not an item revision.
+	Revision      string `protobuf:"bytes,2,opt,name=revision,proto3" json:"revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -971,11 +1002,21 @@ func (x *SetPriceOverrideResponse) GetOverride() *PriceOverride {
 	return nil
 }
 
+func (x *SetPriceOverrideResponse) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
 type DeletePriceOverrideRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OverrideId    string                 `protobuf:"bytes,1,opt,name=override_id,json=overrideId,proto3" json:"override_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	OverrideId string                 `protobuf:"bytes,1,opt,name=override_id,json=overrideId,proto3" json:"override_id,omitempty"`
+	// Required nonempty collection revision from listing or a prior successful mutation.
+	// Atomically reject stale revisions with ABORTED; never silently overwrite.
+	ExpectedRevision string `protobuf:"bytes,2,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *DeletePriceOverrideRequest) Reset() {
@@ -1015,8 +1056,16 @@ func (x *DeletePriceOverrideRequest) GetOverrideId() string {
 	return ""
 }
 
+func (x *DeletePriceOverrideRequest) GetExpectedRevision() string {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return ""
+}
+
 type DeletePriceOverrideResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Revision      string                 `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1051,10 +1100,22 @@ func (*DeletePriceOverrideResponse) Descriptor() ([]byte, []int) {
 	return file_aiprouter_v1_operator_proto_rawDescGZIP(), []int{19}
 }
 
+func (x *DeletePriceOverrideResponse) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
 type ListInstanceAuditRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TimeRange     *TimeRange             `protobuf:"bytes,1,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
-	Page          *PageRequest           `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	TimeRange *TimeRange             `protobuf:"bytes,1,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
+	Page      *PageRequest           `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	// Conjunctive filters never widen the existing audit visibility scope.
+	// Absent outcome means all; explicit UNSPECIFIED selects unknown outcomes.
+	Action        *AuditAction  `protobuf:"varint,3,opt,name=action,proto3,enum=aiprouter.v1.AuditAction,oneof" json:"action,omitempty"`
+	ActorUserId   *string       `protobuf:"bytes,4,opt,name=actor_user_id,json=actorUserId,proto3,oneof" json:"actor_user_id,omitempty"`
+	Outcome       *AuditOutcome `protobuf:"varint,5,opt,name=outcome,proto3,enum=aiprouter.v1.AuditOutcome,oneof" json:"outcome,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1101,6 +1162,27 @@ func (x *ListInstanceAuditRequest) GetPage() *PageRequest {
 		return x.Page
 	}
 	return nil
+}
+
+func (x *ListInstanceAuditRequest) GetAction() AuditAction {
+	if x != nil && x.Action != nil {
+		return *x.Action
+	}
+	return AuditAction_AUDIT_ACTION_UNSPECIFIED
+}
+
+func (x *ListInstanceAuditRequest) GetActorUserId() string {
+	if x != nil && x.ActorUserId != nil {
+		return *x.ActorUserId
+	}
+	return ""
+}
+
+func (x *ListInstanceAuditRequest) GetOutcome() AuditOutcome {
+	if x != nil && x.Outcome != nil {
+		return *x.Outcome
+	}
+	return AuditOutcome_AUDIT_OUTCOME_UNSPECIFIED
 }
 
 type ListInstanceAuditResponse struct {
@@ -1176,12 +1258,13 @@ const file_aiprouter_v1_operator_proto_rawDesc = "" +
 	"\x0erequest_limits\x18\x01 \x01(\v2\x1b.aiprouter.v1.RequestLimitsR\rrequestLimits\x12=\n" +
 	"\tretention\x18\x02 \x01(\v2\x1f.aiprouter.v1.RetentionSettingsR\tretention\x12S\n" +
 	"\x14allowed_destinations\x18\x03 \x03(\v2 .aiprouter.v1.AllowedDestinationR\x13allowedDestinations\x12\x1a\n" +
-	"\brevision\x18\x04 \x01(\tR\brevision\"\x91\x02\n" +
+	"\brevision\x18\x04 \x01(\tR\brevision\"\xd5\x02\n" +
 	"\x0eInstanceHealth\x123\n" +
 	"\aservice\x18\x01 \x01(\x0e2\x19.aiprouter.v1.HealthStateR\aservice\x125\n" +
 	"\bdatabase\x18\x02 \x01(\x0e2\x19.aiprouter.v1.HealthStateR\bdatabase\x12Q\n" +
 	"\x17last_cleanup_success_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x14lastCleanupSuccessAt\x12@\n" +
-	"\x1cconsecutive_cleanup_failures\x18\x04 \x01(\rR\x1aconsecutiveCleanupFailures\"\xe9\x01\n" +
+	"\x1cconsecutive_cleanup_failures\x18\x04 \x01(\rR\x1aconsecutiveCleanupFailures\x12B\n" +
+	"\x0fusage_recording\x18\x05 \x01(\x0e2\x19.aiprouter.v1.HealthStateR\x0eusageRecording\"\xe9\x01\n" +
 	"\rPriceOverride\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\vprovider_id\x18\x02 \x01(\tR\n" +
@@ -1208,26 +1291,38 @@ const file_aiprouter_v1_operator_proto_rawDesc = "" +
 	"\x18GetInstanceUsageResponse\x124\n" +
 	"\asummary\x18\x01 \x01(\v2\x1a.aiprouter.v1.UsageSummaryR\asummary\"J\n" +
 	"\x19ListPriceOverridesRequest\x12-\n" +
-	"\x04page\x18\x01 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04page\"\x87\x01\n" +
+	"\x04page\x18\x01 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04page\"\xa3\x01\n" +
 	"\x1aListPriceOverridesResponse\x129\n" +
 	"\toverrides\x18\x01 \x03(\v2\x1b.aiprouter.v1.PriceOverrideR\toverrides\x12.\n" +
-	"\x04page\x18\x02 \x01(\v2\x1a.aiprouter.v1.PageResponseR\x04page\"\xa8\x01\n" +
+	"\x04page\x18\x02 \x01(\v2\x1a.aiprouter.v1.PageResponseR\x04page\x12\x1a\n" +
+	"\brevision\x18\x03 \x01(\tR\brevision\"\xd5\x01\n" +
 	"\x17SetPriceOverrideRequest\x12\x1f\n" +
 	"\vprovider_id\x18\x01 \x01(\tR\n" +
 	"providerId\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12!\n" +
 	"\fservice_tier\x18\x03 \x01(\tR\vserviceTier\x12.\n" +
-	"\x05rates\x18\x04 \x01(\v2\x18.aiprouter.v1.PriceRatesR\x05rates\"S\n" +
+	"\x05rates\x18\x04 \x01(\v2\x18.aiprouter.v1.PriceRatesR\x05rates\x12+\n" +
+	"\x11expected_revision\x18\x05 \x01(\tR\x10expectedRevision\"o\n" +
 	"\x18SetPriceOverrideResponse\x127\n" +
-	"\boverride\x18\x01 \x01(\v2\x1b.aiprouter.v1.PriceOverrideR\boverride\"=\n" +
+	"\boverride\x18\x01 \x01(\v2\x1b.aiprouter.v1.PriceOverrideR\boverride\x12\x1a\n" +
+	"\brevision\x18\x02 \x01(\tR\brevision\"j\n" +
 	"\x1aDeletePriceOverrideRequest\x12\x1f\n" +
 	"\voverride_id\x18\x01 \x01(\tR\n" +
-	"overrideId\"\x1d\n" +
-	"\x1bDeletePriceOverrideResponse\"\x81\x01\n" +
+	"overrideId\x12+\n" +
+	"\x11expected_revision\x18\x02 \x01(\tR\x10expectedRevision\"9\n" +
+	"\x1bDeletePriceOverrideResponse\x12\x1a\n" +
+	"\brevision\x18\x01 \x01(\tR\brevision\"\xc6\x02\n" +
 	"\x18ListInstanceAuditRequest\x126\n" +
 	"\n" +
 	"time_range\x18\x01 \x01(\v2\x17.aiprouter.v1.TimeRangeR\ttimeRange\x12-\n" +
-	"\x04page\x18\x02 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04page\"\x80\x01\n" +
+	"\x04page\x18\x02 \x01(\v2\x19.aiprouter.v1.PageRequestR\x04page\x126\n" +
+	"\x06action\x18\x03 \x01(\x0e2\x19.aiprouter.v1.AuditActionH\x00R\x06action\x88\x01\x01\x12'\n" +
+	"\ractor_user_id\x18\x04 \x01(\tH\x01R\vactorUserId\x88\x01\x01\x129\n" +
+	"\aoutcome\x18\x05 \x01(\x0e2\x1a.aiprouter.v1.AuditOutcomeH\x02R\aoutcome\x88\x01\x01B\t\n" +
+	"\a_actionB\x10\n" +
+	"\x0e_actor_user_idB\n" +
+	"\n" +
+	"\b_outcome\"\x80\x01\n" +
 	"\x19ListInstanceAuditResponse\x123\n" +
 	"\arecords\x18\x01 \x03(\v2\x19.aiprouter.v1.AuditRecordR\arecords\x12.\n" +
 	"\x04page\x18\x02 \x01(\v2\x1a.aiprouter.v1.PageResponseR\x04page2\x89\a\n" +
@@ -1284,7 +1379,9 @@ var file_aiprouter_v1_operator_proto_goTypes = []any{
 	(*UsageSummary)(nil),                   // 26: aiprouter.v1.UsageSummary
 	(*PageRequest)(nil),                    // 27: aiprouter.v1.PageRequest
 	(*PageResponse)(nil),                   // 28: aiprouter.v1.PageResponse
-	(*AuditRecord)(nil),                    // 29: aiprouter.v1.AuditRecord
+	(AuditAction)(0),                       // 29: aiprouter.v1.AuditAction
+	(AuditOutcome)(0),                      // 30: aiprouter.v1.AuditOutcome
+	(*AuditRecord)(nil),                    // 31: aiprouter.v1.AuditRecord
 }
 var file_aiprouter_v1_operator_proto_depIdxs = []int32{
 	0,  // 0: aiprouter.v1.InstanceSettings.request_limits:type_name -> aiprouter.v1.RequestLimits
@@ -1293,44 +1390,47 @@ var file_aiprouter_v1_operator_proto_depIdxs = []int32{
 	22, // 3: aiprouter.v1.InstanceHealth.service:type_name -> aiprouter.v1.HealthState
 	22, // 4: aiprouter.v1.InstanceHealth.database:type_name -> aiprouter.v1.HealthState
 	23, // 5: aiprouter.v1.InstanceHealth.last_cleanup_success_at:type_name -> google.protobuf.Timestamp
-	24, // 6: aiprouter.v1.PriceOverride.rates:type_name -> aiprouter.v1.PriceRates
-	23, // 7: aiprouter.v1.PriceOverride.updated_at:type_name -> google.protobuf.Timestamp
-	3,  // 8: aiprouter.v1.GetInstanceSettingsResponse.settings:type_name -> aiprouter.v1.InstanceSettings
-	3,  // 9: aiprouter.v1.UpdateInstanceSettingsRequest.settings:type_name -> aiprouter.v1.InstanceSettings
-	3,  // 10: aiprouter.v1.UpdateInstanceSettingsResponse.settings:type_name -> aiprouter.v1.InstanceSettings
-	4,  // 11: aiprouter.v1.GetInstanceHealthResponse.health:type_name -> aiprouter.v1.InstanceHealth
-	25, // 12: aiprouter.v1.GetInstanceUsageRequest.time_range:type_name -> aiprouter.v1.TimeRange
-	26, // 13: aiprouter.v1.GetInstanceUsageResponse.summary:type_name -> aiprouter.v1.UsageSummary
-	27, // 14: aiprouter.v1.ListPriceOverridesRequest.page:type_name -> aiprouter.v1.PageRequest
-	5,  // 15: aiprouter.v1.ListPriceOverridesResponse.overrides:type_name -> aiprouter.v1.PriceOverride
-	28, // 16: aiprouter.v1.ListPriceOverridesResponse.page:type_name -> aiprouter.v1.PageResponse
-	24, // 17: aiprouter.v1.SetPriceOverrideRequest.rates:type_name -> aiprouter.v1.PriceRates
-	5,  // 18: aiprouter.v1.SetPriceOverrideResponse.override:type_name -> aiprouter.v1.PriceOverride
-	25, // 19: aiprouter.v1.ListInstanceAuditRequest.time_range:type_name -> aiprouter.v1.TimeRange
-	27, // 20: aiprouter.v1.ListInstanceAuditRequest.page:type_name -> aiprouter.v1.PageRequest
-	29, // 21: aiprouter.v1.ListInstanceAuditResponse.records:type_name -> aiprouter.v1.AuditRecord
-	28, // 22: aiprouter.v1.ListInstanceAuditResponse.page:type_name -> aiprouter.v1.PageResponse
-	6,  // 23: aiprouter.v1.OperatorService.GetInstanceSettings:input_type -> aiprouter.v1.GetInstanceSettingsRequest
-	8,  // 24: aiprouter.v1.OperatorService.UpdateInstanceSettings:input_type -> aiprouter.v1.UpdateInstanceSettingsRequest
-	10, // 25: aiprouter.v1.OperatorService.GetInstanceHealth:input_type -> aiprouter.v1.GetInstanceHealthRequest
-	12, // 26: aiprouter.v1.OperatorService.GetInstanceUsage:input_type -> aiprouter.v1.GetInstanceUsageRequest
-	14, // 27: aiprouter.v1.OperatorService.ListPriceOverrides:input_type -> aiprouter.v1.ListPriceOverridesRequest
-	16, // 28: aiprouter.v1.OperatorService.SetPriceOverride:input_type -> aiprouter.v1.SetPriceOverrideRequest
-	18, // 29: aiprouter.v1.OperatorService.DeletePriceOverride:input_type -> aiprouter.v1.DeletePriceOverrideRequest
-	20, // 30: aiprouter.v1.OperatorService.ListInstanceAudit:input_type -> aiprouter.v1.ListInstanceAuditRequest
-	7,  // 31: aiprouter.v1.OperatorService.GetInstanceSettings:output_type -> aiprouter.v1.GetInstanceSettingsResponse
-	9,  // 32: aiprouter.v1.OperatorService.UpdateInstanceSettings:output_type -> aiprouter.v1.UpdateInstanceSettingsResponse
-	11, // 33: aiprouter.v1.OperatorService.GetInstanceHealth:output_type -> aiprouter.v1.GetInstanceHealthResponse
-	13, // 34: aiprouter.v1.OperatorService.GetInstanceUsage:output_type -> aiprouter.v1.GetInstanceUsageResponse
-	15, // 35: aiprouter.v1.OperatorService.ListPriceOverrides:output_type -> aiprouter.v1.ListPriceOverridesResponse
-	17, // 36: aiprouter.v1.OperatorService.SetPriceOverride:output_type -> aiprouter.v1.SetPriceOverrideResponse
-	19, // 37: aiprouter.v1.OperatorService.DeletePriceOverride:output_type -> aiprouter.v1.DeletePriceOverrideResponse
-	21, // 38: aiprouter.v1.OperatorService.ListInstanceAudit:output_type -> aiprouter.v1.ListInstanceAuditResponse
-	31, // [31:39] is the sub-list for method output_type
-	23, // [23:31] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	22, // 6: aiprouter.v1.InstanceHealth.usage_recording:type_name -> aiprouter.v1.HealthState
+	24, // 7: aiprouter.v1.PriceOverride.rates:type_name -> aiprouter.v1.PriceRates
+	23, // 8: aiprouter.v1.PriceOverride.updated_at:type_name -> google.protobuf.Timestamp
+	3,  // 9: aiprouter.v1.GetInstanceSettingsResponse.settings:type_name -> aiprouter.v1.InstanceSettings
+	3,  // 10: aiprouter.v1.UpdateInstanceSettingsRequest.settings:type_name -> aiprouter.v1.InstanceSettings
+	3,  // 11: aiprouter.v1.UpdateInstanceSettingsResponse.settings:type_name -> aiprouter.v1.InstanceSettings
+	4,  // 12: aiprouter.v1.GetInstanceHealthResponse.health:type_name -> aiprouter.v1.InstanceHealth
+	25, // 13: aiprouter.v1.GetInstanceUsageRequest.time_range:type_name -> aiprouter.v1.TimeRange
+	26, // 14: aiprouter.v1.GetInstanceUsageResponse.summary:type_name -> aiprouter.v1.UsageSummary
+	27, // 15: aiprouter.v1.ListPriceOverridesRequest.page:type_name -> aiprouter.v1.PageRequest
+	5,  // 16: aiprouter.v1.ListPriceOverridesResponse.overrides:type_name -> aiprouter.v1.PriceOverride
+	28, // 17: aiprouter.v1.ListPriceOverridesResponse.page:type_name -> aiprouter.v1.PageResponse
+	24, // 18: aiprouter.v1.SetPriceOverrideRequest.rates:type_name -> aiprouter.v1.PriceRates
+	5,  // 19: aiprouter.v1.SetPriceOverrideResponse.override:type_name -> aiprouter.v1.PriceOverride
+	25, // 20: aiprouter.v1.ListInstanceAuditRequest.time_range:type_name -> aiprouter.v1.TimeRange
+	27, // 21: aiprouter.v1.ListInstanceAuditRequest.page:type_name -> aiprouter.v1.PageRequest
+	29, // 22: aiprouter.v1.ListInstanceAuditRequest.action:type_name -> aiprouter.v1.AuditAction
+	30, // 23: aiprouter.v1.ListInstanceAuditRequest.outcome:type_name -> aiprouter.v1.AuditOutcome
+	31, // 24: aiprouter.v1.ListInstanceAuditResponse.records:type_name -> aiprouter.v1.AuditRecord
+	28, // 25: aiprouter.v1.ListInstanceAuditResponse.page:type_name -> aiprouter.v1.PageResponse
+	6,  // 26: aiprouter.v1.OperatorService.GetInstanceSettings:input_type -> aiprouter.v1.GetInstanceSettingsRequest
+	8,  // 27: aiprouter.v1.OperatorService.UpdateInstanceSettings:input_type -> aiprouter.v1.UpdateInstanceSettingsRequest
+	10, // 28: aiprouter.v1.OperatorService.GetInstanceHealth:input_type -> aiprouter.v1.GetInstanceHealthRequest
+	12, // 29: aiprouter.v1.OperatorService.GetInstanceUsage:input_type -> aiprouter.v1.GetInstanceUsageRequest
+	14, // 30: aiprouter.v1.OperatorService.ListPriceOverrides:input_type -> aiprouter.v1.ListPriceOverridesRequest
+	16, // 31: aiprouter.v1.OperatorService.SetPriceOverride:input_type -> aiprouter.v1.SetPriceOverrideRequest
+	18, // 32: aiprouter.v1.OperatorService.DeletePriceOverride:input_type -> aiprouter.v1.DeletePriceOverrideRequest
+	20, // 33: aiprouter.v1.OperatorService.ListInstanceAudit:input_type -> aiprouter.v1.ListInstanceAuditRequest
+	7,  // 34: aiprouter.v1.OperatorService.GetInstanceSettings:output_type -> aiprouter.v1.GetInstanceSettingsResponse
+	9,  // 35: aiprouter.v1.OperatorService.UpdateInstanceSettings:output_type -> aiprouter.v1.UpdateInstanceSettingsResponse
+	11, // 36: aiprouter.v1.OperatorService.GetInstanceHealth:output_type -> aiprouter.v1.GetInstanceHealthResponse
+	13, // 37: aiprouter.v1.OperatorService.GetInstanceUsage:output_type -> aiprouter.v1.GetInstanceUsageResponse
+	15, // 38: aiprouter.v1.OperatorService.ListPriceOverrides:output_type -> aiprouter.v1.ListPriceOverridesResponse
+	17, // 39: aiprouter.v1.OperatorService.SetPriceOverride:output_type -> aiprouter.v1.SetPriceOverrideResponse
+	19, // 40: aiprouter.v1.OperatorService.DeletePriceOverride:output_type -> aiprouter.v1.DeletePriceOverrideResponse
+	21, // 41: aiprouter.v1.OperatorService.ListInstanceAudit:output_type -> aiprouter.v1.ListInstanceAuditResponse
+	34, // [34:42] is the sub-list for method output_type
+	26, // [26:34] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_aiprouter_v1_operator_proto_init() }
@@ -1340,6 +1440,7 @@ func file_aiprouter_v1_operator_proto_init() {
 	}
 	file_aiprouter_v1_common_proto_init()
 	file_aiprouter_v1_usage_proto_init()
+	file_aiprouter_v1_operator_proto_msgTypes[20].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

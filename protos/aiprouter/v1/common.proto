@@ -257,3 +257,21 @@ message InferenceKey {
   google.protobuf.Timestamp last_used_at = 8;
   string prefix = 9;
 }
+
+// UNSPECIFIED means the recorded outcome is unknown, never implicit success.
+enum AuditOutcome {
+  AUDIT_OUTCOME_UNSPECIFIED = 0;
+  AUDIT_OUTCOME_SUCCEEDED = 1;
+  AUDIT_OUTCOME_FAILED = 2;
+  AUDIT_OUTCOME_DENIED = 3;
+}
+
+// Mirrors the personal provider library authentication methods.
+enum ProviderOAuthMethod {
+  PROVIDER_O_AUTH_METHOD_UNSPECIFIED = 0;
+  PROVIDER_O_AUTH_METHOD_PKCE = 1;
+  PROVIDER_O_AUTH_METHOD_DEVICE = 2;
+  PROVIDER_O_AUTH_METHOD_BROWSER_POLL = 3;
+  PROVIDER_O_AUTH_METHOD_EXPLICIT_TOKEN = 4;
+  PROVIDER_O_AUTH_METHOD_NATIVE_CALLBACK = 5;
+}
