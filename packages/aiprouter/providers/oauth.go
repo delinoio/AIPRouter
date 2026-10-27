@@ -235,6 +235,15 @@ func (a *Auth) Complete(ctx context.Context, s core.Scope, f Flow, code, state s
 func (a *Auth) Refresh(ctx context.Context, s core.Scope, p string, c Credential) (result Credential, err error) {
 	defer func() {
 		if err == nil {
+			if result.AccessToken != c.AccessToken {
+				meta := map[string]string{}
+				for k, v := range result.Metadata {
+					if k != "profileBearerSHA256" && k != "profileAccountId" && k != "profileEmail" && k != "profilePlan" {
+						meta[k] = v
+					}
+				}
+				result.Metadata = meta
+			}
 			if ctx.Err() != nil {
 				result = Credential{}
 				err = ctx.Err()

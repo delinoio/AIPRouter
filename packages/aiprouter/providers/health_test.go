@@ -134,3 +134,70 @@ func TestAdditionalAccountHealth(t *testing.T) {
 		}
 	})
 }
+func TestGoogleHealthRecoveryAndModelFallback(t *testing.T) {
+	c := Credential{Scope: testScope, Provider: "google-antigravity", AccessToken: "token", ProjectID: "project"}
+	base := "https://daily-cloudcode-pa.googleapis.com/v1internal:"
+	a, _ := newMock(t, responseStep{"POST", base + "retrieveUserQuotaSummary", 403, `{}`, nil}, responseStep{"POST", base + "retrieveUserQuotaSummary", 200, `{"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"argon-five-hour","remaining":{"remainingFraction":0.25}},{"window":"weekly","remainingPercentage":0.5}]}]}`, func(t *testing.T, r *http.Request, b []byte) {
+		if r.Header.Get("User-Agent") != "antigravity/1.0" {
+			t.Fatal("missing compatibility recovery")
+		}
+	}})
+	h, e := a.ProbeHealth(context.Background(), testScope, c)
+	if e != nil || len(h.Windows) != 2 || h.Windows[0].Model != "gemini-4-argon" || h.Windows[0].UsedPercent != 75 {
+		t.Fatal(h, e)
+	}
+	a, _ = newMock(t, responseStep{"POST", base + "retrieveUserQuotaSummary", 200, `{}`, nil}, responseStep{"POST", base + "fetchAvailableModels", 200, `{"models":{"gemini-model":{"quotaInfo":{"remainingFraction":0.5}},"gemini-4-argon":{"quotaInfo":{"remainingFraction":0.75}}}}`, nil})
+	h, e = a.ProbeHealth(context.Background(), testScope, c)
+	if e != nil || len(h.Windows) != 3 {
+		t.Fatal(h, e)
+	}
+	a, _ = newMock(t, responseStep{"POST", base + "retrieveUserQuotaSummary", 401, `{}`, nil})
+	h, e = a.ProbeHealth(context.Background(), testScope, c)
+	if e != nil || h.State != HealthUnknown {
+		t.Fatal("quota denial must not retire inference", h, e)
+	}
+}
+func TestWorkBuddyTeamAndCreditExpiry(t *testing.T) {
+	c := Credential{Scope: testScope, Provider: "workbuddy-ai", AccessToken: "token", Metadata: map[string]string{"uid": "user", "domain": "www.workbuddy.ai", "enterpriseId": "team"}}
+	base := "https://www.workbuddy.ai/billing/meter/"
+	a, _ := newMock(t, responseStep{"POST", base + "get-user-resource-summary", 200, `{"code":0,"data":{"Packages":[]}}`, nil}, responseStep{"POST", base + "get-enterprise-user-usage", 200, `{"code":0,"data":{"limitNum":100,"credit":25}}`, nil})
+	h, e := a.ProbeHealth(context.Background(), testScope, c)
+	if e != nil || len(h.Balances) != 1 || h.Balances[0].Remaining != 75 {
+		t.Fatal(h, e)
+	}
+	a, _ = newMock(t, responseStep{"POST", base + "get-user-resource-summary", 200, `{"code":0,"data":{"Packages":[{"PackageCode":"plan","CycleTotalCapacity":100,"CycleUsedCapacity":20}]}}`, nil}, responseStep{"POST", base + "get-user-resource-paid-packages", 200, `{"code":0,"data":{"Accounts":[{"PackageCode":"plan","CycleCapacityRemainPrecise":20,"ExpiredTime":"2030-01-01 00:00:00"}],"TotalCount":1}}`, nil}, responseStep{"POST", base + "get-user-resource-free-packages", 200, `{"code":0,"data":{"Accounts":[]}}`, nil})
+	h, e = a.ProbeHealth(context.Background(), testScope, c)
+	if e != nil || len(h.Balances) != 1 || h.Balances[0].ExpiringAmount != 20 || h.Balances[0].ExpiresAt.IsZero() {
+		t.Fatal(h, e)
+	}
+}
+func TestHealthScopeAndCancellationBeforeSend(t *testing.T) {
+	a, _ := newMock(t)
+	c := Credential{Scope: testScope, Provider: "anthropic", AccessToken: "token"}
+	other := testScope
+	other.Generation++
+	if _, e := a.ProbeHealth(context.Background(), other, c); !errors.Is(e, ErrScope) {
+		t.Fatal(e)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, e := a.ProbeHealth(ctx, testScope, c); !errors.Is(e, context.Canceled) {
+		t.Fatal(e)
+	}
+	if _, e := a.Profile(ctx, testScope, c); !errors.Is(e, context.Canceled) {
+		t.Fatal(e)
+	}
+}
+func TestProfileEnrichmentDoesNotMutateInput(t *testing.T) {
+	c := Credential{Scope: testScope, Provider: "anthropic", AccessToken: "token", Metadata: map[string]string{"untouched": "value"}}
+	a, _ := newMock(t, responseStep{"GET", "https://api.anthropic.com/api/oauth/profile", 200, `{"account":{"uuid":"account"},"organization":{"rate_limit_tier":"default_claude_max"}}`, nil})
+	fresh, p, e := a.EnrichCredential(context.Background(), testScope, c)
+	if e != nil || fresh.AccountID != "account" || fresh.Metadata["profilePlan"] != "max" || c.Metadata["profilePlan"] != "" {
+		t.Fatal(fresh, p, e)
+	}
+	other := fresh
+	other.Scope.Generation++
+	if p.Matches(other) {
+		t.Fatal("cross-scope proof accepted")
+	}
+}

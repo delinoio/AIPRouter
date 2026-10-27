@@ -56,6 +56,21 @@ func (a *Auth) ValidateRemote(ctx context.Context, s core.Scope, c Connection) (
 	if c.Credential != nil && c.Credential.Scope != s {
 		return Validation{}, ErrScope
 	}
+	if c.Provider == "openai" && c.Credential != nil {
+		catalog, _, err := a.Discover(ctx, s, c)
+		if err != nil {
+			var ae *AuthError
+			if errors.As(err, &ae) && (ae.Status == 401 || ae.Status == 403) {
+				return Validation{State: ValidationRejected}, nil
+			}
+			return Validation{}, err
+		}
+		out := Validation{State: catalog.State}
+		for _, m := range catalog.Models {
+			out.Models = append(out.Models, m.ID)
+		}
+		return out, nil
+	}
 	switch c.Provider {
 	case "cursor", "kiro", "google-antigravity", "workbuddy-ai", "devin":
 		catalog, _, err := a.Discover(ctx, s, c)

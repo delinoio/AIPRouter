@@ -242,6 +242,9 @@ func (a *Auth) ZedModels(ctx context.Context, s core.Scope, c Credential) (ZedCa
 		if efforts == nil {
 			efforts, _ = r["supportedEffortLevels"].([]any)
 		}
+		if efforts != nil {
+			model.SupportedEffortLevels = make([]string, 0, len(efforts))
+		}
 		for _, v := range efforts {
 			if s, ok := v.(string); ok && safeString(s) {
 				model.SupportedEffortLevels = append(model.SupportedEffortLevels, s)

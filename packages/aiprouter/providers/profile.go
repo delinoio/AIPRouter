@@ -7,20 +7,24 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
+	"regexp"
 	"strings"
 	"time"
 )
 
+var profilePlan = regexp.MustCompile(`^[a-z0-9_.-]{1,64}$`)
+
 // AccountProfile is PRIVATE, bearer-bound provider evidence. It is not a service
 // principal and must never be used to merge personal account slots automatically.
 type AccountProfile struct {
+	Scope                                          core.Scope
 	Provider, AccountID, Email, Plan, BearerSHA256 string
 	ObservedAt                                     time.Time
 }
 
 func (p AccountProfile) Matches(c Credential) bool {
 	h := sha256.Sum256([]byte(c.AccessToken))
-	return p.Provider == c.Provider && p.BearerSHA256 == hex.EncodeToString(h[:])
+	return p.Scope == c.Scope && p.Provider == c.Provider && p.BearerSHA256 == hex.EncodeToString(h[:])
 }
 func (a *Auth) Profile(ctx context.Context, s core.Scope, c Credential) (AccountProfile, error) {
 	if !validScope(s) || c.Scope != s {
@@ -46,7 +50,7 @@ func (a *Auth) Profile(ctx context.Context, s core.Scope, c Credential) (Account
 	if err != nil {
 		return AccountProfile{}, err
 	}
-	p := AccountProfile{Provider: c.Provider, ObservedAt: a.now()}
+	p := AccountProfile{Scope: s, Provider: c.Provider, ObservedAt: a.now()}
 	switch c.Provider {
 	case "anthropic", "anthropic2":
 		account := obj(m, "account")
@@ -71,10 +75,32 @@ func (a *Auth) Profile(ctx context.Context, s core.Scope, c Credential) (Account
 	if !safeString(p.Email) || len(p.Email) > 320 {
 		p.Email = ""
 	}
-	if !safeString(p.Plan) || len(p.Plan) > 128 {
+	if !profilePlan.MatchString(p.Plan) {
 		p.Plan = ""
 	}
 	digest := sha256.Sum256([]byte(c.AccessToken))
 	p.BearerSHA256 = hex.EncodeToString(digest[:])
 	return p, nil
+}
+
+// EnrichCredential returns a copy with authenticated provider identity and plan.
+// Persist using the same private-version CAS as the token that was probed. Profile
+// unavailability is returned separately so callers can retain a usable token while
+// leaving identity unresolved; never treat grant/JWT hints as a profile proof.
+func (a *Auth) EnrichCredential(ctx context.Context, s core.Scope, c Credential) (Credential, AccountProfile, error) {
+	p, err := a.Profile(ctx, s, c)
+	if err != nil {
+		return c, AccountProfile{}, err
+	}
+	meta := make(map[string]string, len(c.Metadata)+4)
+	for k, v := range c.Metadata {
+		meta[k] = v
+	}
+	meta["profileBearerSHA256"] = p.BearerSHA256
+	meta["profileAccountId"] = p.AccountID
+	meta["profileEmail"] = p.Email
+	meta["profilePlan"] = p.Plan
+	c.Metadata = meta
+	c.AccountID = p.AccountID
+	return c, p, nil
 }
