@@ -349,6 +349,41 @@ func yamlPatch(b []byte, path []string, value any, replace bool) ([]byte, error)
 	n := root.Content[0]
 	offsets := lineOffsets(b)
 	for i, k := range path {
+		if n.Anchor != "" {
+			return nil, errors.New("managed YAML container owns a shared anchor; select an unshared contribution")
+		}
+		if n.Kind == yaml.AliasNode {
+			// Detach only this alias occurrence. Editing its anchor would change
+			// every other consumer of the shared user configuration.
+			if n.Alias == nil {
+				return nil, errors.New("invalid YAML alias")
+			}
+			var resolved any
+			if e := n.Alias.Decode(&resolved); e != nil {
+				return nil, errors.New("cannot resolve managed YAML alias")
+			}
+			encoded, e := json.Marshal(resolved)
+			if e != nil {
+				return nil, errors.New("managed YAML alias cannot be represented safely")
+			}
+			replacement, e := yamlPatch(encoded, path[i:], value, replace)
+			if e != nil {
+				return nil, e
+			}
+			start := offsets[n.Line-1] + n.Column - 1
+			token := []byte("*" + n.Value)
+			if start+len(token) > len(b) || !bytes.Equal(b[start:start+len(token)], token) {
+				return nil, errors.New("managed YAML alias source changed")
+			}
+			out := append([]byte{}, b[:start]...)
+			out = append(out, replacement...)
+			out = append(out, b[start+len(token):]...)
+			var check yaml.Node
+			if yaml.Unmarshal(out, &check) != nil {
+				return nil, errors.New("invalid detached YAML alias")
+			}
+			return out, nil
+		}
 		if strings.HasPrefix(k, "[") && strings.HasSuffix(k, "]") {
 			if n.Kind != yaml.SequenceNode {
 				return nil, errors.New("managed YAML selector requires a block sequence")

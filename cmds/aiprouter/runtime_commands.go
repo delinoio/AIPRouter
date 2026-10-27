@@ -85,7 +85,7 @@ func (a *Application) runNative(ctx context.Context, s *State, name, action stri
 		if action == "plan" {
 			return nil
 		}
-		consent := NativeRuntimeConsent{}
+		consent := NativeRuntimeConsent{PlanFingerprint: plan.Fingerprint}
 		if plan.RequiresTrust {
 			consent.Trust = a.Prompt.Confirm("Trust this exact owned certificate in your user trust store for the displayed destinations?")
 			if !consent.Trust {

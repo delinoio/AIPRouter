@@ -32,3 +32,27 @@ func TestYAMLFlowInsertionPreservesExistingSource(t *testing.T) {
 		}
 	}
 }
+
+func TestYAMLAliasDetachesOnlyOwnedOccurrence(t *testing.T) {
+	source := []byte("defaults: &base {foreign: {api: 'unchanged'}} # retain anchor\nproviders: *base # selected\nother: *base # retain alias\n")
+	after, e := Patch(source, YAML, []Fragment{{[]string{"providers", "aiprouter"}, object{"api": "endpoint"}}}, false)
+	if e != nil {
+		t.Fatal(e)
+	}
+	doc, e := parseDocument(after, YAML)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if mapAt(doc, "providers", "aiprouter") == nil || mapAt(doc, "defaults", "aiprouter") != nil || mapAt(doc, "other", "aiprouter") != nil {
+		t.Fatal("shared alias consumers changed")
+	}
+	for _, line := range []string{"defaults: &base {foreign: {api: 'unchanged'}} # retain anchor", "other: *base # retain alias", "# selected"} {
+		if !bytes.Contains(after, []byte(line)) {
+			t.Fatal("unowned source lost")
+		}
+	}
+	restored, e := restoreBytes(Backup{Before: source, After: after, Existed: true}, after)
+	if e != nil || !bytes.Equal(restored, source) {
+		t.Fatal("alias source not restored")
+	}
+}

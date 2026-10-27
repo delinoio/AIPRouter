@@ -62,14 +62,14 @@ func TestNativeEnableRequiresSeparateConsent(t *testing.T) {
 		p := testProfile()
 		s := emptyState()
 		s.Profiles[p.Name] = p
-		r := &runtimeFixture{plan: NativeRuntimePlan{RequiresTrust: true, RequiresApplication: true, RequiresAccountTrial: true}, status: NativeRuntimeStatus{Trusted: true}}
+		r := &runtimeFixture{plan: NativeRuntimePlan{Fingerprint: "reviewed-fingerprint", RequiresTrust: true, RequiresApplication: true, RequiresAccountTrial: true}, status: NativeRuntimeStatus{Trusted: true}}
 		var out bytes.Buffer
 		prompt := &promptSequence{answers: answers}
 		a := Application{Native: r, Prompt: prompt, Out: &out}
 		err := a.runNative(context.Background(), &s, p.Name, "enable", NativeCompatibilityCodexAccountUITrial, NativeCompatibilityCodexBuild, DefaultNativePort)
 		accepted := len(answers) == 3 && answers[2]
 		if accepted {
-			if err != nil || !r.consent.Trust || !r.consent.Application || !r.consent.AccountTrial {
+			if err != nil || !r.consent.Trust || !r.consent.Application || !r.consent.AccountTrial || r.consent.PlanFingerprint != "reviewed-fingerprint" {
 				t.Fatalf("consent not propagated: %v", err)
 			}
 		} else if err == nil || len(r.events) != 1 {
