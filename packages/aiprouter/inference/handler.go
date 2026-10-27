@@ -191,6 +191,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeError(w, e)
 			return
 		}
+		if e = h.guard(r.Context(), p); e != nil {
+			writeError(w, e)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
 		if m == nil {
 			m = []Model{}
 		}
@@ -369,6 +374,7 @@ func wait(ctx context.Context, d time.Duration) error {
 	}
 }
 func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principal, in Wire, op Operation, b object, rec *UsageRecord) error {
+	ctx = context.WithValue(ctx, inboundWireKey{}, in)
 	route, e := h.c.Router.Resolve(ctx, p, str(b["model"]), op)
 	if e != nil {
 		return e
@@ -379,12 +385,19 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 	if route.MaxSends < 1 {
 		return &Error{503, "invalid_send_budget", 0}
 	}
+	ctx = requestSupportBudget(ctx, rec, route.MaxSends)
 	for ti, t := range route.Targets {
 		adapter := h.c.Adapters[t.Wire]
 		if adapter == nil && t.Wire != Chat && t.Wire != Responses && t.Wire != Anthropic {
 			return ErrUnsupported
 		}
-		if op == Compact && t.Wire != Responses || op == CountTokens && t.Wire != Anthropic {
+		if op == CountTokens && t.Wire != Anthropic {
+			if e := h.guard(ctx, p); e != nil {
+				return e
+			}
+			return writeTokenEstimate(w, b, t, adapter)
+		}
+		if op == Compact && t.Wire != Responses {
 			return ErrUnsupported
 		}
 		client, local, e := h.c.Destinations.client(t.BaseURL)
@@ -462,6 +475,8 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			endpoint := strings.TrimRight(t.BaseURL, "/") + path
 			var adapterHeaders http.Header
 			var adapterInput AdapterInput
+			var executedResponse *http.Response
+			var executionCancel context.CancelFunc
 			if adapter != nil {
 				adapterInput = AdapterInput{Principal: p, Target: t, Credential: cred, Operation: op, Wire: in, Body: data}
 				if meta, ok := ctx.Value(requestMetadataKey{}).(requestMetadata); ok {
@@ -500,33 +515,30 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 						return &Error{502, "invalid_adapter_response", 0}
 					}
 					responseTarget.Wire = responseWire
-					rec.Status = response.StatusCode
-					err = h.deliver(executionCtx, w, p, in, op, b, responseTarget, local, response, rec, stop)
-					if err == nil {
-						h.captureAdapterState(executionCtx, p, adapter, adapterInput, t, cred, rec, b)
+					executedResponse = response
+					executionCancel = stop
+					attemptCtx = executionCtx
+				}
+				if executedResponse == nil {
+					built, err := adapter.Build(attemptCtx, adapterInput)
+					if err != nil {
+						return err
 					}
-					response.Body.Close()
-					stop()
-					return err
-				}
-				built, err := adapter.Build(attemptCtx, adapterInput)
-				if err != nil {
-					return err
-				}
-				u, err := url.Parse(built.URL)
-				base, _ := url.Parse(t.BaseURL)
-				if err != nil || u.User != nil || u.Fragment != "" || origin(u) != origin(base) {
-					return ErrDestination
-				}
-				if built.AttemptTimeout > 0 {
-					attemptTimeout = built.AttemptTimeout
-				}
-				endpoint = built.URL
-				data = built.Body
-				adapterHeaders = built.Headers
-				responseTarget.Wire = built.ResponseWire
-				if responseTarget.Wire != Chat && responseTarget.Wire != Responses && responseTarget.Wire != Anthropic {
-					return ErrUnsupported
+					u, err := url.Parse(built.URL)
+					base, _ := url.Parse(t.BaseURL)
+					if err != nil || u.User != nil || u.Fragment != "" || origin(u) != origin(base) {
+						return ErrDestination
+					}
+					if built.AttemptTimeout > 0 {
+						attemptTimeout = built.AttemptTimeout
+					}
+					endpoint = built.URL
+					data = built.Body
+					adapterHeaders = built.Headers
+					responseTarget.Wire = built.ResponseWire
+					if responseTarget.Wire != Chat && responseTarget.Wire != Responses && responseTarget.Wire != Anthropic {
+						return ErrUnsupported
+					}
 				}
 			}
 			sendCtx, cancel := context.WithCancel(attemptCtx)
@@ -534,106 +546,126 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				cancel()
 				sendCtx, cancel = context.WithTimeout(attemptCtx, attemptTimeout)
 			}
-			req, e := http.NewRequestWithContext(sendCtx, "POST", endpoint, bytes.NewReader(data))
-			if e != nil {
+			var resp *http.Response
+			if executedResponse != nil {
 				cancel()
-				return ErrDestination
-			}
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "application/json, text/event-stream")
-			if t.Wire == Anthropic {
-				req.Header.Set("anthropic-version", "2023-06-01")
-			}
-			for k, vs := range t.Headers {
-				for _, v := range vs {
-					req.Header.Add(k, v)
-				}
-			}
-			for k, vs := range cred.Headers {
-				req.Header.Del(k)
-				for _, v := range vs {
-					req.Header.Add(k, v)
-				}
-			}
-			if adapter == nil && cred.Secret != "" {
-				if t.Wire == Anthropic && t.Auth != OAuth {
-					req.Header.Set("x-api-key", cred.Secret)
-				} else {
-					req.Header.Set("Authorization", "Bearer "+cred.Secret)
-				}
-			} else if adapter == nil && t.Auth != Anonymous {
-				cancel()
-				return ErrNoCredential
-			}
-			for k, vs := range adapterHeaders {
-				req.Header.Del(k)
-				for _, v := range vs {
-					req.Header.Add(k, v)
-				}
-			}
-			if rec.Sends >= route.MaxSends {
-				cancel()
-				return &Error{429, "request_send_budget_exhausted", 0}
-			}
-			if e = h.guard(ctx, p); e != nil {
-				cancel()
-				return e
-			}
-			if t.Transport == WebSocketTransport {
-				if adapter != nil || op != Generate {
+				sendCtx, cancel = attemptCtx, executionCancel
+				resp = executedResponse
+				transientSends++
+			} else {
+				req, e := http.NewRequestWithContext(sendCtx, "POST", endpoint, bytes.NewReader(data))
+				if e != nil {
 					cancel()
-					return ErrUnsupported
+					return ErrDestination
 				}
-				rec.Provider = t.Provider
-				rec.Model = str(payload["model"])
-				rec.AccountID = cred.AccountID
-				resp, err := h.responsesSocket(sendCtx, p, t, req.Header, payload, rec)
-				if err != nil {
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Accept", "application/json, text/event-stream")
+				if t.Wire == Anthropic {
+					req.Header.Set("anthropic-version", "2023-06-01")
+				}
+				for k, vs := range t.Headers {
+					for _, v := range vs {
+						req.Header.Add(k, v)
+					}
+				}
+				for k, vs := range cred.Headers {
+					req.Header.Del(k)
+					for _, v := range vs {
+						req.Header.Add(k, v)
+					}
+				}
+				if adapter == nil && cred.Secret != "" {
+					if t.Wire == Anthropic && t.Auth != OAuth {
+						req.Header.Set("x-api-key", cred.Secret)
+					} else {
+						req.Header.Set("Authorization", "Bearer "+cred.Secret)
+					}
+				} else if adapter == nil && t.Auth != Anonymous {
+					cancel()
+					return ErrNoCredential
+				}
+				for k, vs := range adapterHeaders {
+					req.Header.Del(k)
+					for _, v := range vs {
+						req.Header.Add(k, v)
+					}
+				}
+				if rec.Sends >= route.MaxSends {
+					cancel()
+					return &Error{429, "request_send_budget_exhausted", 0}
+				}
+				if e = h.guard(ctx, p); e != nil {
+					cancel()
+					return e
+				}
+				if t.Transport == WebSocketTransport {
+					if adapter != nil || op != Generate {
+						cancel()
+						return ErrUnsupported
+					}
+					rec.Provider = t.Provider
+					rec.Model = str(payload["model"])
+					rec.AccountID = cred.AccountID
+					resp, err := h.responsesSocket(sendCtx, p, t, req.Header, payload, rec)
+					if err != nil {
+						cancel()
+						return err
+					}
+					rec.Status = resp.StatusCode
+					err = h.deliver(sendCtx, w, p, in, op, b, t, local, resp, rec, cancel)
+					resp.Body.Close()
 					cancel()
 					return err
 				}
-				rec.Status = resp.StatusCode
-				err = h.deliver(sendCtx, w, p, in, op, b, t, local, resp, rec, cancel)
-				resp.Body.Close()
-				cancel()
-				return err
-			}
-			transientSends++
-			rec.Provider = t.Provider
-			rec.Model = str(payload["model"])
-			rec.AccountID = cred.AccountID
-			client, local, e = h.c.Destinations.client(t.BaseURL)
-			if e != nil {
-				cancel()
-				return e
-			}
-			if transport, ok := client.Transport.(*http.Transport); ok {
-				if local {
-					transport.ResponseHeaderTimeout = 0
-				}
-				if t.StallTimeout != nil {
-					transport.ResponseHeaderTimeout = *t.StallTimeout
-				}
-			}
-			sent := gateClient(client, sendCtx, p, h.c.Authorizer, func() { rec.Sends++; h.event(ctx, "upstream_send") })
-			resp, e := client.Do(req)
-			if e != nil {
-				cancel()
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if !sent.Load() {
+				transientSends++
+				rec.Provider = t.Provider
+				rec.Model = str(payload["model"])
+				rec.AccountID = cred.AccountID
+				client, local, e = h.c.Destinations.client(t.BaseURL)
+				if e != nil {
+					cancel()
 					return e
 				}
-				rec.UnmeasuredAttempts++
-				return ErrAmbiguous
+				if transport, ok := client.Transport.(*http.Transport); ok {
+					if local {
+						transport.ResponseHeaderTimeout = 0
+					}
+					if t.StallTimeout != nil {
+						transport.ResponseHeaderTimeout = *t.StallTimeout
+					}
+				}
+				sent := gateClient(client, sendCtx, p, h.c.Authorizer, func() { rec.Sends++; h.event(ctx, "upstream_send") })
+				resp, e = client.Do(req)
+				if e != nil {
+					cancel()
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					if !sent.Load() {
+						return e
+					}
+					rec.UnmeasuredAttempts++
+					return ErrAmbiguous
+				}
 			}
 			rec.Status = resp.StatusCode
 			if resp.StatusCode >= 500 {
 				rec.UnmeasuredAttempts++
 			}
-			if (resp.StatusCode >= 200 && resp.StatusCode < 300) || resp.StatusCode == 304 {
-				if adapter != nil {
+			var headerDecision *RecoveryDecision
+			if policy := h.c.RecoveryPolicies[t.Wire]; policy != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				decision, err := policy.RecoverHTTP(sendCtx, adapterInput, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Attempt: transientSends, EndpointHops: endpointHops, Refreshed: refreshed})
+				if err != nil {
+					resp.Body.Close()
+					cancel()
+					return err
+				}
+				if decision.Action != RecoveryDefault && decision.Action != "" {
+					headerDecision = &decision
+				}
+			}
+			if headerDecision == nil && ((resp.StatusCode >= 200 && resp.StatusCode < 300) || resp.StatusCode == 304) {
+				if adapter != nil && executedResponse == nil {
 					original := resp
 					var decoded *http.Response
 					var err error
@@ -656,7 +688,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				}
 				err := h.deliver(sendCtx, w, p, in, op, b, responseTarget, local, resp, rec, cancel)
 				if err == nil {
-					h.captureAdapterState(sendCtx, p, adapter, adapterInput, t, cred, rec, b)
+					h.captureAdapterState(attemptCtx, p, adapter, adapterInput, t, cred, rec, b)
 				}
 				resp.Body.Close()
 				if err != nil && sendCtx.Err() != nil {
@@ -666,7 +698,11 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				return err
 			}
 			// Read only bounded error data for replay markers; never log provider payloads.
-			errorBody, readErr := readBody(resp.Body, 1<<20, 5*time.Second, 5*time.Second, cancel)
+			var errorBody []byte
+			var readErr error
+			if headerDecision == nil {
+				errorBody, readErr = readBody(resp.Body, 1<<20, 5*time.Second, 5*time.Second, cancel)
+			}
 			resp.Body.Close()
 			if readErr != nil {
 				cancel()
@@ -685,7 +721,13 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			}
 			if policy := h.c.RecoveryPolicies[t.Wire]; policy != nil {
 				input := AdapterInput{Principal: p, Target: t, Credential: cred, Operation: op, Wire: in, Body: data}
-				decision, err := policy.RecoverHTTP(ctx, input, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: errorBody, Attempt: transientSends, EndpointHops: endpointHops, Refreshed: refreshed})
+				var decision RecoveryDecision
+				var err error
+				if headerDecision != nil {
+					decision = *headerDecision
+				} else {
+					decision, err = policy.RecoverHTTP(ctx, input, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: errorBody, Attempt: transientSends, EndpointHops: endpointHops, Refreshed: refreshed})
+				}
 				if err != nil {
 					cancel()
 					return err

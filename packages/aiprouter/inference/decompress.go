@@ -6,13 +6,14 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"compress/zlib"
+	"github.com/klauspost/compress/zstd"
 	"io"
 	"net/http"
 	"strings"
 )
 
 // BodyDecoder must bound its own decoder workspace; the caller separately caps output.
-// The service can register zstd while its dependency remains root-module owned.
+// Built-in zstd uses a bounded workspace and single decoder worker.
 type BodyDecoder func(io.Reader) (io.ReadCloser, error)
 
 func (h *Handler) readRequest(r *http.Request, max int64) ([]byte, error) {
@@ -26,6 +27,12 @@ func (h *Handler) readRequest(r *http.Request, max int64) ([]byte, error) {
 	}
 	var reader io.ReadCloser
 	switch encoding {
+	case "zstd":
+		var decoder *zstd.Decoder
+		decoder, e = zstd.NewReader(bytes.NewReader(raw), zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(64<<20), zstd.WithDecoderMaxWindow(32<<20))
+		if e == nil {
+			reader = decoder.IOReadCloser()
+		}
 	case "gzip":
 		reader, e = gzip.NewReader(bytes.NewReader(raw))
 	case "deflate":

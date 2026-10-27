@@ -312,6 +312,7 @@ func (h *Handler) ServeRealtimeSocket(ctx context.Context, token, path string, q
 		return e
 	}
 	defer up.Close()
+	frames := &dictationFrames{}
 	done := make(chan error, 2)
 	copyFrames := func(dst, src Socket, fromClient bool) {
 		for {
@@ -329,7 +330,7 @@ func (h *Handler) ServeRealtimeSocket(ctx context.Context, token, path string, q
 					done <- e
 					return
 				}
-				if !json.Valid(b) {
+				if !json.Valid(b) || (strings.Contains(path, "dictation") && !frames.validate(b)) {
 					done <- &Error{400, "invalid_frame", 0}
 					return
 				}

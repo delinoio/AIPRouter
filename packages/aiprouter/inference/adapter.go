@@ -74,3 +74,7 @@ type StatefulAdapter interface {
 	RestoreState(context.Context, AdapterInput, AdapterStateStore) (context.Context, error)
 	CaptureState(context.Context, AdapterInput, string, AdapterStateStore) error
 }
+
+// AttemptAccounting marks a completed provider leg whose billable usage is unknown.
+// It does not reserve another send or authorize a retry. Call at most once per leg.
+type AttemptAccounting interface{ RecordUnmeasuredAttempt() }

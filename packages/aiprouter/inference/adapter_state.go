@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"strconv"
 	"time"
 )
 
@@ -35,7 +36,7 @@ type scopedAdapterState struct {
 }
 
 func (s scopedAdapterState) key(id string) string {
-	sum := sha256.Sum256([]byte(s.t.Provider + "\x00" + s.t.BaseURL + "\x00" + s.t.Model + "\x00" + s.c.AccountID + "\x00" + s.c.Secret + "\x00" + id))
+	sum := sha256.Sum256([]byte(s.p.OrganizationID + "\x00" + s.p.UserID + "\x00" + s.p.KeyID + "\x00" + strconv.FormatInt(s.p.MembershipGeneration, 10) + "\x00" + s.t.Provider + "\x00" + s.t.BaseURL + "\x00" + s.t.Model + "\x00" + s.c.AccountID + "\x00" + s.c.Secret + "\x00" + id))
 	return hex.EncodeToString(sum[:])
 }
 func (s scopedAdapterState) Load(ctx context.Context, id string) ([]byte, error) {

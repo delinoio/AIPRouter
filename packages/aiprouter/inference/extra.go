@@ -105,8 +105,12 @@ func (h *Handler) serveExtra(w http.ResponseWriter, r *http.Request) bool {
 			writeError(w, err)
 			return true
 		}
-		if len(b) > 16<<20 {
-			writeError(w, &Error{507, "view_too_large", 0})
+		limit, code := 16<<20, "view_too_large"
+		if view == Catalog {
+			limit, code = 256<<20, "catalog_too_large"
+		}
+		if len(b) > limit {
+			writeError(w, &Error{507, code, 0})
 			return true
 		}
 		if !json.Valid(b) {

@@ -6,15 +6,20 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"compress/zlib"
+	"github.com/klauspost/compress/zstd"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
 func TestCompressedBodyBounds(t *testing.T) {
-	for _, encoding := range []string{"gzip", "deflate", "raw-deflate"} {
+	for _, encoding := range []string{"gzip", "deflate", "raw-deflate", "zstd"} {
 		var b bytes.Buffer
 		switch encoding {
+		case "zstd":
+			w, _ := zstd.NewWriter(&b)
+			w.Write([]byte(strings.Repeat("x", 2048)))
+			w.Close()
 		case "gzip":
 			w := gzip.NewWriter(&b)
 			w.Write([]byte(strings.Repeat("x", 2048)))

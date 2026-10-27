@@ -4,6 +4,7 @@ package inference
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 	"sync"
@@ -20,6 +21,16 @@ type requestExecutor struct {
 }
 
 func (x *requestExecutor) Do(ctx context.Context, r AdapterRequest) (*http.Response, error) {
+	cancel := func() {}
+	if r.AttemptTimeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, r.AttemptTimeout)
+	}
+	keepDeadline := false
+	defer func() {
+		if !keepDeadline {
+			cancel()
+		}
+	}()
 	x.mu.Lock()
 	if x.record.Sends+x.reserved >= x.maxSends {
 		x.mu.Unlock()
@@ -81,5 +92,24 @@ func (x *requestExecutor) Do(ctx context.Context, r AdapterRequest) (*http.Respo
 		resp.Body.Close()
 		return nil, ErrDestination
 	}
+	resp.Body = &executorBody{ReadCloser: resp.Body, cancel: cancel}
+	keepDeadline = true
 	return resp, nil
+}
+
+// A deadline remains active through response consumption, not merely until headers.
+type executorBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *executorBody) Close() error { defer b.cancel(); return b.ReadCloser.Close() }
+
+func (x *requestExecutor) RecordUnmeasuredAttempt() {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	// A helper may only mark an already sent physical exchange.
+	if x.record.UnmeasuredAttempts < x.record.Sends {
+		x.record.UnmeasuredAttempts++
+	}
 }
