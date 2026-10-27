@@ -503,3 +503,39 @@ test("native pool settings preserve optional defaults, routes, and signed priori
   assert.equal(pool.members[0]?.priority, 2);
   assert.equal(pool.members[0]?.nativeOptions?.priority, -100);
 });
+
+test("native health options preserve zero, false, and explicit unspecified", async () => {
+  const { NativePoolOptionsSchema, NativePinnedTransientPolicy } =
+    await import("../src/index.js");
+  const absent = create(NativePoolOptionsSchema);
+  assert.equal(absent.upstreamFailoverThreshold, undefined);
+  assert.equal(absent.failureWindow, undefined);
+  assert.equal(absent.pinnedTransientPolicy, undefined);
+  for (const pinnedTransientPolicy of [
+    NativePinnedTransientPolicy.UNSPECIFIED,
+    NativePinnedTransientPolicy.KEEP,
+    NativePinnedTransientPolicy.DETOUR_NEW_THREADS,
+  ]) {
+    const value = create(NativePoolOptionsSchema, {
+      upstreamFailoverThreshold: 0,
+      failureWindow: false,
+      pinnedTransientPolicy,
+    });
+    assert.deepEqual(
+      fromBinary(
+        NativePoolOptionsSchema,
+        toBinary(NativePoolOptionsSchema, value),
+      ),
+      value,
+    );
+    assert.deepEqual(
+      fromJson(NativePoolOptionsSchema, toJson(NativePoolOptionsSchema, value)),
+      value,
+    );
+    assert.equal(
+      fromJson(NativePoolOptionsSchema, toJson(NativePoolOptionsSchema, value))
+        .upstreamFailoverThreshold,
+      0,
+    );
+  }
+});

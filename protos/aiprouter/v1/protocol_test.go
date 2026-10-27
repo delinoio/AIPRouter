@@ -498,3 +498,32 @@ func TestNativePoolOptionsPresenceAndPriority(t *testing.T) {
 		t.Fatal("native and ordinal priority must stay independent")
 	}
 }
+
+func TestNativeHealthPolicyPresence(t *testing.T) {
+	for _, value := range []*v1.NativePoolOptions{{}, {UpstreamFailoverThreshold: proto.Uint32(0), FailureWindow: proto.Bool(false), PinnedTransientPolicy: v1.NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_UNSPECIFIED.Enum()}, {UpstreamFailoverThreshold: proto.Uint32(20), FailureWindow: proto.Bool(true), PinnedTransientPolicy: v1.NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_DETOUR_NEW_THREADS.Enum()}} {
+		for _, jsonWire := range []bool{false, true} {
+			var wire []byte
+			var err error
+			if jsonWire {
+				wire, err = protojson.Marshal(value)
+			} else {
+				wire, err = proto.Marshal(value)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded := &v1.NativePoolOptions{}
+			if jsonWire {
+				err = protojson.Unmarshal(wire, decoded)
+			} else {
+				err = proto.Unmarshal(wire, decoded)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !proto.Equal(value, decoded) {
+				t.Fatalf("native health presence lost: %v", decoded)
+			}
+		}
+	}
+}

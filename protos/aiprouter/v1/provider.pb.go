@@ -140,6 +140,58 @@ func (NativePoolStrategy) EnumDescriptor() ([]byte, []int) {
 	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{1}
 }
 
+// Codex policy for new threads when a manually pinned account is degraded.
+type NativePinnedTransientPolicy int32
+
+const (
+	NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_UNSPECIFIED NativePinnedTransientPolicy = 0
+	// Keep the pinned account; maps to the upstream hold policy.
+	NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_KEEP NativePinnedTransientPolicy = 1
+	// Place only new threads elsewhere; existing bound threads stay bound.
+	NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_DETOUR_NEW_THREADS NativePinnedTransientPolicy = 2
+)
+
+// Enum value maps for NativePinnedTransientPolicy.
+var (
+	NativePinnedTransientPolicy_name = map[int32]string{
+		0: "NATIVE_PINNED_TRANSIENT_POLICY_UNSPECIFIED",
+		1: "NATIVE_PINNED_TRANSIENT_POLICY_KEEP",
+		2: "NATIVE_PINNED_TRANSIENT_POLICY_DETOUR_NEW_THREADS",
+	}
+	NativePinnedTransientPolicy_value = map[string]int32{
+		"NATIVE_PINNED_TRANSIENT_POLICY_UNSPECIFIED":        0,
+		"NATIVE_PINNED_TRANSIENT_POLICY_KEEP":               1,
+		"NATIVE_PINNED_TRANSIENT_POLICY_DETOUR_NEW_THREADS": 2,
+	}
+)
+
+func (x NativePinnedTransientPolicy) Enum() *NativePinnedTransientPolicy {
+	p := new(NativePinnedTransientPolicy)
+	*p = x
+	return p
+}
+
+func (x NativePinnedTransientPolicy) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NativePinnedTransientPolicy) Descriptor() protoreflect.EnumDescriptor {
+	return file_aiprouter_v1_provider_proto_enumTypes[2].Descriptor()
+}
+
+func (NativePinnedTransientPolicy) Type() protoreflect.EnumType {
+	return &file_aiprouter_v1_provider_proto_enumTypes[2]
+}
+
+func (x NativePinnedTransientPolicy) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use NativePinnedTransientPolicy.Descriptor instead.
+func (NativePinnedTransientPolicy) EnumDescriptor() ([]byte, []int) {
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{2}
+}
+
 type NativeQuotaWindow int32
 
 const (
@@ -176,11 +228,11 @@ func (x NativeQuotaWindow) String() string {
 }
 
 func (NativeQuotaWindow) Descriptor() protoreflect.EnumDescriptor {
-	return file_aiprouter_v1_provider_proto_enumTypes[2].Descriptor()
+	return file_aiprouter_v1_provider_proto_enumTypes[3].Descriptor()
 }
 
 func (NativeQuotaWindow) Type() protoreflect.EnumType {
-	return &file_aiprouter_v1_provider_proto_enumTypes[2]
+	return &file_aiprouter_v1_provider_proto_enumTypes[3]
 }
 
 func (x NativeQuotaWindow) Number() protoreflect.EnumNumber {
@@ -189,7 +241,7 @@ func (x NativeQuotaWindow) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use NativeQuotaWindow.Descriptor instead.
 func (NativeQuotaWindow) EnumDescriptor() ([]byte, []int) {
-	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{2}
+	return file_aiprouter_v1_provider_proto_rawDescGZIP(), []int{3}
 }
 
 // Exact message/reasoning item IDs to repair; empty and absent lists both select none.
@@ -1007,8 +1059,14 @@ type NativePoolOptions struct {
 	// Anthropic only; absent uses true. False selects legacy translation.
 	NativeMessages *bool               `protobuf:"varint,8,opt,name=native_messages,json=nativeMessages,proto3,oneof" json:"native_messages,omitempty"`
 	Routes         []*NativeModelRoute `protobuf:"bytes,9,rep,name=routes,proto3" json:"routes,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Codex only; absent uses 3. Range 0..20; zero disables consecutive-failure failover.
+	UpstreamFailoverThreshold *uint32 `protobuf:"varint,10,opt,name=upstream_failover_threshold,json=upstreamFailoverThreshold,proto3,oneof" json:"upstream_failover_threshold,omitempty"`
+	// Codex only; absent uses true. False uses only the consecutive-failure counter.
+	FailureWindow *bool `protobuf:"varint,11,opt,name=failure_window,json=failureWindow,proto3,oneof" json:"failure_window,omitempty"`
+	// Codex only; absent or UNSPECIFIED uses KEEP. Preserve explicit selection presence.
+	PinnedTransientPolicy *NativePinnedTransientPolicy `protobuf:"varint,12,opt,name=pinned_transient_policy,json=pinnedTransientPolicy,proto3,enum=aiprouter.v1.NativePinnedTransientPolicy,oneof" json:"pinned_transient_policy,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *NativePoolOptions) Reset() {
@@ -1102,6 +1160,27 @@ func (x *NativePoolOptions) GetRoutes() []*NativeModelRoute {
 		return x.Routes
 	}
 	return nil
+}
+
+func (x *NativePoolOptions) GetUpstreamFailoverThreshold() uint32 {
+	if x != nil && x.UpstreamFailoverThreshold != nil {
+		return *x.UpstreamFailoverThreshold
+	}
+	return 0
+}
+
+func (x *NativePoolOptions) GetFailureWindow() bool {
+	if x != nil && x.FailureWindow != nil {
+		return *x.FailureWindow
+	}
+	return false
+}
+
+func (x *NativePoolOptions) GetPinnedTransientPolicy() NativePinnedTransientPolicy {
+	if x != nil && x.PinnedTransientPolicy != nil {
+		return *x.PinnedTransientPolicy
+	}
+	return NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_UNSPECIFIED
 }
 
 type NativePoolMemberOptions struct {
@@ -3952,7 +4031,7 @@ const file_aiprouter_v1_provider_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05match\x18\x02 \x01(\tR\x05match\x12%\n" +
 	"\x0econnection_ids\x18\x03 \x03(\tR\rconnectionIds\x12\x1a\n" +
-	"\bfallback\x18\x04 \x01(\bR\bfallback\"\xac\x04\n" +
+	"\bfallback\x18\x04 \x01(\bR\bfallback\"\xd4\x06\n" +
 	"\x11NativePoolOptions\x12<\n" +
 	"\bstrategy\x18\x01 \x01(\x0e2 .aiprouter.v1.NativePoolStrategyR\bstrategy\x12&\n" +
 	"\fsticky_limit\x18\x02 \x01(\rH\x00R\vstickyLimit\x88\x01\x01\x127\n" +
@@ -3962,13 +4041,20 @@ const file_aiprouter_v1_provider_proto_rawDesc = "" +
 	"\x0eexcluded_plans\x18\x06 \x03(\tR\rexcludedPlans\x12\x1d\n" +
 	"\aenabled\x18\a \x01(\bH\x03R\aenabled\x88\x01\x01\x12,\n" +
 	"\x0fnative_messages\x18\b \x01(\bH\x04R\x0enativeMessages\x88\x01\x01\x126\n" +
-	"\x06routes\x18\t \x03(\v2\x1e.aiprouter.v1.NativeModelRouteR\x06routesB\x0f\n" +
+	"\x06routes\x18\t \x03(\v2\x1e.aiprouter.v1.NativeModelRouteR\x06routes\x12C\n" +
+	"\x1bupstream_failover_threshold\x18\n" +
+	" \x01(\rH\x05R\x19upstreamFailoverThreshold\x88\x01\x01\x12*\n" +
+	"\x0efailure_window\x18\v \x01(\bH\x06R\rfailureWindow\x88\x01\x01\x12f\n" +
+	"\x17pinned_transient_policy\x18\f \x01(\x0e2).aiprouter.v1.NativePinnedTransientPolicyH\aR\x15pinnedTransientPolicy\x88\x01\x01B\x0f\n" +
 	"\r_sticky_limitB\x18\n" +
 	"\x16_auto_switch_thresholdB\x11\n" +
 	"\x0f_cache_affinityB\n" +
 	"\n" +
 	"\b_enabledB\x12\n" +
-	"\x10_native_messages\"\xef\x01\n" +
+	"\x10_native_messagesB\x1e\n" +
+	"\x1c_upstream_failover_thresholdB\x11\n" +
+	"\x0f_failure_windowB\x1a\n" +
+	"\x18_pinned_transient_policy\"\xef\x01\n" +
 	"\x17NativePoolMemberOptions\x127\n" +
 	"\x15auto_switch_threshold\x18\x01 \x01(\rH\x00R\x13autoSwitchThreshold\x88\x01\x01\x12.\n" +
 	"\x13use_remaining_quota\x18\x02 \x01(\bR\x11useRemainingQuota\x12#\n" +
@@ -4209,7 +4295,11 @@ const file_aiprouter_v1_provider_proto_rawDesc = "" +
 	"\x1aNATIVE_POOL_STRATEGY_QUOTA\x10\x01\x12$\n" +
 	" NATIVE_POOL_STRATEGY_ROUND_ROBIN\x10\x02\x12#\n" +
 	"\x1fNATIVE_POOL_STRATEGY_FILL_FIRST\x10\x03\x12$\n" +
-	" NATIVE_POOL_STRATEGY_RESET_FIRST\x10\x04*\xa4\x01\n" +
+	" NATIVE_POOL_STRATEGY_RESET_FIRST\x10\x04*\xad\x01\n" +
+	"\x1bNativePinnedTransientPolicy\x12.\n" +
+	"*NATIVE_PINNED_TRANSIENT_POLICY_UNSPECIFIED\x10\x00\x12'\n" +
+	"#NATIVE_PINNED_TRANSIENT_POLICY_KEEP\x10\x01\x125\n" +
+	"1NATIVE_PINNED_TRANSIENT_POLICY_DETOUR_NEW_THREADS\x10\x02*\xa4\x01\n" +
 	"\x11NativeQuotaWindow\x12#\n" +
 	"\x1fNATIVE_QUOTA_WINDOW_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dNATIVE_QUOTA_WINDOW_FIVE_HOUR\x10\x01\x12\x1e\n" +
@@ -4253,187 +4343,189 @@ func file_aiprouter_v1_provider_proto_rawDescGZIP() []byte {
 	return file_aiprouter_v1_provider_proto_rawDescData
 }
 
-var file_aiprouter_v1_provider_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_aiprouter_v1_provider_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
 var file_aiprouter_v1_provider_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
 var file_aiprouter_v1_provider_proto_goTypes = []any{
 	(ProviderWire)(0),                        // 0: aiprouter.v1.ProviderWire
 	(NativePoolStrategy)(0),                  // 1: aiprouter.v1.NativePoolStrategy
-	(NativeQuotaWindow)(0),                   // 2: aiprouter.v1.NativeQuotaWindow
-	(*ResponsesItemIdRepair)(nil),            // 3: aiprouter.v1.ResponsesItemIdRepair
-	(*ProviderPolicyOverrides)(nil),          // 4: aiprouter.v1.ProviderPolicyOverrides
-	(*ProviderConfiguration)(nil),            // 5: aiprouter.v1.ProviderConfiguration
-	(*ProviderCustomHeaders)(nil),            // 6: aiprouter.v1.ProviderCustomHeaders
-	(*ProviderDefinition)(nil),               // 7: aiprouter.v1.ProviderDefinition
-	(*ProviderConnection)(nil),               // 8: aiprouter.v1.ProviderConnection
-	(*ProviderOAuth)(nil),                    // 9: aiprouter.v1.ProviderOAuth
-	(*NativeModelRoute)(nil),                 // 10: aiprouter.v1.NativeModelRoute
-	(*NativePoolOptions)(nil),                // 11: aiprouter.v1.NativePoolOptions
-	(*NativePoolMemberOptions)(nil),          // 12: aiprouter.v1.NativePoolMemberOptions
-	(*PoolMember)(nil),                       // 13: aiprouter.v1.PoolMember
-	(*Pool)(nil),                             // 14: aiprouter.v1.Pool
-	(*JevQuotaTiers)(nil),                    // 15: aiprouter.v1.JevQuotaTiers
-	(*JevDecisionConfig)(nil),                // 16: aiprouter.v1.JevDecisionConfig
-	(*RouteTarget)(nil),                      // 17: aiprouter.v1.RouteTarget
-	(*Route)(nil),                            // 18: aiprouter.v1.Route
-	(*ListProviderCatalogRequest)(nil),       // 19: aiprouter.v1.ListProviderCatalogRequest
-	(*ListProviderCatalogResponse)(nil),      // 20: aiprouter.v1.ListProviderCatalogResponse
-	(*ListProviderConnectionsRequest)(nil),   // 21: aiprouter.v1.ListProviderConnectionsRequest
-	(*ListProviderConnectionsResponse)(nil),  // 22: aiprouter.v1.ListProviderConnectionsResponse
-	(*CreateProviderConnectionRequest)(nil),  // 23: aiprouter.v1.CreateProviderConnectionRequest
-	(*CreateProviderConnectionResponse)(nil), // 24: aiprouter.v1.CreateProviderConnectionResponse
-	(*UpdateProviderConnectionRequest)(nil),  // 25: aiprouter.v1.UpdateProviderConnectionRequest
-	(*UpdateProviderConnectionResponse)(nil), // 26: aiprouter.v1.UpdateProviderConnectionResponse
-	(*DeleteProviderConnectionRequest)(nil),  // 27: aiprouter.v1.DeleteProviderConnectionRequest
-	(*DeleteProviderConnectionResponse)(nil), // 28: aiprouter.v1.DeleteProviderConnectionResponse
-	(*BeginProviderOAuthRequest)(nil),        // 29: aiprouter.v1.BeginProviderOAuthRequest
-	(*BeginProviderOAuthResponse)(nil),       // 30: aiprouter.v1.BeginProviderOAuthResponse
-	(*GetProviderOAuthRequest)(nil),          // 31: aiprouter.v1.GetProviderOAuthRequest
-	(*GetProviderOAuthResponse)(nil),         // 32: aiprouter.v1.GetProviderOAuthResponse
-	(*CompleteProviderOAuthRequest)(nil),     // 33: aiprouter.v1.CompleteProviderOAuthRequest
-	(*CompleteProviderOAuthResponse)(nil),    // 34: aiprouter.v1.CompleteProviderOAuthResponse
-	(*CancelProviderOAuthRequest)(nil),       // 35: aiprouter.v1.CancelProviderOAuthRequest
-	(*CancelProviderOAuthResponse)(nil),      // 36: aiprouter.v1.CancelProviderOAuthResponse
-	(*ListProviderModelsRequest)(nil),        // 37: aiprouter.v1.ListProviderModelsRequest
-	(*ListProviderModelsResponse)(nil),       // 38: aiprouter.v1.ListProviderModelsResponse
-	(*ListPoolsRequest)(nil),                 // 39: aiprouter.v1.ListPoolsRequest
-	(*ListPoolsResponse)(nil),                // 40: aiprouter.v1.ListPoolsResponse
-	(*CreatePoolRequest)(nil),                // 41: aiprouter.v1.CreatePoolRequest
-	(*CreatePoolResponse)(nil),               // 42: aiprouter.v1.CreatePoolResponse
-	(*UpdatePoolRequest)(nil),                // 43: aiprouter.v1.UpdatePoolRequest
-	(*UpdatePoolResponse)(nil),               // 44: aiprouter.v1.UpdatePoolResponse
-	(*DeletePoolRequest)(nil),                // 45: aiprouter.v1.DeletePoolRequest
-	(*DeletePoolResponse)(nil),               // 46: aiprouter.v1.DeletePoolResponse
-	(*ListRoutesRequest)(nil),                // 47: aiprouter.v1.ListRoutesRequest
-	(*ListRoutesResponse)(nil),               // 48: aiprouter.v1.ListRoutesResponse
-	(*CreateRouteRequest)(nil),               // 49: aiprouter.v1.CreateRouteRequest
-	(*CreateRouteResponse)(nil),              // 50: aiprouter.v1.CreateRouteResponse
-	(*UpdateRouteRequest)(nil),               // 51: aiprouter.v1.UpdateRouteRequest
-	(*UpdateRouteResponse)(nil),              // 52: aiprouter.v1.UpdateRouteResponse
-	(*DeleteRouteRequest)(nil),               // 53: aiprouter.v1.DeleteRouteRequest
-	(*DeleteRouteResponse)(nil),              // 54: aiprouter.v1.DeleteRouteResponse
-	nil,                                      // 55: aiprouter.v1.ProviderPolicyOverrides.ModelSupportsServiceTierEntry
-	nil,                                      // 56: aiprouter.v1.ProviderConfiguration.ModelWiresEntry
-	nil,                                      // 57: aiprouter.v1.ProviderCustomHeaders.ValuesEntry
-	(ProviderAuthKind)(0),                    // 58: aiprouter.v1.ProviderAuthKind
-	(ApiShape)(0),                            // 59: aiprouter.v1.ApiShape
-	(ProviderOAuthMethod)(0),                 // 60: aiprouter.v1.ProviderOAuthMethod
-	(ConnectionState)(0),                     // 61: aiprouter.v1.ConnectionState
-	(*timestamppb.Timestamp)(nil),            // 62: google.protobuf.Timestamp
-	(OAuthState)(0),                          // 63: aiprouter.v1.OAuthState
-	(PoolStrategy)(0),                        // 64: aiprouter.v1.PoolStrategy
-	(RoutingStrategy)(0),                     // 65: aiprouter.v1.RoutingStrategy
-	(*PageRequest)(nil),                      // 66: aiprouter.v1.PageRequest
-	(*PageResponse)(nil),                     // 67: aiprouter.v1.PageResponse
-	(*Model)(nil),                            // 68: aiprouter.v1.Model
+	(NativePinnedTransientPolicy)(0),         // 2: aiprouter.v1.NativePinnedTransientPolicy
+	(NativeQuotaWindow)(0),                   // 3: aiprouter.v1.NativeQuotaWindow
+	(*ResponsesItemIdRepair)(nil),            // 4: aiprouter.v1.ResponsesItemIdRepair
+	(*ProviderPolicyOverrides)(nil),          // 5: aiprouter.v1.ProviderPolicyOverrides
+	(*ProviderConfiguration)(nil),            // 6: aiprouter.v1.ProviderConfiguration
+	(*ProviderCustomHeaders)(nil),            // 7: aiprouter.v1.ProviderCustomHeaders
+	(*ProviderDefinition)(nil),               // 8: aiprouter.v1.ProviderDefinition
+	(*ProviderConnection)(nil),               // 9: aiprouter.v1.ProviderConnection
+	(*ProviderOAuth)(nil),                    // 10: aiprouter.v1.ProviderOAuth
+	(*NativeModelRoute)(nil),                 // 11: aiprouter.v1.NativeModelRoute
+	(*NativePoolOptions)(nil),                // 12: aiprouter.v1.NativePoolOptions
+	(*NativePoolMemberOptions)(nil),          // 13: aiprouter.v1.NativePoolMemberOptions
+	(*PoolMember)(nil),                       // 14: aiprouter.v1.PoolMember
+	(*Pool)(nil),                             // 15: aiprouter.v1.Pool
+	(*JevQuotaTiers)(nil),                    // 16: aiprouter.v1.JevQuotaTiers
+	(*JevDecisionConfig)(nil),                // 17: aiprouter.v1.JevDecisionConfig
+	(*RouteTarget)(nil),                      // 18: aiprouter.v1.RouteTarget
+	(*Route)(nil),                            // 19: aiprouter.v1.Route
+	(*ListProviderCatalogRequest)(nil),       // 20: aiprouter.v1.ListProviderCatalogRequest
+	(*ListProviderCatalogResponse)(nil),      // 21: aiprouter.v1.ListProviderCatalogResponse
+	(*ListProviderConnectionsRequest)(nil),   // 22: aiprouter.v1.ListProviderConnectionsRequest
+	(*ListProviderConnectionsResponse)(nil),  // 23: aiprouter.v1.ListProviderConnectionsResponse
+	(*CreateProviderConnectionRequest)(nil),  // 24: aiprouter.v1.CreateProviderConnectionRequest
+	(*CreateProviderConnectionResponse)(nil), // 25: aiprouter.v1.CreateProviderConnectionResponse
+	(*UpdateProviderConnectionRequest)(nil),  // 26: aiprouter.v1.UpdateProviderConnectionRequest
+	(*UpdateProviderConnectionResponse)(nil), // 27: aiprouter.v1.UpdateProviderConnectionResponse
+	(*DeleteProviderConnectionRequest)(nil),  // 28: aiprouter.v1.DeleteProviderConnectionRequest
+	(*DeleteProviderConnectionResponse)(nil), // 29: aiprouter.v1.DeleteProviderConnectionResponse
+	(*BeginProviderOAuthRequest)(nil),        // 30: aiprouter.v1.BeginProviderOAuthRequest
+	(*BeginProviderOAuthResponse)(nil),       // 31: aiprouter.v1.BeginProviderOAuthResponse
+	(*GetProviderOAuthRequest)(nil),          // 32: aiprouter.v1.GetProviderOAuthRequest
+	(*GetProviderOAuthResponse)(nil),         // 33: aiprouter.v1.GetProviderOAuthResponse
+	(*CompleteProviderOAuthRequest)(nil),     // 34: aiprouter.v1.CompleteProviderOAuthRequest
+	(*CompleteProviderOAuthResponse)(nil),    // 35: aiprouter.v1.CompleteProviderOAuthResponse
+	(*CancelProviderOAuthRequest)(nil),       // 36: aiprouter.v1.CancelProviderOAuthRequest
+	(*CancelProviderOAuthResponse)(nil),      // 37: aiprouter.v1.CancelProviderOAuthResponse
+	(*ListProviderModelsRequest)(nil),        // 38: aiprouter.v1.ListProviderModelsRequest
+	(*ListProviderModelsResponse)(nil),       // 39: aiprouter.v1.ListProviderModelsResponse
+	(*ListPoolsRequest)(nil),                 // 40: aiprouter.v1.ListPoolsRequest
+	(*ListPoolsResponse)(nil),                // 41: aiprouter.v1.ListPoolsResponse
+	(*CreatePoolRequest)(nil),                // 42: aiprouter.v1.CreatePoolRequest
+	(*CreatePoolResponse)(nil),               // 43: aiprouter.v1.CreatePoolResponse
+	(*UpdatePoolRequest)(nil),                // 44: aiprouter.v1.UpdatePoolRequest
+	(*UpdatePoolResponse)(nil),               // 45: aiprouter.v1.UpdatePoolResponse
+	(*DeletePoolRequest)(nil),                // 46: aiprouter.v1.DeletePoolRequest
+	(*DeletePoolResponse)(nil),               // 47: aiprouter.v1.DeletePoolResponse
+	(*ListRoutesRequest)(nil),                // 48: aiprouter.v1.ListRoutesRequest
+	(*ListRoutesResponse)(nil),               // 49: aiprouter.v1.ListRoutesResponse
+	(*CreateRouteRequest)(nil),               // 50: aiprouter.v1.CreateRouteRequest
+	(*CreateRouteResponse)(nil),              // 51: aiprouter.v1.CreateRouteResponse
+	(*UpdateRouteRequest)(nil),               // 52: aiprouter.v1.UpdateRouteRequest
+	(*UpdateRouteResponse)(nil),              // 53: aiprouter.v1.UpdateRouteResponse
+	(*DeleteRouteRequest)(nil),               // 54: aiprouter.v1.DeleteRouteRequest
+	(*DeleteRouteResponse)(nil),              // 55: aiprouter.v1.DeleteRouteResponse
+	nil,                                      // 56: aiprouter.v1.ProviderPolicyOverrides.ModelSupportsServiceTierEntry
+	nil,                                      // 57: aiprouter.v1.ProviderConfiguration.ModelWiresEntry
+	nil,                                      // 58: aiprouter.v1.ProviderCustomHeaders.ValuesEntry
+	(ProviderAuthKind)(0),                    // 59: aiprouter.v1.ProviderAuthKind
+	(ApiShape)(0),                            // 60: aiprouter.v1.ApiShape
+	(ProviderOAuthMethod)(0),                 // 61: aiprouter.v1.ProviderOAuthMethod
+	(ConnectionState)(0),                     // 62: aiprouter.v1.ConnectionState
+	(*timestamppb.Timestamp)(nil),            // 63: google.protobuf.Timestamp
+	(OAuthState)(0),                          // 64: aiprouter.v1.OAuthState
+	(PoolStrategy)(0),                        // 65: aiprouter.v1.PoolStrategy
+	(RoutingStrategy)(0),                     // 66: aiprouter.v1.RoutingStrategy
+	(*PageRequest)(nil),                      // 67: aiprouter.v1.PageRequest
+	(*PageResponse)(nil),                     // 68: aiprouter.v1.PageResponse
+	(*Model)(nil),                            // 69: aiprouter.v1.Model
 }
 var file_aiprouter_v1_provider_proto_depIdxs = []int32{
-	3,  // 0: aiprouter.v1.ProviderPolicyOverrides.responses_item_id_repair:type_name -> aiprouter.v1.ResponsesItemIdRepair
-	55, // 1: aiprouter.v1.ProviderPolicyOverrides.model_supports_service_tier:type_name -> aiprouter.v1.ProviderPolicyOverrides.ModelSupportsServiceTierEntry
+	4,  // 0: aiprouter.v1.ProviderPolicyOverrides.responses_item_id_repair:type_name -> aiprouter.v1.ResponsesItemIdRepair
+	56, // 1: aiprouter.v1.ProviderPolicyOverrides.model_supports_service_tier:type_name -> aiprouter.v1.ProviderPolicyOverrides.ModelSupportsServiceTierEntry
 	0,  // 2: aiprouter.v1.ProviderConfiguration.wire:type_name -> aiprouter.v1.ProviderWire
-	56, // 3: aiprouter.v1.ProviderConfiguration.model_wires:type_name -> aiprouter.v1.ProviderConfiguration.ModelWiresEntry
-	4,  // 4: aiprouter.v1.ProviderConfiguration.policy:type_name -> aiprouter.v1.ProviderPolicyOverrides
-	57, // 5: aiprouter.v1.ProviderCustomHeaders.values:type_name -> aiprouter.v1.ProviderCustomHeaders.ValuesEntry
-	58, // 6: aiprouter.v1.ProviderDefinition.auth_kinds:type_name -> aiprouter.v1.ProviderAuthKind
-	59, // 7: aiprouter.v1.ProviderDefinition.api_shapes:type_name -> aiprouter.v1.ApiShape
-	60, // 8: aiprouter.v1.ProviderDefinition.oauth_methods:type_name -> aiprouter.v1.ProviderOAuthMethod
-	58, // 9: aiprouter.v1.ProviderConnection.auth_kind:type_name -> aiprouter.v1.ProviderAuthKind
-	61, // 10: aiprouter.v1.ProviderConnection.state:type_name -> aiprouter.v1.ConnectionState
-	62, // 11: aiprouter.v1.ProviderConnection.created_at:type_name -> google.protobuf.Timestamp
-	62, // 12: aiprouter.v1.ProviderConnection.cooldown_until:type_name -> google.protobuf.Timestamp
-	5,  // 13: aiprouter.v1.ProviderConnection.configuration:type_name -> aiprouter.v1.ProviderConfiguration
-	63, // 14: aiprouter.v1.ProviderOAuth.state:type_name -> aiprouter.v1.OAuthState
-	62, // 15: aiprouter.v1.ProviderOAuth.expires_at:type_name -> google.protobuf.Timestamp
+	57, // 3: aiprouter.v1.ProviderConfiguration.model_wires:type_name -> aiprouter.v1.ProviderConfiguration.ModelWiresEntry
+	5,  // 4: aiprouter.v1.ProviderConfiguration.policy:type_name -> aiprouter.v1.ProviderPolicyOverrides
+	58, // 5: aiprouter.v1.ProviderCustomHeaders.values:type_name -> aiprouter.v1.ProviderCustomHeaders.ValuesEntry
+	59, // 6: aiprouter.v1.ProviderDefinition.auth_kinds:type_name -> aiprouter.v1.ProviderAuthKind
+	60, // 7: aiprouter.v1.ProviderDefinition.api_shapes:type_name -> aiprouter.v1.ApiShape
+	61, // 8: aiprouter.v1.ProviderDefinition.oauth_methods:type_name -> aiprouter.v1.ProviderOAuthMethod
+	59, // 9: aiprouter.v1.ProviderConnection.auth_kind:type_name -> aiprouter.v1.ProviderAuthKind
+	62, // 10: aiprouter.v1.ProviderConnection.state:type_name -> aiprouter.v1.ConnectionState
+	63, // 11: aiprouter.v1.ProviderConnection.created_at:type_name -> google.protobuf.Timestamp
+	63, // 12: aiprouter.v1.ProviderConnection.cooldown_until:type_name -> google.protobuf.Timestamp
+	6,  // 13: aiprouter.v1.ProviderConnection.configuration:type_name -> aiprouter.v1.ProviderConfiguration
+	64, // 14: aiprouter.v1.ProviderOAuth.state:type_name -> aiprouter.v1.OAuthState
+	63, // 15: aiprouter.v1.ProviderOAuth.expires_at:type_name -> google.protobuf.Timestamp
 	1,  // 16: aiprouter.v1.NativePoolOptions.strategy:type_name -> aiprouter.v1.NativePoolStrategy
-	2,  // 17: aiprouter.v1.NativePoolOptions.quota_window:type_name -> aiprouter.v1.NativeQuotaWindow
-	10, // 18: aiprouter.v1.NativePoolOptions.routes:type_name -> aiprouter.v1.NativeModelRoute
-	12, // 19: aiprouter.v1.PoolMember.native_options:type_name -> aiprouter.v1.NativePoolMemberOptions
-	64, // 20: aiprouter.v1.Pool.strategy:type_name -> aiprouter.v1.PoolStrategy
-	13, // 21: aiprouter.v1.Pool.members:type_name -> aiprouter.v1.PoolMember
-	11, // 22: aiprouter.v1.Pool.native_options:type_name -> aiprouter.v1.NativePoolOptions
-	15, // 23: aiprouter.v1.JevDecisionConfig.decision_quota_tiers:type_name -> aiprouter.v1.JevQuotaTiers
-	65, // 24: aiprouter.v1.Route.strategy:type_name -> aiprouter.v1.RoutingStrategy
-	17, // 25: aiprouter.v1.Route.targets:type_name -> aiprouter.v1.RouteTarget
-	16, // 26: aiprouter.v1.Route.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
-	7,  // 27: aiprouter.v1.ListProviderCatalogResponse.providers:type_name -> aiprouter.v1.ProviderDefinition
-	66, // 28: aiprouter.v1.ListProviderConnectionsRequest.page:type_name -> aiprouter.v1.PageRequest
-	8,  // 29: aiprouter.v1.ListProviderConnectionsResponse.connections:type_name -> aiprouter.v1.ProviderConnection
-	67, // 30: aiprouter.v1.ListProviderConnectionsResponse.page:type_name -> aiprouter.v1.PageResponse
-	58, // 31: aiprouter.v1.CreateProviderConnectionRequest.auth_kind:type_name -> aiprouter.v1.ProviderAuthKind
-	5,  // 32: aiprouter.v1.CreateProviderConnectionRequest.configuration:type_name -> aiprouter.v1.ProviderConfiguration
-	6,  // 33: aiprouter.v1.CreateProviderConnectionRequest.custom_headers:type_name -> aiprouter.v1.ProviderCustomHeaders
-	8,  // 34: aiprouter.v1.CreateProviderConnectionResponse.connection:type_name -> aiprouter.v1.ProviderConnection
-	5,  // 35: aiprouter.v1.UpdateProviderConnectionRequest.configuration:type_name -> aiprouter.v1.ProviderConfiguration
-	6,  // 36: aiprouter.v1.UpdateProviderConnectionRequest.custom_headers:type_name -> aiprouter.v1.ProviderCustomHeaders
-	8,  // 37: aiprouter.v1.UpdateProviderConnectionResponse.connection:type_name -> aiprouter.v1.ProviderConnection
-	60, // 38: aiprouter.v1.BeginProviderOAuthRequest.method:type_name -> aiprouter.v1.ProviderOAuthMethod
-	9,  // 39: aiprouter.v1.BeginProviderOAuthResponse.authorization:type_name -> aiprouter.v1.ProviderOAuth
-	9,  // 40: aiprouter.v1.GetProviderOAuthResponse.authorization:type_name -> aiprouter.v1.ProviderOAuth
-	8,  // 41: aiprouter.v1.CompleteProviderOAuthResponse.connection:type_name -> aiprouter.v1.ProviderConnection
-	68, // 42: aiprouter.v1.ListProviderModelsResponse.models:type_name -> aiprouter.v1.Model
-	66, // 43: aiprouter.v1.ListPoolsRequest.page:type_name -> aiprouter.v1.PageRequest
-	14, // 44: aiprouter.v1.ListPoolsResponse.pools:type_name -> aiprouter.v1.Pool
-	67, // 45: aiprouter.v1.ListPoolsResponse.page:type_name -> aiprouter.v1.PageResponse
-	64, // 46: aiprouter.v1.CreatePoolRequest.strategy:type_name -> aiprouter.v1.PoolStrategy
-	13, // 47: aiprouter.v1.CreatePoolRequest.members:type_name -> aiprouter.v1.PoolMember
-	11, // 48: aiprouter.v1.CreatePoolRequest.native_options:type_name -> aiprouter.v1.NativePoolOptions
-	14, // 49: aiprouter.v1.CreatePoolResponse.pool:type_name -> aiprouter.v1.Pool
-	64, // 50: aiprouter.v1.UpdatePoolRequest.strategy:type_name -> aiprouter.v1.PoolStrategy
-	13, // 51: aiprouter.v1.UpdatePoolRequest.members:type_name -> aiprouter.v1.PoolMember
-	11, // 52: aiprouter.v1.UpdatePoolRequest.native_options:type_name -> aiprouter.v1.NativePoolOptions
-	14, // 53: aiprouter.v1.UpdatePoolResponse.pool:type_name -> aiprouter.v1.Pool
-	66, // 54: aiprouter.v1.ListRoutesRequest.page:type_name -> aiprouter.v1.PageRequest
-	18, // 55: aiprouter.v1.ListRoutesResponse.routes:type_name -> aiprouter.v1.Route
-	67, // 56: aiprouter.v1.ListRoutesResponse.page:type_name -> aiprouter.v1.PageResponse
-	65, // 57: aiprouter.v1.CreateRouteRequest.strategy:type_name -> aiprouter.v1.RoutingStrategy
-	17, // 58: aiprouter.v1.CreateRouteRequest.targets:type_name -> aiprouter.v1.RouteTarget
-	16, // 59: aiprouter.v1.CreateRouteRequest.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
-	18, // 60: aiprouter.v1.CreateRouteResponse.route:type_name -> aiprouter.v1.Route
-	65, // 61: aiprouter.v1.UpdateRouteRequest.strategy:type_name -> aiprouter.v1.RoutingStrategy
-	17, // 62: aiprouter.v1.UpdateRouteRequest.targets:type_name -> aiprouter.v1.RouteTarget
-	16, // 63: aiprouter.v1.UpdateRouteRequest.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
-	18, // 64: aiprouter.v1.UpdateRouteResponse.route:type_name -> aiprouter.v1.Route
-	0,  // 65: aiprouter.v1.ProviderConfiguration.ModelWiresEntry.value:type_name -> aiprouter.v1.ProviderWire
-	19, // 66: aiprouter.v1.ProviderService.ListProviderCatalog:input_type -> aiprouter.v1.ListProviderCatalogRequest
-	21, // 67: aiprouter.v1.ProviderService.ListProviderConnections:input_type -> aiprouter.v1.ListProviderConnectionsRequest
-	23, // 68: aiprouter.v1.ProviderService.CreateProviderConnection:input_type -> aiprouter.v1.CreateProviderConnectionRequest
-	25, // 69: aiprouter.v1.ProviderService.UpdateProviderConnection:input_type -> aiprouter.v1.UpdateProviderConnectionRequest
-	27, // 70: aiprouter.v1.ProviderService.DeleteProviderConnection:input_type -> aiprouter.v1.DeleteProviderConnectionRequest
-	29, // 71: aiprouter.v1.ProviderService.BeginProviderOAuth:input_type -> aiprouter.v1.BeginProviderOAuthRequest
-	31, // 72: aiprouter.v1.ProviderService.GetProviderOAuth:input_type -> aiprouter.v1.GetProviderOAuthRequest
-	33, // 73: aiprouter.v1.ProviderService.CompleteProviderOAuth:input_type -> aiprouter.v1.CompleteProviderOAuthRequest
-	35, // 74: aiprouter.v1.ProviderService.CancelProviderOAuth:input_type -> aiprouter.v1.CancelProviderOAuthRequest
-	37, // 75: aiprouter.v1.ProviderService.ListProviderModels:input_type -> aiprouter.v1.ListProviderModelsRequest
-	39, // 76: aiprouter.v1.PoolService.ListPools:input_type -> aiprouter.v1.ListPoolsRequest
-	41, // 77: aiprouter.v1.PoolService.CreatePool:input_type -> aiprouter.v1.CreatePoolRequest
-	43, // 78: aiprouter.v1.PoolService.UpdatePool:input_type -> aiprouter.v1.UpdatePoolRequest
-	45, // 79: aiprouter.v1.PoolService.DeletePool:input_type -> aiprouter.v1.DeletePoolRequest
-	47, // 80: aiprouter.v1.RoutingService.ListRoutes:input_type -> aiprouter.v1.ListRoutesRequest
-	49, // 81: aiprouter.v1.RoutingService.CreateRoute:input_type -> aiprouter.v1.CreateRouteRequest
-	51, // 82: aiprouter.v1.RoutingService.UpdateRoute:input_type -> aiprouter.v1.UpdateRouteRequest
-	53, // 83: aiprouter.v1.RoutingService.DeleteRoute:input_type -> aiprouter.v1.DeleteRouteRequest
-	20, // 84: aiprouter.v1.ProviderService.ListProviderCatalog:output_type -> aiprouter.v1.ListProviderCatalogResponse
-	22, // 85: aiprouter.v1.ProviderService.ListProviderConnections:output_type -> aiprouter.v1.ListProviderConnectionsResponse
-	24, // 86: aiprouter.v1.ProviderService.CreateProviderConnection:output_type -> aiprouter.v1.CreateProviderConnectionResponse
-	26, // 87: aiprouter.v1.ProviderService.UpdateProviderConnection:output_type -> aiprouter.v1.UpdateProviderConnectionResponse
-	28, // 88: aiprouter.v1.ProviderService.DeleteProviderConnection:output_type -> aiprouter.v1.DeleteProviderConnectionResponse
-	30, // 89: aiprouter.v1.ProviderService.BeginProviderOAuth:output_type -> aiprouter.v1.BeginProviderOAuthResponse
-	32, // 90: aiprouter.v1.ProviderService.GetProviderOAuth:output_type -> aiprouter.v1.GetProviderOAuthResponse
-	34, // 91: aiprouter.v1.ProviderService.CompleteProviderOAuth:output_type -> aiprouter.v1.CompleteProviderOAuthResponse
-	36, // 92: aiprouter.v1.ProviderService.CancelProviderOAuth:output_type -> aiprouter.v1.CancelProviderOAuthResponse
-	38, // 93: aiprouter.v1.ProviderService.ListProviderModels:output_type -> aiprouter.v1.ListProviderModelsResponse
-	40, // 94: aiprouter.v1.PoolService.ListPools:output_type -> aiprouter.v1.ListPoolsResponse
-	42, // 95: aiprouter.v1.PoolService.CreatePool:output_type -> aiprouter.v1.CreatePoolResponse
-	44, // 96: aiprouter.v1.PoolService.UpdatePool:output_type -> aiprouter.v1.UpdatePoolResponse
-	46, // 97: aiprouter.v1.PoolService.DeletePool:output_type -> aiprouter.v1.DeletePoolResponse
-	48, // 98: aiprouter.v1.RoutingService.ListRoutes:output_type -> aiprouter.v1.ListRoutesResponse
-	50, // 99: aiprouter.v1.RoutingService.CreateRoute:output_type -> aiprouter.v1.CreateRouteResponse
-	52, // 100: aiprouter.v1.RoutingService.UpdateRoute:output_type -> aiprouter.v1.UpdateRouteResponse
-	54, // 101: aiprouter.v1.RoutingService.DeleteRoute:output_type -> aiprouter.v1.DeleteRouteResponse
-	84, // [84:102] is the sub-list for method output_type
-	66, // [66:84] is the sub-list for method input_type
-	66, // [66:66] is the sub-list for extension type_name
-	66, // [66:66] is the sub-list for extension extendee
-	0,  // [0:66] is the sub-list for field type_name
+	3,  // 17: aiprouter.v1.NativePoolOptions.quota_window:type_name -> aiprouter.v1.NativeQuotaWindow
+	11, // 18: aiprouter.v1.NativePoolOptions.routes:type_name -> aiprouter.v1.NativeModelRoute
+	2,  // 19: aiprouter.v1.NativePoolOptions.pinned_transient_policy:type_name -> aiprouter.v1.NativePinnedTransientPolicy
+	13, // 20: aiprouter.v1.PoolMember.native_options:type_name -> aiprouter.v1.NativePoolMemberOptions
+	65, // 21: aiprouter.v1.Pool.strategy:type_name -> aiprouter.v1.PoolStrategy
+	14, // 22: aiprouter.v1.Pool.members:type_name -> aiprouter.v1.PoolMember
+	12, // 23: aiprouter.v1.Pool.native_options:type_name -> aiprouter.v1.NativePoolOptions
+	16, // 24: aiprouter.v1.JevDecisionConfig.decision_quota_tiers:type_name -> aiprouter.v1.JevQuotaTiers
+	66, // 25: aiprouter.v1.Route.strategy:type_name -> aiprouter.v1.RoutingStrategy
+	18, // 26: aiprouter.v1.Route.targets:type_name -> aiprouter.v1.RouteTarget
+	17, // 27: aiprouter.v1.Route.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
+	8,  // 28: aiprouter.v1.ListProviderCatalogResponse.providers:type_name -> aiprouter.v1.ProviderDefinition
+	67, // 29: aiprouter.v1.ListProviderConnectionsRequest.page:type_name -> aiprouter.v1.PageRequest
+	9,  // 30: aiprouter.v1.ListProviderConnectionsResponse.connections:type_name -> aiprouter.v1.ProviderConnection
+	68, // 31: aiprouter.v1.ListProviderConnectionsResponse.page:type_name -> aiprouter.v1.PageResponse
+	59, // 32: aiprouter.v1.CreateProviderConnectionRequest.auth_kind:type_name -> aiprouter.v1.ProviderAuthKind
+	6,  // 33: aiprouter.v1.CreateProviderConnectionRequest.configuration:type_name -> aiprouter.v1.ProviderConfiguration
+	7,  // 34: aiprouter.v1.CreateProviderConnectionRequest.custom_headers:type_name -> aiprouter.v1.ProviderCustomHeaders
+	9,  // 35: aiprouter.v1.CreateProviderConnectionResponse.connection:type_name -> aiprouter.v1.ProviderConnection
+	6,  // 36: aiprouter.v1.UpdateProviderConnectionRequest.configuration:type_name -> aiprouter.v1.ProviderConfiguration
+	7,  // 37: aiprouter.v1.UpdateProviderConnectionRequest.custom_headers:type_name -> aiprouter.v1.ProviderCustomHeaders
+	9,  // 38: aiprouter.v1.UpdateProviderConnectionResponse.connection:type_name -> aiprouter.v1.ProviderConnection
+	61, // 39: aiprouter.v1.BeginProviderOAuthRequest.method:type_name -> aiprouter.v1.ProviderOAuthMethod
+	10, // 40: aiprouter.v1.BeginProviderOAuthResponse.authorization:type_name -> aiprouter.v1.ProviderOAuth
+	10, // 41: aiprouter.v1.GetProviderOAuthResponse.authorization:type_name -> aiprouter.v1.ProviderOAuth
+	9,  // 42: aiprouter.v1.CompleteProviderOAuthResponse.connection:type_name -> aiprouter.v1.ProviderConnection
+	69, // 43: aiprouter.v1.ListProviderModelsResponse.models:type_name -> aiprouter.v1.Model
+	67, // 44: aiprouter.v1.ListPoolsRequest.page:type_name -> aiprouter.v1.PageRequest
+	15, // 45: aiprouter.v1.ListPoolsResponse.pools:type_name -> aiprouter.v1.Pool
+	68, // 46: aiprouter.v1.ListPoolsResponse.page:type_name -> aiprouter.v1.PageResponse
+	65, // 47: aiprouter.v1.CreatePoolRequest.strategy:type_name -> aiprouter.v1.PoolStrategy
+	14, // 48: aiprouter.v1.CreatePoolRequest.members:type_name -> aiprouter.v1.PoolMember
+	12, // 49: aiprouter.v1.CreatePoolRequest.native_options:type_name -> aiprouter.v1.NativePoolOptions
+	15, // 50: aiprouter.v1.CreatePoolResponse.pool:type_name -> aiprouter.v1.Pool
+	65, // 51: aiprouter.v1.UpdatePoolRequest.strategy:type_name -> aiprouter.v1.PoolStrategy
+	14, // 52: aiprouter.v1.UpdatePoolRequest.members:type_name -> aiprouter.v1.PoolMember
+	12, // 53: aiprouter.v1.UpdatePoolRequest.native_options:type_name -> aiprouter.v1.NativePoolOptions
+	15, // 54: aiprouter.v1.UpdatePoolResponse.pool:type_name -> aiprouter.v1.Pool
+	67, // 55: aiprouter.v1.ListRoutesRequest.page:type_name -> aiprouter.v1.PageRequest
+	19, // 56: aiprouter.v1.ListRoutesResponse.routes:type_name -> aiprouter.v1.Route
+	68, // 57: aiprouter.v1.ListRoutesResponse.page:type_name -> aiprouter.v1.PageResponse
+	66, // 58: aiprouter.v1.CreateRouteRequest.strategy:type_name -> aiprouter.v1.RoutingStrategy
+	18, // 59: aiprouter.v1.CreateRouteRequest.targets:type_name -> aiprouter.v1.RouteTarget
+	17, // 60: aiprouter.v1.CreateRouteRequest.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
+	19, // 61: aiprouter.v1.CreateRouteResponse.route:type_name -> aiprouter.v1.Route
+	66, // 62: aiprouter.v1.UpdateRouteRequest.strategy:type_name -> aiprouter.v1.RoutingStrategy
+	18, // 63: aiprouter.v1.UpdateRouteRequest.targets:type_name -> aiprouter.v1.RouteTarget
+	17, // 64: aiprouter.v1.UpdateRouteRequest.jev_decision:type_name -> aiprouter.v1.JevDecisionConfig
+	19, // 65: aiprouter.v1.UpdateRouteResponse.route:type_name -> aiprouter.v1.Route
+	0,  // 66: aiprouter.v1.ProviderConfiguration.ModelWiresEntry.value:type_name -> aiprouter.v1.ProviderWire
+	20, // 67: aiprouter.v1.ProviderService.ListProviderCatalog:input_type -> aiprouter.v1.ListProviderCatalogRequest
+	22, // 68: aiprouter.v1.ProviderService.ListProviderConnections:input_type -> aiprouter.v1.ListProviderConnectionsRequest
+	24, // 69: aiprouter.v1.ProviderService.CreateProviderConnection:input_type -> aiprouter.v1.CreateProviderConnectionRequest
+	26, // 70: aiprouter.v1.ProviderService.UpdateProviderConnection:input_type -> aiprouter.v1.UpdateProviderConnectionRequest
+	28, // 71: aiprouter.v1.ProviderService.DeleteProviderConnection:input_type -> aiprouter.v1.DeleteProviderConnectionRequest
+	30, // 72: aiprouter.v1.ProviderService.BeginProviderOAuth:input_type -> aiprouter.v1.BeginProviderOAuthRequest
+	32, // 73: aiprouter.v1.ProviderService.GetProviderOAuth:input_type -> aiprouter.v1.GetProviderOAuthRequest
+	34, // 74: aiprouter.v1.ProviderService.CompleteProviderOAuth:input_type -> aiprouter.v1.CompleteProviderOAuthRequest
+	36, // 75: aiprouter.v1.ProviderService.CancelProviderOAuth:input_type -> aiprouter.v1.CancelProviderOAuthRequest
+	38, // 76: aiprouter.v1.ProviderService.ListProviderModels:input_type -> aiprouter.v1.ListProviderModelsRequest
+	40, // 77: aiprouter.v1.PoolService.ListPools:input_type -> aiprouter.v1.ListPoolsRequest
+	42, // 78: aiprouter.v1.PoolService.CreatePool:input_type -> aiprouter.v1.CreatePoolRequest
+	44, // 79: aiprouter.v1.PoolService.UpdatePool:input_type -> aiprouter.v1.UpdatePoolRequest
+	46, // 80: aiprouter.v1.PoolService.DeletePool:input_type -> aiprouter.v1.DeletePoolRequest
+	48, // 81: aiprouter.v1.RoutingService.ListRoutes:input_type -> aiprouter.v1.ListRoutesRequest
+	50, // 82: aiprouter.v1.RoutingService.CreateRoute:input_type -> aiprouter.v1.CreateRouteRequest
+	52, // 83: aiprouter.v1.RoutingService.UpdateRoute:input_type -> aiprouter.v1.UpdateRouteRequest
+	54, // 84: aiprouter.v1.RoutingService.DeleteRoute:input_type -> aiprouter.v1.DeleteRouteRequest
+	21, // 85: aiprouter.v1.ProviderService.ListProviderCatalog:output_type -> aiprouter.v1.ListProviderCatalogResponse
+	23, // 86: aiprouter.v1.ProviderService.ListProviderConnections:output_type -> aiprouter.v1.ListProviderConnectionsResponse
+	25, // 87: aiprouter.v1.ProviderService.CreateProviderConnection:output_type -> aiprouter.v1.CreateProviderConnectionResponse
+	27, // 88: aiprouter.v1.ProviderService.UpdateProviderConnection:output_type -> aiprouter.v1.UpdateProviderConnectionResponse
+	29, // 89: aiprouter.v1.ProviderService.DeleteProviderConnection:output_type -> aiprouter.v1.DeleteProviderConnectionResponse
+	31, // 90: aiprouter.v1.ProviderService.BeginProviderOAuth:output_type -> aiprouter.v1.BeginProviderOAuthResponse
+	33, // 91: aiprouter.v1.ProviderService.GetProviderOAuth:output_type -> aiprouter.v1.GetProviderOAuthResponse
+	35, // 92: aiprouter.v1.ProviderService.CompleteProviderOAuth:output_type -> aiprouter.v1.CompleteProviderOAuthResponse
+	37, // 93: aiprouter.v1.ProviderService.CancelProviderOAuth:output_type -> aiprouter.v1.CancelProviderOAuthResponse
+	39, // 94: aiprouter.v1.ProviderService.ListProviderModels:output_type -> aiprouter.v1.ListProviderModelsResponse
+	41, // 95: aiprouter.v1.PoolService.ListPools:output_type -> aiprouter.v1.ListPoolsResponse
+	43, // 96: aiprouter.v1.PoolService.CreatePool:output_type -> aiprouter.v1.CreatePoolResponse
+	45, // 97: aiprouter.v1.PoolService.UpdatePool:output_type -> aiprouter.v1.UpdatePoolResponse
+	47, // 98: aiprouter.v1.PoolService.DeletePool:output_type -> aiprouter.v1.DeletePoolResponse
+	49, // 99: aiprouter.v1.RoutingService.ListRoutes:output_type -> aiprouter.v1.ListRoutesResponse
+	51, // 100: aiprouter.v1.RoutingService.CreateRoute:output_type -> aiprouter.v1.CreateRouteResponse
+	53, // 101: aiprouter.v1.RoutingService.UpdateRoute:output_type -> aiprouter.v1.UpdateRouteResponse
+	55, // 102: aiprouter.v1.RoutingService.DeleteRoute:output_type -> aiprouter.v1.DeleteRouteResponse
+	85, // [85:103] is the sub-list for method output_type
+	67, // [67:85] is the sub-list for method input_type
+	67, // [67:67] is the sub-list for extension type_name
+	67, // [67:67] is the sub-list for extension extendee
+	0,  // [0:67] is the sub-list for field type_name
 }
 
 func init() { file_aiprouter_v1_provider_proto_init() }
@@ -4462,7 +4554,7 @@ func file_aiprouter_v1_provider_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aiprouter_v1_provider_proto_rawDesc), len(file_aiprouter_v1_provider_proto_rawDesc)),
-			NumEnums:      3,
+			NumEnums:      4,
 			NumMessages:   55,
 			NumExtensions: 0,
 			NumServices:   3,
