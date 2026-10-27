@@ -59,12 +59,13 @@ func TestResponseSocketTurnAndWarmup(t *testing.T) {
 	case b := <-s.out:
 		var m object
 		json.Unmarshal(b, &m)
-		if str(m["type"]) != "response.completed" {
+		if str(m["type"]) != "response.created" {
 			t.Fatal(string(b))
 		}
 	case <-time.After(time.Second):
 		t.Fatal("warmup timeout")
 	}
+	<-s.out // completed warmup frame
 	s.in <- []byte(`{"type":"response.create","model":"m","input":"hi"}`)
 	for {
 		select {

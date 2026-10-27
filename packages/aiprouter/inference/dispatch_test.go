@@ -3,6 +3,7 @@ package inference
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -88,5 +89,86 @@ func TestSSEMultilineAndCRLF(t *testing.T) {
 	e := readSSE(strings.NewReader(": heartbeat\r\ndata: first\r\ndata: second\r\n\r\n"), func(_ string, b []byte) error { got = string(b); return nil })
 	if e != nil || got != "first\nsecond" {
 		t.Fatalf("%q %v", got, e)
+	}
+}
+
+type preflightAdapter struct{ base string }
+
+func (a preflightAdapter) Prepare(ctx context.Context, in AdapterInput, x AdapterExecutor) (json.RawMessage, error) {
+	for range 2 {
+		resp, e := x.Do(ctx, AdapterRequest{Method: "GET", URL: a.base + "/catalog"})
+		if e != nil {
+			return nil, e
+		}
+		resp.Body.Close()
+	}
+	return in.Body, nil
+}
+func (a preflightAdapter) Build(_ context.Context, in AdapterInput) (AdapterRequest, error) {
+	return AdapterRequest{URL: a.base + "/model", Body: in.Body, ResponseWire: Chat}, nil
+}
+func (a preflightAdapter) Decode(_ context.Context, r *http.Response) (*http.Response, error) {
+	return r, nil
+}
+func TestPreflightSharesPhysicalBudget(t *testing.T) {
+	sends := 0
+	h, srv, _, _, u := harness(t, func(w http.ResponseWriter, r *http.Request) {
+		sends++
+		if r.URL.Path != "/catalog" {
+			t.Error("model sent after budget spent")
+		}
+		io.WriteString(w, `{}`)
+	}, Wire("fixture-special"))
+	h.c.Adapters = map[Wire]Adapter{Wire("fixture-special"): preflightAdapter{srv.URL}}
+	rt := h.c.Router.(testRouter)
+	rt.route.MaxSends = 2
+	h.c.Router = rt
+	w := call(h, "/v1/responses", `{"model":"m","input":"hi"}`)
+	if w.Code != 429 || sends != 2 || u.records[0].Sends != 2 {
+		t.Fatalf("%d sends=%d %+v", w.Code, sends, u.records)
+	}
+}
+
+func TestDuplexExecutorDoesNotSerializeHeaderWaits(t *testing.T) {
+	runEntered := make(chan struct{})
+	appendEntered := make(chan struct{})
+	h, srv, _, _, _ := harness(t, func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		switch r.URL.Path {
+		case "/run":
+			close(runEntered)
+			<-appendEntered
+		case "/append":
+			close(appendEntered)
+		}
+		io.WriteString(w, `{}`)
+	}, Chat)
+	p := Principal{OrganizationID: "org", UserID: "user", KeyID: "key"}
+	rec := &UsageRecord{}
+	x := &requestExecutor{h: h, p: p, target: Target{BaseURL: srv.URL}, record: rec, maxSends: 2}
+	done := make(chan error, 1)
+	go func() {
+		r, e := x.Do(context.Background(), AdapterRequest{URL: srv.URL + "/run"})
+		if e == nil {
+			r.Body.Close()
+		}
+		done <- e
+	}()
+	<-runEntered
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r, e := x.Do(ctx, AdapterRequest{URL: srv.URL + "/append"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	r.Body.Close()
+	if e = <-done; e != nil {
+		t.Fatal(e)
+	}
+	if rec.Sends != 2 {
+		t.Fatal(rec.Sends)
+	}
+	if _, e = x.Do(ctx, AdapterRequest{URL: srv.URL + "/extra"}); publicError(e).Code != "request_send_budget_exhausted" {
+		t.Fatal(e)
 	}
 }

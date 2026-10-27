@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -60,7 +61,26 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(e.Status)
-	_ = json.NewEncoder(w).Encode(object{"error": object{"type": e.Code, "code": e.Code, "message": e.Code}})
+	envelope := object{"error": object{"type": e.Code, "code": e.Code, "message": e.Code}}
+	if tw, ok := w.(*trackedWriter); ok && tw.wire == Anthropic {
+		kind := "api_error"
+		switch e.Status {
+		case 400:
+			kind = "invalid_request_error"
+		case 401:
+			kind = "authentication_error"
+		case 403:
+			kind = "permission_error"
+		case 404:
+			kind = "not_found_error"
+		case 413:
+			kind = "request_too_large"
+		case 429:
+			kind = "rate_limit_error"
+		}
+		envelope = object{"type": "error", "error": object{"type": kind, "message": e.Code}}
+	}
+	_ = json.NewEncoder(w).Encode(envelope)
 }
 func bearer(r *http.Request) string {
 	s := r.Header.Get("Authorization")
@@ -104,6 +124,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tracked := &trackedWriter{ResponseWriter: w}
 	w = tracked
 	wire, op, ok := routePath(r.URL.Path)
+	tracked.wire = wire
 	models := r.URL.Path == "/v1/models"
 	artifact := strings.HasPrefix(r.URL.Path, "/v1/aiprouter/artifacts/") || strings.HasPrefix(r.URL.Path, "/v1/opencodex/artifacts/")
 	if !ok && !models && !artifact {
@@ -127,6 +148,44 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if models {
+		if r.URL.RawQuery != "" {
+			query, err := url.ParseQuery(r.URL.RawQuery)
+			if err != nil {
+				writeError(w, &Error{400, "invalid_model_query", 0})
+				return
+			}
+			for k, v := range query {
+				if (k != "ids" && k != "format" && k != "client_version") || len(v) != 1 {
+					writeError(w, &Error{400, "invalid_model_query", 0})
+					return
+				}
+			}
+			if query.Get("format") == "desktop-config" && (query.Get("ids") == "cli" || query.Get("client_version") != "") {
+				writeError(w, &Error{400, "invalid_model_query", 0})
+				return
+			}
+			if h.c.Views == nil {
+				writeError(w, ErrUnsupported)
+				return
+			}
+			body, err := h.c.Views.Read(r.Context(), p, Operation("models"), query)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			if len(body) > 16<<20 || !json.Valid(body) {
+				writeError(w, &Error{507, "catalog_too_large", 0})
+				return
+			}
+			if err = h.guard(r.Context(), p); err != nil {
+				writeError(w, err)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.Write(body)
+			return
+		}
 		m, e := h.c.Router.Models(r.Context(), p)
 		if e != nil {
 			writeError(w, e)
@@ -167,7 +226,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, e)
 		return
 	}
-	if str(b["model"]) == "" {
+	if str(b["model"]) == "" && op != Search && op != ImageGeneration && op != ImageEdit {
 		writeError(w, &Error{400, "model_required", 0})
 		return
 	}
@@ -183,6 +242,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	id := newID()
+	metadata := requestMetadata{id: id, headers: make(http.Header)}
+	for _, k := range []string{"session-id", "session_id", "thread-id", "x-codex-parent-thread-id", "x-client-request-id"} {
+		if v := r.Header.Get(k); v != "" && len(v) <= 2048 {
+			metadata.headers.Set(k, v)
+		}
+	}
+	r = r.WithContext(context.WithValue(r.Context(), requestMetadataKey{}, metadata))
 	w.Header().Set("X-Request-ID", id)
 	rec := UsageRecord{RequestID: id, Model: str(b["model"])}
 	defer func() {
@@ -237,6 +303,11 @@ func (h *Handler) restore(ctx context.Context, p Principal, b object) (*Continua
 	return &c, nil
 }
 
+type requestMetadataKey struct{}
+type requestMetadata struct {
+	id      string
+	headers http.Header
+}
 type continuationKey struct{}
 type BoundCredentials interface {
 	SelectBound(context.Context, Principal, Target, string) (Credential, error)
@@ -303,7 +374,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 	if len(route.Targets) == 0 {
 		return ErrNoCredential
 	}
-	if route.MaxSends < 1 || route.MaxSends > 100 {
+	if route.MaxSends < 1 {
 		return &Error{503, "invalid_send_budget", 0}
 	}
 	for ti, t := range route.Targets {
@@ -342,6 +413,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 		}
 		refreshed := false
 		rateRetries, transientSends := 0, 0
+		endpointHops := 0
 		visited := map[string]bool{cred.AccountID: true}
 		for {
 			if rec.Sends >= route.MaxSends {
@@ -390,12 +462,37 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			var adapterInput AdapterInput
 			if adapter != nil {
 				adapterInput = AdapterInput{Principal: p, Target: t, Credential: cred, Operation: op, Wire: in, Body: data}
+				if meta, ok := ctx.Value(requestMetadataKey{}).(requestMetadata); ok {
+					adapterInput.RequestID = meta.id
+					adapterInput.ClientHeaders = meta.headers.Clone()
+				}
 				if pre, ok := adapter.(PreparingAdapter); ok {
 					prepared, err := pre.Prepare(attemptCtx, adapterInput, &requestExecutor{h: h, p: p, target: t, record: rec, maxSends: route.MaxSends})
 					if err != nil {
 						return err
 					}
 					adapterInput.Body = prepared
+				}
+				if executing, ok := adapter.(ExecutingAdapter); ok {
+					rec.Provider = t.Provider
+					rec.Model = str(payload["model"])
+					rec.AccountID = cred.AccountID
+					executionCtx, stop := context.WithCancel(attemptCtx)
+					response, responseWire, err := executing.Execute(executionCtx, adapterInput, &requestExecutor{h: h, p: p, target: t, record: rec, maxSends: route.MaxSends}, scopedAdapterState{h: h, p: p, t: t, c: cred})
+					if err != nil {
+						stop()
+						return err
+					}
+					if response == nil || response.Body == nil {
+						stop()
+						return &Error{502, "invalid_adapter_response", 0}
+					}
+					responseTarget.Wire = responseWire
+					rec.Status = response.StatusCode
+					err = h.deliver(executionCtx, w, p, in, op, b, responseTarget, local, response, rec, stop)
+					response.Body.Close()
+					stop()
+					return err
 				}
 				built, err := adapter.Build(attemptCtx, adapterInput)
 				if err != nil {
@@ -459,6 +556,10 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					req.Header.Add(k, v)
 				}
 			}
+			if rec.Sends >= route.MaxSends {
+				cancel()
+				return &Error{429, "request_send_budget_exhausted", 0}
+			}
 			if e = h.guard(ctx, p); e != nil {
 				cancel()
 				return e
@@ -471,6 +572,14 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			if e != nil {
 				cancel()
 				return e
+			}
+			if transport, ok := client.Transport.(*http.Transport); ok {
+				if local {
+					transport.ResponseHeaderTimeout = 0
+				}
+				if t.StallTimeout != nil {
+					transport.ResponseHeaderTimeout = *t.StallTimeout
+				}
 			}
 			sent := gateClient(client, sendCtx, p, h.c.Authorizer, func() { rec.Sends++; h.event(ctx, "upstream_send") })
 			resp, e := client.Do(req)
@@ -513,6 +622,9 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				}
 				err := h.deliver(sendCtx, w, p, in, op, b, responseTarget, local, resp, rec, cancel)
 				resp.Body.Close()
+				if err != nil && sendCtx.Err() != nil {
+					err = sendCtx.Err()
+				}
 				cancel()
 				return err
 			}
@@ -532,6 +644,93 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				case "upstream_reset_replay_refused", "upstream_no_response", "upstream_closed_before_response":
 					cancel()
 					return ErrAmbiguous
+				}
+			}
+			if policy := h.c.RecoveryPolicies[t.Wire]; policy != nil {
+				input := AdapterInput{Principal: p, Target: t, Credential: cred, Operation: op, Wire: in, Body: data}
+				decision, err := policy.RecoverHTTP(ctx, input, HTTPFailure{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: errorBody, Attempt: transientSends, EndpointHops: endpointHops, Refreshed: refreshed})
+				if err != nil {
+					cancel()
+					return err
+				}
+				if decision.Action != RecoveryDefault && decision.Action != "" {
+					if decision.Action == RecoveryStop || rec.Sends >= route.MaxSends || op == ImageGeneration || op == ImageEdit {
+						cancel()
+						if decision.Error != nil {
+							return decision.Error
+						}
+						return &Error{resp.StatusCode, "upstream_refused", 0}
+					}
+					if e = h.guard(ctx, p); e != nil {
+						cancel()
+						return e
+					}
+					_, continued := ctx.Value(continuationKey{}).(Continuation)
+					switch decision.Action {
+					case RecoveryRefresh:
+						if t.Auth != OAuth || refreshed {
+							cancel()
+							return &Error{resp.StatusCode, "upstream_refused", 0}
+						}
+						cred, e = h.c.Credentials.Refresh(ctx, p, t, cred)
+						refreshed = true
+					case RecoveryRotate:
+						if continued {
+							cancel()
+							return ErrContinuation
+						}
+						next, err := h.c.Credentials.Select(ctx, p, t, cred.AccountID)
+						e = err
+						if e == nil {
+							if visited[next.AccountID] {
+								cancel()
+								return ErrNoCredential
+							}
+							cred = next
+							visited[next.AccountID] = true
+						}
+					case RecoveryFallback:
+						cancel()
+						if continued || ti+1 >= len(route.Targets) {
+							return &Error{resp.StatusCode, "upstream_refused", 0}
+						}
+						break
+					case RecoveryRetry:
+					default:
+						cancel()
+						return ErrUnsupported
+					}
+					if e != nil {
+						cancel()
+						return e
+					}
+					if decision.Endpoint != "" {
+						if h.c.RecoveryDestinations == nil {
+							cancel()
+							return ErrDestination
+						}
+						if e = h.c.RecoveryDestinations.AuthorizeRecovery(ctx, p, t, decision.Endpoint); e != nil {
+							cancel()
+							return e
+						}
+						if _, _, e = h.c.Destinations.client(decision.Endpoint); e != nil {
+							cancel()
+							return e
+						}
+						t.BaseURL = decision.Endpoint
+						endpointHops++
+					}
+					cancel()
+					if decision.Delay < 0 || decision.Delay > 10*time.Minute {
+						return &Error{resp.StatusCode, "upstream_refused", 0}
+					}
+					if e = wait(ctx, decision.Delay); e != nil {
+						return e
+					}
+					if decision.Action == RecoveryFallback {
+						break
+					}
+					continue
 				}
 			}
 			// These responses have not reached the client. Only explicit refusal policies permit replay.
@@ -692,13 +891,18 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 	return json.NewEncoder(w).Encode(out)
 }
 func readBody(r io.ReadCloser, max int64, total, idle time.Duration, cancel context.CancelFunc) ([]byte, error) {
+	var expired atomic.Bool
 	var deadline, inactivity *time.Timer
 	if total > 0 {
-		deadline = time.AfterFunc(total, func() { cancel(); r.Close() })
+		deadline = time.AfterFunc(total, func() { expired.Store(true); cancel(); r.Close() })
 		defer deadline.Stop()
 	}
 	if idle > 0 {
-		inactivity = time.AfterFunc(idle, func() { cancel(); r.Close() })
+		firstByte := total
+		if firstByte <= 0 {
+			firstByte = idle
+		}
+		inactivity = time.AfterFunc(firstByte, func() { expired.Store(true); cancel(); r.Close() })
 		defer inactivity.Stop()
 	}
 	var out bytes.Buffer
@@ -713,6 +917,9 @@ func readBody(r io.ReadCloser, max int64, total, idle time.Duration, cancel cont
 			if inactivity != nil {
 				inactivity.Reset(idle)
 			}
+		}
+		if expired.Load() {
+			return nil, context.DeadlineExceeded
 		}
 		if e == io.EOF {
 			return out.Bytes(), nil
@@ -735,7 +942,7 @@ func (h *Handler) images(ctx context.Context, p Principal, out object) error {
 		if s == "" {
 			return &Error{502, "image_inline_data_required", 0}
 		}
-		if base64.StdEncoding.DecodedLen(len(s)) > 50<<20 {
+		if len(s) > base64.StdEncoding.EncodedLen(50<<20) {
 			return &Error{502, "image_too_large", 0}
 		}
 		b, e := base64.StdEncoding.DecodeString(s)
@@ -746,7 +953,13 @@ func (h *Handler) images(ctx context.Context, p Principal, out object) error {
 		if len(b) > 50<<20 || total > 100<<20 {
 			return &Error{502, "image_too_large", 0}
 		}
-		images = append(images, GeneratedImage{Data: b, ContentType: http.DetectContentType(b)})
+		contentType := http.DetectContentType(b)
+		switch contentType {
+		case "image/png", "image/jpeg", "image/webp", "image/gif":
+		default:
+			return &Error{502, "invalid_image_content", 0}
+		}
+		images = append(images, GeneratedImage{Data: b, ContentType: contentType})
 	}
 	if len(images) == 0 {
 		return &Error{502, "image_result_empty", 0}
@@ -787,6 +1000,7 @@ func (h *Handler) images(ctx context.Context, p Principal, out object) error {
 type trackedWriter struct {
 	http.ResponseWriter
 	started bool
+	wire    Wire
 }
 
 func (w *trackedWriter) WriteHeader(status int) {

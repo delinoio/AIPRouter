@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +16,7 @@ import (
 // readSSE bounds each event independently; total stream length is not a retained buffer.
 func readSSE(r io.Reader, emit func(string, []byte) error) error {
 	scanner := bufio.NewScanner(r)
+	scanner.Split(splitSSELine)
 	scanner.Buffer(make([]byte, 4096), 2<<20)
 	var data []byte
 	event := ""
@@ -135,7 +135,9 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 			return e
 		}
 		if string(data) == "[DONE]" {
-			terminal = true
+			if t.Wire == Chat {
+				terminal = true
+			}
 			if native && streaming {
 				_, e := io.WriteString(w, "data: [DONE]\n\n")
 				if f, ok := w.(http.Flusher); ok {
@@ -170,7 +172,7 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 			}
 		}
 		if native && streaming {
-			if _, e := io.WriteString(w, "event: "+safeEventName(event)+"\ndata: "+string(data)+"\n\n"); e != nil {
+			if _, e := io.WriteString(w, "event: "+safeEventName(event)+"\ndata: "+strings.ReplaceAll(string(data), "\n", "\ndata: ")+"\n\n"); e != nil {
 				return e
 			}
 			if f, ok := w.(http.Flusher); ok {
@@ -278,7 +280,7 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 	}
 	if native && streaming {
 		if in == Responses && final != nil {
-			if e := h.save(ctx, p, b, final); e != nil {
+			if e := h.save(ctx, p, b, final, rec); e != nil {
 				h.event(ctx, "continuation_write_failed")
 			}
 		}
@@ -300,7 +302,7 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 	}
 	out := r.response(in)
 	if in == Responses {
-		if e := h.save(ctx, p, b, out); e != nil {
+		if e := h.save(ctx, p, b, out, rec); e != nil {
 			h.event(ctx, "continuation_write_failed")
 		}
 	}
@@ -482,4 +484,24 @@ func (s *streamEmitter) finish(r result) error {
 	}
 }
 
-var _ = errors.Is
+func splitSSELine(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	for i, b := range data {
+		if b == '\n' {
+			return i + 1, data[:i], nil
+		}
+		if b == '\r' {
+			if i+1 == len(data) && !atEOF {
+				return 0, nil, nil
+			}
+			n := i + 1
+			if n < len(data) && data[n] == '\n' {
+				n++
+			}
+			return n, data[:i], nil
+		}
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
+}

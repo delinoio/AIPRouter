@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Socket must support one concurrent reader and writer, bounded reads, and context
@@ -108,11 +109,17 @@ func (h *Handler) ServeSocket(ctx context.Context, token string, s Socket) error
 					_ = sendError("unauthorized")
 					continue
 				}
-				r := result{ID: newID(), Model: str(b["model"])}
-				out := r.response(Responses)
-				raw, _ := json.Marshal(object{"type": "response.completed", "response": out})
-				if e = write(raw); e != nil {
-					return e
+				out := object{"id": "", "object": "response", "created_at": time.Now().Unix(), "model": str(b["model"]), "output": []any{}}
+				for sequence, name := range []string{"response.created", "response.completed"} {
+					status := "in_progress"
+					if sequence == 1 {
+						status = "completed"
+					}
+					out["status"] = status
+					raw, _ := json.Marshal(object{"type": name, "sequence_number": sequence, "response": out})
+					if e = write(raw); e != nil {
+						return e
+					}
 				}
 				continue
 			}

@@ -16,14 +16,25 @@ type requestExecutor struct {
 	record   *UsageRecord
 	maxSends int
 	mu       sync.Mutex
+	reserved int
 }
 
 func (x *requestExecutor) Do(ctx context.Context, r AdapterRequest) (*http.Response, error) {
 	x.mu.Lock()
-	defer x.mu.Unlock()
-	if x.record.Sends >= x.maxSends {
+	if x.record.Sends+x.reserved >= x.maxSends {
+		x.mu.Unlock()
 		return nil, &Error{429, "request_send_budget_exhausted", 0}
 	}
+	x.reserved++
+	x.mu.Unlock()
+	claimed := false
+	defer func() {
+		if !claimed {
+			x.mu.Lock()
+			x.reserved--
+			x.mu.Unlock()
+		}
+	}()
 	u, e := url.Parse(r.URL)
 	base, _ := url.Parse(x.target.BaseURL)
 	if e != nil || u.User != nil || u.Fragment != "" || origin(u) != origin(base) {
@@ -45,14 +56,23 @@ func (x *requestExecutor) Do(ctx context.Context, r AdapterRequest) (*http.Respo
 		return nil, e
 	}
 	req.Header = r.Headers.Clone()
-	sent := gateClient(client, ctx, x.p, x.h.c.Authorizer, func() { x.record.Sends++; x.h.event(ctx, "upstream_send") })
+	sent := gateClient(client, ctx, x.p, x.h.c.Authorizer, func() {
+		x.mu.Lock()
+		x.reserved--
+		x.record.Sends++
+		claimed = true
+		x.mu.Unlock()
+		x.h.event(ctx, "upstream_send")
+	})
 	resp, e := client.Do(req)
 	if e != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		if sent.Load() {
+			x.mu.Lock()
 			x.record.UnmeasuredAttempts++
+			x.mu.Unlock()
 			return nil, ErrAmbiguous
 		}
 		return nil, e

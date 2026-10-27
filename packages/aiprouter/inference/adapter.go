@@ -16,12 +16,14 @@ type Adapter interface {
 	Decode(context.Context, *http.Response) (*http.Response, error)
 }
 type AdapterInput struct {
-	Principal  Principal
-	Target     Target
-	Credential Credential
-	Operation  Operation
-	Wire       Wire
-	Body       json.RawMessage
+	RequestID     string
+	ClientHeaders http.Header
+	Principal     Principal
+	Target        Target
+	Credential    Credential
+	Operation     Operation
+	Wire          Wire
+	Body          json.RawMessage
 }
 type AdapterRequest struct {
 	AttemptTimeout time.Duration
@@ -54,4 +56,12 @@ type PreparingAdapter interface {
 // ContextPreparer creates private request state once per physical attempt before Build.
 type ContextPreparer interface {
 	PrepareContext(context.Context) context.Context
+}
+
+// ExecutingAdapter orchestrates protocols with multiple exchanges through the central
+// executor (for example Cursor RunSSE/BidiAppend). It owns decoding into ResponseWire,
+// cancellation and closing every response. It must not create HTTP clients or sockets.
+// Returning a stream does not release its state: Close must cancel/join all producers.
+type ExecutingAdapter interface {
+	Execute(context.Context, AdapterInput, AdapterExecutor, AdapterStateStore) (*http.Response, Wire, error)
 }

@@ -4,6 +4,7 @@ package inference
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -24,6 +25,10 @@ func decode(b []byte) (object, error) {
 	d := json.NewDecoder(strings.NewReader(string(b)))
 	d.UseNumber()
 	if e := d.Decode(&m); e != nil || m == nil {
+		return nil, &Error{400, "invalid_json", 0}
+	}
+	var extra any
+	if d.Decode(&extra) != io.EOF {
 		return nil, &Error{400, "invalid_json", 0}
 	}
 	return m, nil

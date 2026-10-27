@@ -144,22 +144,25 @@ type ArtifactStore interface {
 	URL(context.Context, Principal, string) (string, error)
 }
 type Config struct {
-	BodyDecoders    map[string]BodyDecoder
-	Views           ClientViews
-	Contexts        ContextResolver
-	LiveBindings    LiveBindingStore
-	SocketDialer    SocketDialer
-	Adapters        map[Wire]Adapter
-	Authorizer      Authorizer
-	Router          Router
-	Credentials     Credentials
-	Continuations   ContinuationStore
-	Usage           UsageRecorder
-	Artifacts       ArtifactStore
-	Destinations    DestinationPolicy
-	Observer        Observer
-	Logger          *slog.Logger
-	MaxRequestBytes int64
+	ProviderStates       ProviderStates
+	RecoveryPolicies     map[Wire]HTTPRecoveryPolicy
+	RecoveryDestinations RecoveryDestinations
+	BodyDecoders         map[string]BodyDecoder
+	Views                ClientViews
+	Contexts             ContextResolver
+	LiveBindings         LiveBindingStore
+	SocketDialer         SocketDialer
+	Adapters             map[Wire]Adapter
+	Authorizer           Authorizer
+	Router               Router
+	Credentials          Credentials
+	Continuations        ContinuationStore
+	Usage                UsageRecorder
+	Artifacts            ArtifactStore
+	Destinations         DestinationPolicy
+	Observer             Observer
+	Logger               *slog.Logger
+	MaxRequestBytes      int64
 }
 type Error struct {
 	Status     int

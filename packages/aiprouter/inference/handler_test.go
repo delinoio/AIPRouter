@@ -363,3 +363,20 @@ func TestToolAndImageTranslation(t *testing.T) {
 		t.Fatal("undeclared tool accepted")
 	}
 }
+
+func TestUpstreamReplayRefusalMarkerStopsRotation(t *testing.T) {
+	var sends atomic.Int32
+	h, _, _, _, _ := harness(t, func(w http.ResponseWriter, r *http.Request) {
+		sends.Add(1)
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(429)
+		io.WriteString(w, `{"error":{"code":"upstream_reset_replay_refused"}}`)
+	}, Chat)
+	rt := h.c.Router.(testRouter)
+	rt.route.Targets[0].Retry = RetryPolicy{RateLimitRetries: 6, RotateOn429: true, FallbackOn429: true}
+	h.c.Router = rt
+	w := call(h, "/v1/chat/completions", `{"model":"m","messages":[]}`)
+	if sends.Load() != 1 || w.Header().Get("x-should-retry") != "false" || w.Header().Get("Retry-After") != "" {
+		t.Fatalf("%d %v", sends.Load(), w.Header())
+	}
+}
