@@ -243,6 +243,11 @@ func (p Resolved) thinking(b map[string]any) {
 	}
 }
 func (p Resolved) responses(b map[string]any) error {
+	if p.fields["supportsResponsesCustomTools"] == false {
+		if e := lowerCustomTools(b); e != nil {
+			return e
+		}
+	}
 	if p.fields["supportsOpenAiWebSearchToolFields"] == false {
 		strip := func(tools []any) {
 			for _, x := range tools {

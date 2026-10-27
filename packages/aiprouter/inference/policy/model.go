@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+type ReasoningInterleaving string
+
+const (
+	InterleavingNone             ReasoningInterleaving = "none"
+	InterleavingReasoningContent ReasoningInterleaving = "reasoning_content"
+)
+
 // ModelPolicy is the resolved admission and model-view projection. Nil means
 // unclassified; false and an explicit empty ladder remain observable.
 type ModelPolicy struct {
@@ -18,6 +25,8 @@ type ModelPolicy struct {
 	DirectReasoningEffort                                                                      bool
 	ResponsesUpstreamStreaming                                                                 *bool
 	ResponsesTerminalRepair                                                                    json.RawMessage
+	SupportsTools                                                                              *bool
+	ReasoningInterleaving                                                                      *ReasoningInterleaving
 }
 
 func boolPtr(v any) *bool {
@@ -89,6 +98,7 @@ func (p Resolved) ModelPolicy() ModelPolicy {
 		m.InputModalities = []string{"text"}
 	}
 	cap := p.capabilities()
+	m.SupportsTools = boolPtr(cap["supportsTools"])
 	m.SupportsReasoning = boolPtr(cap["supportsReasoning"])
 	m.SupportsThinkingToggle = boolPtr(cap["supportsThinkingToggle"])
 	m.SupportsReasoningEffort = boolPtr(cap["supportsReasoningEffort"])
@@ -106,6 +116,16 @@ func (p Resolved) ModelPolicy() ModelPolicy {
 	}
 	if x := p.modelValue("modelResponsesTerminalRepair"); x != nil {
 		m.ResponsesTerminalRepair, _ = json.Marshal(x)
+	}
+
+	// The pinned client exporter projects interleaving from positive reasoning or
+	// summary support; unknown axes must not become an explicit negative.
+	if (m.SupportsReasoning != nil && *m.SupportsReasoning) || (m.SupportsReasoningSummaries != nil && *m.SupportsReasoningSummaries) {
+		v := InterleavingReasoningContent
+		m.ReasoningInterleaving = &v
+	} else if m.SupportsReasoning != nil && !*m.SupportsReasoning {
+		v := InterleavingNone
+		m.ReasoningInterleaving = &v
 	}
 	return m
 }

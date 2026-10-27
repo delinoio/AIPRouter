@@ -430,3 +430,55 @@ func TestDeepSeekArtifactSchemaScope(t *testing.T) {
 		t.Fatal(out)
 	}
 }
+
+func TestCustomToolsLowerAndRestore(t *testing.T) {
+	p := preset(t, "xai", "grok-4.7", "", "")
+	p.Wire = providers.Responses
+	raw := `{"tools":[{"type":"namespace","name":"edit","tools":[{"type":"custom","name":"patch","format":{"type":"text"}}]}],"tool_choice":{"type":"custom","namespace":"edit","name":"patch"},"input":[{"type":"custom_tool_call","namespace":"edit","name":"patch","call_id":"c","input":"line\nraw"},{"type":"custom_tool_call_output","call_id":"c","output":"ok"}]}`
+	out := apply(t, p, raw)
+	tool := obj(list(out["tools"])[0])
+	if tool["type"] != "function" || tool["name"] != "edit__patch" || obj(out["tool_choice"])["type"] != "function" {
+		t.Fatal(out)
+	}
+	a := list(out["input"])
+	if obj(a[0])["type"] != "function_call" || obj(a[1])["type"] != "function_call_output" {
+		t.Fatal(out)
+	}
+	args := body(t, str(obj(a[0])["arguments"]))
+	if args["input"] != "line\nraw" {
+		t.Fatal(args)
+	}
+	rewrite := p.NewResponseRewriterForRequest(json.RawMessage(raw))
+	b, e := rewrite(body(t, `{"output":[{"type":"function_call","id":"fc_1","call_id":"c","name":"edit__patch","arguments":"{\"input\":\"line\\nraw\"}"}]}`))
+	if e != nil {
+		t.Fatal(e)
+	}
+	call := obj(list(b["output"])[0])
+	if call["type"] != "custom_tool_call" || call["id"] != "ctc_1" || call["input"] != "line\nraw" || call["namespace"] != "edit" || call["name"] != "patch" {
+		t.Fatal(b)
+	}
+	add, e := rewrite(body(t, `{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"c","name":"edit__patch","arguments":""}}`))
+	if e != nil || obj(add["item"])["type"] != "custom_tool_call" {
+		t.Fatal(add, e)
+	}
+	delta, e := rewrite(body(t, `{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":"{\"input\":\"hi\"}"}`))
+	if e != nil || delta["delta"] != "" || delta["type"] != "response.custom_tool_call_input.delta" {
+		t.Fatal(delta, e)
+	}
+	done, e := rewrite(body(t, `{"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1"}`))
+	if e != nil || done["input"] != "hi" || done["type"] != "response.custom_tool_call_input.done" {
+		t.Fatal(done, e)
+	}
+	_, e = rewrite(body(t, `{"output":[{"type":"function_call","name":"edit__patch","arguments":"bad"}]}`))
+	if e == nil {
+		t.Fatal("malformed custom arguments accepted")
+	}
+}
+func TestCustomToolCollisionFails(t *testing.T) {
+	p := preset(t, "xai", "grok-4.7", "", "")
+	p.Wire = providers.Responses
+	_, e := p.TransformRequest(body(t, `{"tools":[{"type":"custom","name":"edit__patch"},{"type":"namespace","name":"edit","tools":[{"type":"function","name":"patch"}]}]}`))
+	if e == nil {
+		t.Fatal("ambiguous custom name accepted")
+	}
+}
