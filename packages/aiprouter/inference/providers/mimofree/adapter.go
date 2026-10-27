@@ -35,10 +35,10 @@ var _ inference.ExecutingAdapter = (*Adapter)(nil)
 
 func canonical(raw string) bool {
 	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawPath != "" {
+	if err != nil || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawPath != "" || strings.Contains(raw, "#") {
 		return false
 	}
-	return u.Scheme == "https" && strings.EqualFold(u.Host, "api.xiaomimimo.com") && strings.TrimRight(u.Path, "/") == "/api/free-ai/openai/chat"
+	return u.Scheme == "https" && strings.EqualFold(u.Hostname(), "api.xiaomimimo.com") && (u.Port() == "" || u.Port() == "443") && strings.TrimRight(u.Path, "/") == "/api/free-ai/openai/chat"
 }
 
 // Build constructs the public body only. Execute installs the scoped bootstrap token.

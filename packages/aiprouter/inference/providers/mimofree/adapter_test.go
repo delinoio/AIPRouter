@@ -125,7 +125,7 @@ func input() inference.AdapterInput {
 }
 
 func TestCanonicalAndMarker(t *testing.T) {
-	for _, s := range []string{"https://evil.example/api/free-ai/openai/chat", ChatURL + "?x=1", ChatURL + "?", ChatURL + "#x", "https://user@api.xiaomimimo.com/api/free-ai/openai/chat", "http://api.xiaomimimo.com/api/free-ai/openai/chat", "https://api.xiaomimimo.com:443/api/free-ai/openai/chat"} {
+	for _, s := range []string{"https://evil.example/api/free-ai/openai/chat", ChatURL + "?x=1", ChatURL + "?", ChatURL + "#x", "https://user@api.xiaomimimo.com/api/free-ai/openai/chat", "http://api.xiaomimimo.com/api/free-ai/openai/chat", ChatURL + "#"} {
 		in := input()
 		in.Target.BaseURL = s
 		if _, err := New().Build(context.Background(), in); !errors.Is(err, inference.ErrDestination) {
@@ -419,5 +419,13 @@ func TestResolvedPolicyOverride(t *testing.T) {
 	json.Unmarshal(req.Body, &b)
 	if b["reasoning_effort"] != "medium" {
 		t.Fatal(string(req.Body))
+	}
+}
+
+func TestCanonicalDefaultHTTPSPort(t *testing.T) {
+	in := input()
+	in.Target.BaseURL = "https://API.XIAOMIMIMO.COM:443/api/free-ai/openai/chat/"
+	if _, err := New().Build(context.Background(), in); err != nil {
+		t.Fatal(err)
 	}
 }
