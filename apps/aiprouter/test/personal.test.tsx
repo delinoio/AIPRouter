@@ -587,3 +587,44 @@ describe("provider OAuth integration", () => {
     ).toBeNull();
   });
 });
+
+it("preserves existing pool affinity and explicitly sends opt-out updates", async () => {
+  const { PoolsPage } = await import("../src/routing");
+  const user = userEvent.setup();
+  const updatePool = vi.fn((_request: unknown) => ({}));
+  mount(<PoolsPage {...props} />, (r) => {
+    r.service(ProviderService, {
+      listProviderConnections: () => ({
+        connections: [{ id: "a", name: "First", state: 1 }],
+      }),
+    });
+    r.service(PoolService, {
+      listPools: () => ({
+        pools: [
+          {
+            id: "pool",
+            name: "Session pool",
+            strategy: 1,
+            affinityEnabled: true,
+            members: [{ connectionId: "a", priority: 0, weight: 1 }],
+          },
+        ],
+      }),
+      updatePool,
+    });
+    r.service(RoutingService, { listRoutes: () => ({ routes: [] }) });
+  });
+  await user.click(await screen.findByRole("button", { name: "Edit pool" }));
+  const checkbox = screen.getByRole("checkbox", {
+    name: "Keep generic OAuth sessions on the same account",
+  });
+  expect((checkbox as HTMLInputElement).checked).toBe(true);
+  await user.click(checkbox);
+  await user.click(screen.getByRole("button", { name: "Save pool" }));
+  await waitFor(() => expect(updatePool).toHaveBeenCalledOnce());
+  expect(updatePool.mock.calls[0][0]).toMatchObject({
+    organizationId: "one",
+    poolId: "pool",
+    affinityEnabled: false,
+  });
+});

@@ -167,6 +167,7 @@ export function PoolsPage({ organization }: PageProps) {
 type PoolValues = {
   name: string;
   strategy: PoolStrategy;
+  affinityEnabled: boolean;
   members: { connectionId: string; priority: number; weight: number }[];
 };
 function PoolEditor({
@@ -189,6 +190,9 @@ function PoolEditor({
   error: unknown;
 }) {
   const [name, setName] = useState(pool?.name ?? "");
+  const [affinityEnabled, setAffinityEnabled] = useState(
+    pool?.affinityEnabled ?? false,
+  );
   const [strategy, setStrategy] = useState(
     pool?.strategy ?? PoolStrategy.PRIORITY,
   );
@@ -207,6 +211,7 @@ function PoolEditor({
           onSave({
             name: name.trim(),
             strategy,
+            affinityEnabled,
             members: members.map((m, i) => ({ ...m, priority: i })),
           });
         }}
@@ -235,6 +240,18 @@ function PoolEditor({
             ))}
           </select>
         </Field>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={affinityEnabled}
+            onChange={(event) => setAffinityEnabled(event.target.checked)}
+          />
+          Keep generic OAuth sessions on the same account
+        </label>
+        <p className="muted">
+          Opt in for providers that support generic OAuth session affinity.
+          Codex and Anthropic retain their provider-specific session rules.
+        </p>
         <fieldset>
           <legend>Your connections, in priority order</legend>
           {members.map((m, i) => (
