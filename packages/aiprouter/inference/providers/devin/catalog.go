@@ -27,6 +27,7 @@ type Options struct {
 	Catalog                                                        Catalog
 	ModelMaxOutputTokens, ModelContextWindows, ModelMaxInputTokens map[string]int64
 	DefaultMaxOutputTokens, ContextWindow                          int64
+	cascadeID                                                      string
 }
 type Caps struct{ Output, Input int64 }
 

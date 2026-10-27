@@ -11,6 +11,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -30,6 +31,27 @@ func (b *streamBody) Close() error {
 }
 
 func newStream(ctx context.Context, source io.ReadCloser) io.ReadCloser {
+	return newStreamIdle(ctx, source, 120*time.Second)
+}
+
+// Time only a pending raw read. Downstream backpressure is not evidence that
+// Cognition has stopped sending, so no raw-idle timer runs during SSE writes.
+type rawIdleBody struct {
+	io.ReadCloser
+	idle     time.Duration
+	timedOut atomic.Bool
+}
+
+func (r *rawIdleBody) Read(b []byte) (int, error) {
+	timer := time.AfterFunc(r.idle, func() { r.timedOut.Store(true); _ = r.ReadCloser.Close() })
+	n, err := r.ReadCloser.Read(b)
+	timer.Stop()
+	return n, err
+}
+
+func newStreamIdle(ctx context.Context, source io.ReadCloser, idle time.Duration) io.ReadCloser {
+	raw := &rawIdleBody{ReadCloser: source, idle: idle}
+	source = raw
 	r, w := io.Pipe()
 	b := &streamBody{PipeReader: r, source: source}
 	b.stop = context.AfterFunc(ctx, func() { _ = w.CloseWithError(ctx.Err()); _ = source.Close() })
@@ -37,6 +59,9 @@ func newStream(ctx context.Context, source io.ReadCloser) io.ReadCloser {
 		defer source.Close()
 		defer b.stop()
 		err := transcode(ctx, source, w)
+		if raw.timedOut.Load() {
+			err = &inference.Error{Status: 504, Code: "devin_stream_idle_timeout"}
+		}
 		if ctx.Err() != nil {
 			err = ctx.Err()
 		}
@@ -46,17 +71,19 @@ func newStream(ctx context.Context, source io.ReadCloser) io.ReadCloser {
 }
 
 type chatStream struct {
-	id        string
-	created   int64
-	writer    io.Writer
-	tools     map[string]int
-	names     map[string]string
-	last      string
-	finish    string
-	usage     object
-	state     *ResponseContext
-	held      [][]byte
-	heldBytes int
+	id             string
+	created        int64
+	writer         io.Writer
+	tools          map[string]int
+	names          map[string]string
+	last           string
+	finish         string
+	usage          object
+	state          *ResponseContext
+	held           [][]byte
+	heldBytes      int
+	projectedArgs  map[string]*strings.Builder
+	projectedBytes int
 }
 
 func (s *chatStream) emit(delta object, finish any, usage object) error {
@@ -135,6 +162,16 @@ func transcode(ctx context.Context, r io.Reader, w io.Writer) error {
 			if err := trailer(b); err != nil {
 				return err
 			}
+			if s.state != nil && s.state.RequiredTool && len(s.tools) == 0 {
+				// Cognition has no native required selector. Never report a text-only
+				// answer as satisfying it, or replay after visible stream output.
+				return &inference.Error{Status: 502, Code: "devin_required_tool_missing"}
+			}
+			for id, args := range s.projectedArgs {
+				if _, err := s.state.ProjectToolCall(s.names[id], args.String()); err != nil {
+					return err
+				}
+			}
 			if len(s.tools) > 0 && s.finish == "stop" {
 				s.finish = "tool_calls"
 			}
@@ -156,6 +193,9 @@ func transcode(ctx context.Context, r io.Reader, w io.Writer) error {
 			}
 			s.held = nil
 			_, err = io.WriteString(w, "data: [DONE]\n\n")
+			if err == nil {
+				markComplete(ctx)
+			}
 			return err
 		}
 		if err := s.decodeFrame(b); err != nil {
@@ -240,10 +280,7 @@ func (s *chatStream) decodeFrame(b []byte) error {
 			if len(f.b) > 1<<20 || !utf8.Valid(f.b) || !utf8.ValidString(signatureType) {
 				return errLimit
 			}
-			sig := string(f.b)
-			if signatureType != "" && !strings.Contains(signatureType, ":") {
-				sig = "devin-sig1:" + signatureType + ":" + sig
-			}
+			sig := EncodeSignature(Signature{Value: string(f.b), Type: signatureType})
 			if sig != "" {
 				return s.emit(object{"reasoning_signature": sig}, nil, nil)
 			}
@@ -317,7 +354,21 @@ func (s *chatStream) tool(b []byte) error {
 			index = len(s.tools)
 			s.tools[id] = index
 			s.names[id] = name
-			if err := s.emit(object{"tool_calls": []any{object{"index": index, "id": id, "type": "function", "function": object{"name": name, "arguments": ""}}}}, nil, nil); err != nil {
+			call := object{"index": index, "id": id, "type": "function", "function": object{"name": name, "arguments": ""}}
+			if s.state != nil {
+				for _, tool := range s.state.tools {
+					if tool.canonical() == name && (tool.kind != FunctionTool || tool.namespace != "") {
+						call["provider_metadata"] = object{"tool_kind": tool.kind, "tool_name": tool.name, "tool_namespace": tool.namespace}
+						if tool.kind != FunctionTool {
+							if s.projectedArgs == nil {
+								s.projectedArgs = map[string]*strings.Builder{}
+							}
+							s.projectedArgs[id] = &strings.Builder{}
+						}
+					}
+				}
+			}
+			if err := s.emit(object{"tool_calls": []any{call}}, nil, nil); err != nil {
 				return err
 			}
 		} else if s.names[id] != name {
@@ -334,6 +385,13 @@ func (s *chatStream) tool(b []byte) error {
 	index, ok := s.tools[id]
 	if !ok {
 		return errWire
+	}
+	if buffer := s.projectedArgs[id]; buffer != nil {
+		if s.projectedBytes+len(args) > maxFrame {
+			return errLimit
+		}
+		s.projectedBytes += len(args)
+		buffer.WriteString(args)
 	}
 	for len(args) > 0 {
 		n := len(args)

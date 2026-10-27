@@ -6,7 +6,8 @@ tests/providers/devin-{adapter,hardening,chat-wire-fixes}.test.ts,
 tests/web-search/devin-web-search.test.ts.
 
 Additional adapted policy and fixtures:
-src/adapters/devin/live-models.ts, src/adapters/devin/cloud-direct/catalog.ts,
+src/adapters/devin/live-models.ts, src/adapters/devin/cloud-direct/{catalog,auth}.ts,
+src/adapters/devin/trajectory.ts, tests/providers/responses-devin-401-replay.test.ts,
 src/adapters/tool-catalog-nudge.ts, src/adapters/exec-tool-result-normalize.ts,
 src/responses/parser-tools.ts,
 src/responses/tool-search-compat.ts,

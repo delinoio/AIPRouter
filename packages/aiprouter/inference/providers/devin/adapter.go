@@ -123,6 +123,23 @@ func metadata(secret string, chat bool) ([]byte, error) {
 }
 
 func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inference.AdapterRequest, error) {
+	if s := attempt(ctx); s != nil {
+		s.mu.Lock()
+		err := s.bind(in)
+		options := s.options
+		s.mu.Unlock()
+		if err != nil {
+			return inference.AdapterRequest{}, err
+		}
+		request, state, err := a.BuildPrepared(ctx, in, options)
+		if err != nil {
+			return request, err
+		}
+		s.mu.Lock()
+		s.response = state
+		s.mu.Unlock()
+		return request, nil
+	}
 	return a.build(ctx, in, Options{})
 }
 

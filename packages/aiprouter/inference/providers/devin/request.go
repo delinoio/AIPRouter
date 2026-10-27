@@ -261,10 +261,8 @@ func messages(input object, wire inference.Wire) ([]message, error) {
 			item.signature = reasoningSignature(thinkingBlocks)
 		}
 		if strings.HasPrefix(item.signature, "devin-sig1:") {
-			typ, sig, ok := strings.Cut(strings.TrimPrefix(item.signature, "devin-sig1:"), ":")
-			if ok && typ != "" {
-				item.signatureType, item.signature = typ, sig
-			}
+			signature := DecodeSignature(item.signature)
+			item.signatureType, item.signature = signature.Type, signature.Value
 		}
 		if len(results) > 0 {
 			for _, result := range results {
@@ -515,6 +513,9 @@ func buildChat(input object, in inference.AdapterInput, meta []byte, options ...
 	cascade, err := uuid()
 	if err != nil {
 		return nil, err
+	}
+	if opts.cascadeID != "" {
+		cascade = opts.cascadeID
 	}
 	b = blob(b, 15, number(number(textField(nil, 1, trajectory), 2, 1), 3, 4))
 	b = textField(b, 16, cascade)
