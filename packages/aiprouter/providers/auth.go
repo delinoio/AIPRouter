@@ -65,6 +65,7 @@ type Credential struct {
 	APIBaseURL   string            `json:"apiBaseUrl,omitempty"`
 	ProjectID    string            `json:"projectId,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
+	Google       *GoogleCredential `json:"google,omitempty"`
 	Zed          *ZedAccount       `json:"zed,omitempty"`
 }
 type Flow struct {
@@ -88,9 +89,12 @@ type Challenge struct {
 	Interval             time.Duration
 }
 type StartOptions struct {
-	Method        Method
-	RedirectURI   string
-	LoginProvider string
+	Method                           Method
+	RedirectURI                      string
+	LoginProvider                    string
+	SSORegion, APIRegion, StartURL   string
+	BaseURL, AuthBaseURL             string
+	PortalURL, RegisterURL, ClientID string
 }
 type Auth struct {
 	executor Executor
@@ -112,7 +116,7 @@ func AuthMethods(provider string) []Method {
 		return []Method{NativeCallback, ExplicitToken}
 	case "zed":
 		return []Method{NativeCallback}
-	case "devin", "dsh-account":
+	case "google-vertex", "devin", "dsh-account":
 		return []Method{ExplicitToken}
 	}
 	return nil

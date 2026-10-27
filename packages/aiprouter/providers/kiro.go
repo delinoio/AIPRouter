@@ -16,11 +16,22 @@ func (a *Auth) startKiro(ctx context.Context, f *Flow, method string) (Challenge
 		method = "builder-id"
 	}
 	f.Metadata["loginProvider"] = method
+	oidc, social, err := kiroOrigins(f.Metadata)
+	if err != nil {
+		return Challenge{}, err
+	}
+	startURL := f.Metadata["startUrl"]
+	if startURL == "" {
+		startURL = "https://view.awsapps.com/start"
+	}
+	if method == "identity-center" && f.Metadata["startUrl"] == "" {
+		return Challenge{}, ErrConnection
+	}
 	var m map[string]any
 	var e error
 	switch method {
-	case "builder-id":
-		r, e := a.send(ctx, f.Scope, "POST", kiroOIDC+"/client/register", map[string]any{"clientName": "kiro-cli", "clientType": "public", "scopes": []string{"codewhisperer:completions", "codewhisperer:analysis", "codewhisperer:conversations"}}, nil)
+	case "builder-id", "identity-center":
+		r, e := a.send(ctx, f.Scope, "POST", oidc+"/client/register", map[string]any{"clientName": "kiro-cli", "clientType": "public", "scopes": []string{"codewhisperer:completions", "codewhisperer:analysis", "codewhisperer:conversations"}}, nil)
 		if e != nil {
 			return Challenge{}, e
 		}
@@ -30,13 +41,13 @@ func (a *Auth) startKiro(ctx context.Context, f *Flow, method string) (Challenge
 		}
 		f.Metadata["clientId"] = id
 		f.Metadata["clientSecret"] = secret
-		m, e = a.send(ctx, f.Scope, "POST", kiroOIDC+"/device_authorization", map[string]string{"clientId": id, "clientSecret": secret, "startUrl": "https://view.awsapps.com/start"}, nil)
+		m, e = a.send(ctx, f.Scope, "POST", oidc+"/device_authorization", map[string]string{"clientId": id, "clientSecret": secret, "startUrl": startURL}, nil)
 	case "google", "github":
 		provider := "Google"
 		if method == "github" {
 			provider = "Github"
 		}
-		m, e = a.send(ctx, f.Scope, "POST", kiroSocial+"/oauth/device/authorization", map[string]string{"clientId": "kiro-cli", "loginProvider": provider}, nil)
+		m, e = a.send(ctx, f.Scope, "POST", social+"/oauth/device/authorization", map[string]string{"clientId": "kiro-cli", "loginProvider": provider}, nil)
 	default:
 		return Challenge{}, ErrUnsupported
 	}
@@ -50,12 +61,12 @@ func (a *Auth) startKiro(ctx context.Context, f *Flow, method string) (Challenge
 		raw = str(m, "verificationUri")
 	}
 	// AWS's device page is fixed to the AWS login family, not an arbitrary upstream URL.
-	if !safeString(f.DeviceCode) || !safeString(f.UserCode) || !trustedBrowser(raw, "view.awsapps.com", "device.sso.us-east-1.amazonaws.com", "signin.aws.amazon.com", "view.awsapps.com", "prod.us-east-1.auth.desktop.kiro.dev", "kiro.dev") {
+	if !safeString(f.DeviceCode) || !safeString(f.UserCode) || !trustedBrowser(raw, "view.awsapps.com", "device.sso."+f.Metadata["ssoRegion"]+".amazonaws.com", "signin.aws.amazon.com", "view.awsapps.com", strings.TrimPrefix(social, "https://"), "kiro.dev") {
 		return Challenge{}, ErrResponse
 	}
 	ttl := 10 * time.Minute
 	f.Interval = 5 * time.Second
-	if method == "builder-id" {
+	if method == "builder-id" || method == "identity-center" {
 		ttl = seconds(m, "expiresIn", ttl)
 		f.Interval = seconds(m, "interval", f.Interval)
 	} else {
@@ -74,11 +85,15 @@ func (a *Auth) startKiro(ctx context.Context, f *Flow, method string) (Challenge
 	return Challenge{URL: raw, UserCode: f.UserCode}, nil
 }
 func (a *Auth) pollKiro(ctx context.Context, s core.Scope, f *Flow) (Credential, error) {
-	builder := f.Metadata["loginProvider"] == "builder-id"
-	endpoint := kiroSocial + "/oauth/device/poll"
+	builder := f.Metadata["loginProvider"] == "builder-id" || f.Metadata["loginProvider"] == "identity-center"
+	oidc, social, err := kiroOrigins(f.Metadata)
+	if err != nil {
+		return Credential{}, err
+	}
+	endpoint := social + "/oauth/device/poll"
 	body := map[string]string{"clientId": "kiro-cli", "deviceCode": f.DeviceCode}
 	if builder {
-		endpoint = kiroOIDC + "/token"
+		endpoint = oidc + "/token"
 		body = map[string]string{"clientId": f.Metadata["clientId"], "clientSecret": f.Metadata["clientSecret"], "deviceCode": f.DeviceCode, "grantType": "urn:ietf:params:oauth:grant-type:device_code"}
 	}
 	m, status, e := a.request(ctx, s, "POST", endpoint, body, nil)
@@ -106,7 +121,7 @@ func (a *Auth) pollKiro(ctx context.Context, s core.Scope, f *Flow) (Credential,
 	if !builder && str(m, "status") != "" && str(m, "status") != "authorized" && str(m, "status") != "approved" {
 		return Credential{}, ErrResponse
 	}
-	meta := map[string]string{"apiRegion": "us-east-1", "ssoRegion": "us-east-1"}
+	meta := map[string]string{"apiRegion": f.Metadata["apiRegion"], "ssoRegion": f.Metadata["ssoRegion"]}
 	if builder {
 		meta["clientId"] = f.Metadata["clientId"]
 		meta["clientSecret"] = f.Metadata["clientSecret"]
@@ -130,14 +145,18 @@ func (a *Auth) kiroCredential(s core.Scope, m map[string]any, meta map[string]st
 	return Credential{Scope: s, Provider: "kiro", AccessToken: access, RefreshToken: refresh, ExpiresAt: a.now().Add(seconds(m, "expiresIn", time.Hour)), AccountID: meta["profileArn"], Metadata: meta}, nil
 }
 func (a *Auth) refreshKiro(ctx context.Context, s core.Scope, c Credential) (Credential, error) {
-	endpoint := kiroSocial + "/refreshToken"
+	oidc, social, err := kiroOrigins(c.Metadata)
+	if err != nil {
+		return Credential{}, err
+	}
+	endpoint := social + "/refreshToken"
 	body := map[string]string{"refreshToken": c.RefreshToken}
 	if id := c.Metadata["clientId"]; id != "" {
 		secret := c.Metadata["clientSecret"]
 		if !safeString(id) || !safeString(secret) {
 			return Credential{}, ErrReauthenticate
 		}
-		endpoint = kiroOIDC + "/token"
+		endpoint = oidc + "/token"
 		body = map[string]string{"clientId": id, "clientSecret": secret, "grantType": "refresh_token", "refreshToken": c.RefreshToken}
 	}
 	m, e := a.send(ctx, s, "POST", endpoint, body, nil)

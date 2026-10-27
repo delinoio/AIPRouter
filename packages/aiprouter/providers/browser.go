@@ -100,6 +100,13 @@ func (a *Auth) cursorCredential(s core.Scope, m map[string]any, previous string)
 	return Credential{Scope: s, Provider: "cursor", AccessToken: access, RefreshToken: refresh, AccountID: id, ExpiresAt: expiry}, nil
 }
 func (a *Auth) importToken(ctx context.Context, s core.Scope, p, token string) (Credential, error) {
+	if p == "google-vertex" {
+		var g GoogleCredential
+		if len(token) > 256*1024 || json.Unmarshal([]byte(token), &g) != nil {
+			return Credential{}, ErrConnection
+		}
+		return a.ExchangeVertex(ctx, s, g, "")
+	}
 	if !safeString(token) {
 		return Credential{}, ErrResponse
 	}

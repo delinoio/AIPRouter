@@ -81,6 +81,9 @@ func (a *Auth) Start(ctx context.Context, s core.Scope, p string, o StartOptions
 		return Challenge{}, Flow{}, ErrUnsupported
 	}
 	f := Flow{Scope: s, Provider: p, Method: o.Method, State: randomString(), Verifier: randomString(), RedirectURI: o.RedirectURI, ExpiresAt: a.now().Add(10 * time.Minute), Interval: 5 * time.Second, Metadata: map[string]string{}}
+	if e := configureFlow(&f, o); e != nil {
+		return Challenge{}, Flow{}, e
+	}
 	var ch Challenge
 	var e error
 	switch o.Method {
@@ -95,7 +98,7 @@ func (a *Auth) Start(ctx context.Context, s core.Scope, p string, o StartOptions
 	case ExplicitToken:
 		ch = Challenge{}
 		if p == "devin" {
-			ch.URL = "https://windsurf.com/windsurf/signin?" + url.Values{"response_type": {"token"}, "client_id": {"3GUryQ7ldAeKEuD2obYnppsnmj58eP5u"}, "redirect_uri": {"show-auth-token"}, "state": {f.State}, "prompt": {"login"}}.Encode()
+			ch.URL = f.Metadata["portalURL"] + "/windsurf/signin?" + url.Values{"response_type": {"token"}, "client_id": {f.Metadata["clientID"]}, "redirect_uri": {"show-auth-token"}, "state": {f.State}, "prompt": {"login"}}.Encode()
 		}
 	default:
 		e = ErrUnsupported
@@ -143,7 +146,7 @@ func (a *Auth) startPKCE(ctx context.Context, f *Flow) (Challenge, error) {
 	case "xai":
 		q.Set("nonce", randomString())
 	case "orcarouter-oauth":
-		sp.authorize = "https://www.orcarouter.ai/auth"
+		sp.authorize = f.Metadata["authOrigin"] + "/auth"
 		q = url.Values{"callback_url": {f.RedirectURI}, "code_challenge": {challenge(f.Verifier)}, "code_challenge_method": {"S256"}, "state": {f.State}, "app_name": {"AIPRouter"}, "scope": {"api"}}
 	}
 	return Challenge{URL: sp.authorize + "?" + q.Encode()}, nil
@@ -170,6 +173,9 @@ func (a *Auth) Complete(ctx context.Context, s core.Scope, f Flow, code, state s
 		return a.completeNative(ctx, s, f, code)
 	}
 	if f.Method == ExplicitToken {
+		if f.Provider == "devin" {
+			return a.devinAt(ctx, s, code, f.Metadata["registerURL"])
+		}
 		return a.importToken(ctx, s, f.Provider, code)
 	}
 	if f.Method != PKCE {
@@ -195,7 +201,7 @@ func (a *Auth) Complete(ctx context.Context, s core.Scope, f Flow, code, state s
 			return Credential{}, ErrFlow
 		}
 	case "orcarouter-oauth":
-		d, e := a.send(ctx, s, "POST", "https://www.orcarouter.ai/api/v1/auth/keys", map[string]string{"code": code, "code_verifier": f.Verifier, "code_challenge_method": "S256"}, nil)
+		d, e := a.send(ctx, s, "POST", f.Metadata["authOrigin"]+"/api/v1/auth/keys", map[string]string{"code": code, "code_verifier": f.Verifier, "code_challenge_method": "S256"}, nil)
 		if e != nil {
 			return Credential{}, e
 		}
@@ -207,7 +213,7 @@ func (a *Auth) Complete(ctx context.Context, s core.Scope, f Flow, code, state s
 		if !safeString(id) || (str(d, "scope") != "" && str(d, "scope") != "api") {
 			return Credential{}, ErrResponse
 		}
-		return Credential{Scope: s, Provider: f.Provider, AccessToken: key, AccountID: id}, nil
+		return Credential{Scope: s, Provider: f.Provider, AccessToken: key, AccountID: id, APIBaseURL: f.Metadata["apiOrigin"] + "/v1"}, nil
 	}
 	var body any = form(m)
 	if sp.json {
@@ -243,6 +249,12 @@ func (a *Auth) Refresh(ctx context.Context, s core.Scope, p string, c Credential
 	}
 	if !validScope(s) || s != c.Scope || p != c.Provider {
 		return Credential{}, ErrScope
+	}
+	if p == "google-vertex" {
+		if c.Google == nil {
+			return Credential{}, ErrReauthenticate
+		}
+		return a.ExchangeVertex(ctx, s, *c.Google, "")
 	}
 	if p == "zed" {
 		return a.PrepareZed(ctx, s, c)

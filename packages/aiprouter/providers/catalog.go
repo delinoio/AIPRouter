@@ -194,8 +194,11 @@ func ValidateConnection(c Connection) error {
 		return ErrConnection
 	}
 	auth := p.Auth
+	if p.ID == "google-vertex" && c.Credential != nil && c.Credential.Google != nil {
+		auth = OAuth
+	}
 	if c.Auth != "" {
-		if c.Auth != p.Auth && !(c.Auth == Key && p.AllowKeyAuthOverride) {
+		if c.Auth != p.Auth && !(c.Auth == Key && p.AllowKeyAuthOverride) && !(p.ID == "google-vertex" && c.Auth == OAuth && c.Credential != nil && c.Credential.Google != nil) {
 			return ErrConnection
 		}
 		auth = c.Auth
@@ -257,6 +260,9 @@ func Resolve(c Connection, model string, inbound Inbound) (Route, error) {
 		return Route{}, ErrConnection
 	}
 	auth := p.Auth
+	if p.ID == "google-vertex" && c.Credential != nil && c.Credential.Google != nil {
+		auth = OAuth
+	}
 	if c.Auth != "" {
 		auth = c.Auth
 	}
@@ -297,7 +303,7 @@ func Resolve(c Connection, model string, inbound Inbound) (Route, error) {
 		}
 	}
 	if c.Credential != nil && c.Credential.APIBaseURL != "" {
-		if !(p.ID == "github-copilot" && copilotURL(c.Credential.APIBaseURL)) && !(p.ID == "devin" && devinURL(c.Credential.APIBaseURL)) {
+		if !(p.ID == "github-copilot" && copilotURL(c.Credential.APIBaseURL)) && !(p.ID == "devin" && devinURL(c.Credential.APIBaseURL)) && !(p.ID == "orcarouter-oauth" && validOrcaCredentialURL(c.Credential.APIBaseURL, r.BaseURL)) {
 			return Route{}, ErrConnection
 		}
 		r.BaseURL = c.Credential.APIBaseURL

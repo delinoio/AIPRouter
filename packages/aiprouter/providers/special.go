@@ -133,6 +133,12 @@ func devinURL(raw string) bool {
 	return (h == "server.codeium.com" || h == "server-staging.codeium.com" || h == "server-beta.codeium.com" || h == "windsurf.com" || strings.HasSuffix(h, ".windsurf.com") || h == "windsurf.fedstart.com") && devinPath.MatchString(strings.TrimRight(u.Path, "/"))
 }
 func (a *Auth) devin(ctx context.Context, s core.Scope, raw string) (Credential, error) {
+	return a.devinAt(ctx, s, raw, "https://register.windsurf.com")
+}
+func (a *Auth) devinAt(ctx context.Context, s core.Scope, raw, register string) (Credential, error) {
+	if !devinURL(register) {
+		return Credential{}, ErrConnection
+	}
 	token := strings.TrimSpace(raw)
 	if strings.HasPrefix(token, "https://") {
 		u, e := url.Parse(token)
@@ -156,7 +162,7 @@ func (a *Auth) devin(ctx context.Context, s core.Scope, raw string) (Credential,
 	if !validDevinToken(token) {
 		return Credential{}, ErrResponse
 	}
-	m, e := a.send(ctx, s, "POST", "https://register.windsurf.com/exa.seat_management_pb.SeatManagementService/RegisterUser", map[string]string{"firebase_id_token": token}, http.Header{"Connect-Protocol-Version": {"1"}})
+	m, e := a.send(ctx, s, "POST", strings.TrimRight(register, "/")+"/exa.seat_management_pb.SeatManagementService/RegisterUser", map[string]string{"firebase_id_token": token}, http.Header{"Connect-Protocol-Version": {"1"}})
 	if e != nil {
 		return Credential{}, e
 	}
