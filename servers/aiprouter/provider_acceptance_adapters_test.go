@@ -128,6 +128,9 @@ func TestProviderAcceptanceCommandCode(t *testing.T) {
 				if r.Host != "api.commandcode.ai" || r.URL.Path != "/alpha/generate" {
 					t.Error("subscription API endpoint mismatch")
 				}
+				if r.Header.Get("X-Command-Code-Version") != "0.52.1" {
+					t.Error("subscription CLI version replaced by storage generation")
+				}
 				b := providerAcceptanceBody(t, r)
 				params, _ := b["params"].(map[string]any)
 				if params["stream"] != true || params["model"] != "zai-org/GLM-5.2" || b["config"] == nil {
