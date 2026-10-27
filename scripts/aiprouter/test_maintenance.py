@@ -21,10 +21,10 @@ class MaintenanceTest(unittest.TestCase):
         self.assertFalse(any('start' in call or 'up' in call for call in calls))
 
     def test_failed_restore_never_starts_or_invalidates_partial_restore(self):
-        with tempfile.NamedTemporaryFile() as archive, patch.object(m, 'run', side_effect=[None, subprocess.CalledProcessError(1, 'pg_restore')]) as run:
+        with tempfile.NamedTemporaryFile() as archive, patch.object(m, 'run', side_effect=[None, None, subprocess.CalledProcessError(1, 'pg_restore')]) as run:
             with self.assertRaises(subprocess.CalledProcessError):
                 m.offline('restore', archive.name)
-        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_count, 3)
 
     def test_backup_excludes_temp_and_does_not_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:
