@@ -14,6 +14,10 @@ import (
 	"image/jpeg"
 	_ "image/png"
 	"strings"
+
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/tiff"
+	_ "golang.org/x/image/webp"
 )
 
 const ImageBase64Budget = 18 << 20
@@ -36,7 +40,7 @@ func imageTiers() []ImageTier {
 	}
 }
 
-// ImageCodec adds image formats unavailable in the Go standard library. It must
+// ImageCodec can extend the default PNG/JPEG/GIF/WebP/BMP/TIFF decoders. It must
 // perform only in-process decoding, honor ctx, and bound its allocations. It must
 // never resolve URLs, invoke processes, or perform network I/O.
 type ImageCodec interface {
@@ -51,18 +55,54 @@ func WithImageCodec(ctx context.Context, codec ImageCodec) context.Context {
 
 type standardCodec struct{}
 
+// Codec reads observe cancellation even when a decoder performs several reads
+// or random-access TIFF reads. A decoder's CPU-only work cannot be preempted;
+// pixel/byte caps bound that work, and the result is discarded if canceled.
+type imageReader struct {
+	*bytes.Reader
+	ctx context.Context
+}
+
+func (r imageReader) Read(b []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.Reader.Read(b)
+}
+func (r imageReader) ReadAt(b []byte, off int64) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.Reader.ReadAt(b, off)
+}
+
 func (standardCodec) Config(ctx context.Context, b []byte) (image.Config, error) {
 	if err := ctx.Err(); err != nil {
 		return image.Config{}, err
 	}
-	c, _, err := image.DecodeConfig(bytes.NewReader(b))
+	if len(b) > MaxImageBase64Length/4*3 {
+		return image.Config{}, failure(400, "kiro_image_byte_limit")
+	}
+	c, _, err := image.DecodeConfig(imageReader{bytes.NewReader(b), ctx})
+	if ctx.Err() != nil {
+		return image.Config{}, ctx.Err()
+	}
 	return c, err
 }
 func (standardCodec) Decode(ctx context.Context, b []byte) (image.Image, error) {
-	if err := ctx.Err(); err != nil {
+	// Enforce the guard at the allocation boundary as well as the pipeline's
+	// first pass. Calling this codec directly must not bypass the pixel cap.
+	config, err := (standardCodec{}).Config(ctx, b)
+	if err != nil {
 		return nil, err
 	}
-	i, _, err := image.Decode(bytes.NewReader(b))
+	if !safeDimensions(config.Width, config.Height) {
+		return nil, failure(400, "kiro_image_pixel_limit")
+	}
+	i, _, err := image.Decode(imageReader{bytes.NewReader(b), ctx})
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	return i, err
 }
 
