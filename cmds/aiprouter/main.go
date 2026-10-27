@@ -45,6 +45,11 @@ type Application struct {
 }
 
 func main() {
+	var logOutput io.Writer = os.Stderr
+	if os.Getenv("NO_COLOR") == "" {
+		logOutput = coloredLog{os.Stderr}
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(logOutput, nil)))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	home, e := os.UserHomeDir()
@@ -96,7 +101,7 @@ func openBrowser(url string) error {
 }
 func (a *Application) Run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		fmt.Fprintln(a.Out, "aiprouter connect|profiles|configure|disconnect|restore|port|service|relay|clients|recover\nFlags: --profile NAME --server HTTPS_ORIGIN --client CLIENT --port PORT --state-dir ABSOLUTE_PATH\nservice: --action install|status|stop|remove\nDisconnect: offers settings restoration; preserves conflicts and reports incomplete revocation.\nConfiguration previews always require interactive confirmation; remote-key storage requires separate consent.")
+		fmt.Fprintln(a.Out, "aiprouter connect|profiles|configure|disconnect|restore|port|service|relay|clients|recover\nFlags: --profile NAME --server HTTPS_ORIGIN --client CLIENT --port PORT --state-dir ABSOLUTE_PATH\nservice: --action install|status|stop|remove\nDisconnect: offers settings restoration; preserves conflicts and reports incomplete revocation.\nConfiguration previews always require interactive confirmation; remote-key storage requires separate consent.\nSet NO_COLOR=1 to disable ANSI log colors.")
 		return nil
 	}
 	command := args[0]
@@ -392,4 +397,18 @@ func (a *Application) Disconnect(ctx context.Context, s *State, p Profile) error
 	}
 	fmt.Fprintln(a.Out, "Profile disconnected; key revoked and backups removed after restoration.")
 	return nil
+}
+
+// Keep the structured fields intact; color is an operator-facing presentation
+// layer and NO_COLOR disables it for plain-text collection.
+type coloredLog struct{ output io.Writer }
+
+func (w coloredLog) Write(p []byte) (int, error) {
+	line := append([]byte("\x1b[31m"), p...)
+	line = append(line, []byte("\x1b[0m")...)
+	_, e := w.output.Write(line)
+	if e != nil {
+		return 0, e
+	}
+	return len(p), nil
 }
