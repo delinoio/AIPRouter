@@ -39,7 +39,7 @@ func (a *Adapter) repair(ctx context.Context, in inference.AdapterInput, req inf
 	if _, ok := a.inner.(inference.RequestRepairer); !ok {
 		return r, req, nil
 	}
-	for attempt := 0; attempt < 2 && r.StatusCode == 400; attempt++ {
+	for attempt := 0; attempt < 2 && (r.StatusCode == http.StatusBadRequest || r.StatusCode == http.StatusUnprocessableEntity); attempt++ {
 		readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		refusalBody := r.Body
 		stop := context.AfterFunc(readCtx, func() { refusalBody.Close() })
@@ -57,7 +57,7 @@ func (a *Adapter) repair(ctx context.Context, in inference.AdapterInput, req inf
 		if len(body) > 1<<20 {
 			return nil, req, fault(502, "hosted_refusal_limit")
 		}
-		updated, changed, err := a.RepairRequest(ctx, in, req, inference.HTTPFailure{Status: 400, Header: r.Header.Clone(), Body: body, Attempt: attempt + 1, Repairs: attempt})
+		updated, changed, err := a.RepairRequest(ctx, in, req, inference.HTTPFailure{Status: r.StatusCode, Header: r.Header.Clone(), Body: body, Attempt: attempt + 1, Repairs: attempt})
 		if err != nil {
 			return nil, req, err
 		}

@@ -424,12 +424,14 @@ func TestNativeHostedPolicyPreservesDeclarations(t *testing.T) {
 
 type repairingProvider struct {
 	provider
-	repairs int
+	repairs  int
+	statuses []int
 }
 
 func (p *repairingProvider) RepairRequest(_ context.Context, _ inference.AdapterInput, r inference.AdapterRequest, f inference.HTTPFailure) (inference.AdapterRequest, bool, error) {
 	p.repairs++
-	if f.Status != 400 || len(f.Body) == 0 {
+	p.statuses = append(p.statuses, f.Status)
+	if (f.Status != 400 && f.Status != 422) || len(f.Body) == 0 {
 		return r, false, errors.New("missing refusal")
 	}
 	r.Body = append(r.Body, ' ')
@@ -519,5 +521,59 @@ func TestIncompleteToolNeverExecutes(t *testing.T) {
 	_, _, err := a.Execute(ctx, input(), e, nil)
 	if err == nil || *sends != 1 || len(seen) != 0 {
 		t.Fatal(err, *sends, len(seen))
+	}
+}
+
+func TestProvider422RepairPreservesStatusAndBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name                               string
+		budget                             int
+		statuses                           []int
+		wantSends, wantRepairs, wantStatus int
+		wantError                          bool
+	}{
+		{"one repair", 3, []int{422, 200}, 2, 1, 200, false},
+		{"mixed refusals", 3, []int{400, 422, 200}, 3, 2, 200, false},
+		{"repair ceiling", 5, []int{422, 422, 422}, 3, 2, 422, false},
+		{"shared send ceiling", 1, []int{422, 200}, 1, 1, 0, true},
+		{"unrelated refusal", 3, []int{403}, 1, 0, 403, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, sends := budget(tc.budget)
+			p := &repairingProvider{}
+			a, err := New(p, Config{EnabledTools: map[Kind]bool{}, Resolver: resolverFunc(func(context.Context, OperationRequest) (OperationExecutor, error) {
+				t.Fatal("unexpected helper")
+				return nil, nil
+			})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			replies := make([]string, len(tc.statuses))
+			for i := range replies {
+				replies[i] = `{"error":"invalid parameter"}`
+			}
+			if tc.statuses[len(tc.statuses)-1] == 200 {
+				replies[len(replies)-1] = answer
+			}
+			e := &refusalExecutor{executor: executor{replies: replies}, status: append([]int(nil), tc.statuses...)}
+			r, _, err := a.Execute(ctx, input(), e, nil)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("error=%v", err)
+			}
+			if r != nil {
+				defer r.Body.Close()
+				if r.StatusCode != tc.wantStatus {
+					t.Fatalf("status=%d", r.StatusCode)
+				}
+			}
+			if *sends != tc.wantSends || e.sends != tc.wantSends || p.repairs != tc.wantRepairs {
+				t.Fatalf("sends=%d executor sends=%d repairs=%d", *sends, e.sends, p.repairs)
+			}
+			for i, status := range p.statuses {
+				if status != tc.statuses[i] {
+					t.Fatalf("repair status=%d want=%d", status, tc.statuses[i])
+				}
+			}
+		})
 	}
 }
