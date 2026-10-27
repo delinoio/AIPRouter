@@ -1432,6 +1432,11 @@ func (s *streamEmitter) progress(items []any, ready map[int]bool, request object
 				return nil
 			}
 			text = str(item["arguments"])
+			// A fragmented function name is not stable until argument bytes or an
+			// explicit item boundary arrive. Never publish a partial tool identity.
+			if text == "" && !ready[i] {
+				return pendingBlockBudget(items[i:])
+			}
 		}
 		state := s.progressState[idx]
 		if state == nil {
