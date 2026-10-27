@@ -4,6 +4,7 @@ package inference
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -147,4 +148,31 @@ func aggregateIntermediateUsage(rec *UsageRecord) {
 		rec.Usage.CacheReadTokens = add(rec.Usage.CacheReadTokens, u.CacheReadTokens)
 		rec.Usage.CacheWriteTokens = add(rec.Usage.CacheWriteTokens, u.CacheWriteTokens)
 	}
+}
+
+func (x *requestExecutor) RecordContinuationHistory(raw json.RawMessage, wire Wire) error {
+	if len(raw) > 32<<20 {
+		return &Error{502, "continuation_too_large", 0}
+	}
+	body, e := decode(raw)
+	if e != nil {
+		return e
+	}
+	if wire != Responses {
+		body, e = translateRequest(body, wire, Responses)
+		if e != nil {
+			return e
+		}
+	}
+	encoded, e := json.Marshal(body["input"])
+	if e != nil {
+		return e
+	}
+	if len(encoded) > 32<<20 {
+		return &Error{502, "continuation_too_large", 0}
+	}
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.record.continuationInput = body["input"]
+	return nil
 }

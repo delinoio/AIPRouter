@@ -57,11 +57,9 @@ func signedReplayTokens(v any) ([]string, error) {
 				binding = str(x["text"])
 			}
 			if str(x["type"]) == "tool_use" || str(x["type"]) == "function_call" || x["functionCall"] != nil || x["function"] != nil {
-				identity := object{}
-				for _, key := range []string{"id", "call_id", "name", "input", "arguments", "functionCall", "function"} {
-					if value, ok := x[key]; ok {
-						identity[key] = value
-					}
+				identity, err := canonicalReplayCall(x)
+				if err != nil {
+					return err
 				}
 				data, _ := json.Marshal(identity)
 				binding = string(data)
@@ -169,4 +167,74 @@ func (h *Handler) CaptureReplayJSON(ctx context.Context, raw json.RawMessage) er
 		return e
 	}
 	return h.CaptureReplayReceipts(ctx, out)
+}
+
+func canonicalReplayCall(x object) (object, error) {
+	id := str(x["call_id"])
+	if id == "" {
+		id = str(x["id"])
+	}
+	name := str(x["name"])
+	ns := str(x["namespace"])
+	args := x["arguments"]
+	if x["type"] == "tool_use" {
+		args = x["input"]
+	}
+	if f := obj(x["function"]); f != nil {
+		name = str(f["name"])
+		args = f["arguments"]
+	}
+	if f := obj(x["functionCall"]); f != nil {
+		name = str(f["name"])
+		args = f["args"]
+	}
+	metadata := obj(x["provider_metadata"])
+	if bare := str(metadata["tool_name"]); bare != "" {
+		name = bare
+	}
+	if namespace := str(metadata["tool_namespace"]); namespace != "" {
+		ns = namespace
+	}
+	if ns == "" {
+		if parts := strings.SplitN(name, "__", 2); len(parts) == 2 {
+			ns, name = parts[0], parts[1]
+		}
+	}
+	if ns == "functions" {
+		ns = ""
+	}
+	if raw, ok := args.(string); ok {
+		d := json.NewDecoder(strings.NewReader(raw))
+		d.UseNumber()
+		if err := d.Decode(&args); err != nil {
+			return nil, &Error{400, "invalid_signed_tool_arguments", 0}
+		}
+	}
+	return object{"call_id": id, "name": name, "namespace": ns, "args": args}, nil
+}
+func issuerBoundHistory(v any) bool {
+	switch x := v.(type) {
+	case []any:
+		for _, item := range x {
+			if issuerBoundHistory(item) {
+				return true
+			}
+		}
+	case map[string]any:
+		if str(x["file_id"]) != "" || str(x["upload_id"]) != "" {
+			return true
+		}
+		if str(x["encrypted_content"]) != "" || str(x["signature"]) != "" || str(x["thought_signature"]) != "" || str(x["reasoning_signature"]) != "" || str(x["kiro_reasoning"]) != "" {
+			return true
+		}
+		for k, item := range x {
+			if k == "arguments" || k == "input_schema" || k == "parameters" || k == "tools" || k == "input" && x["type"] == "tool_use" {
+				continue
+			}
+			if issuerBoundHistory(item) {
+				return true
+			}
+		}
+	}
+	return false
 }

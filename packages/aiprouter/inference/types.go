@@ -126,7 +126,10 @@ const (
 )
 
 type UsageRecord struct {
-	Outcome RequestOutcome
+	continuationInput any
+	Outcome           RequestOutcome
+	// ServiceTier is confirmed by the provider response, never copied from request.
+	ServiceTier string
 	// IntermediateUsage contains confirmed prior model legs on this exact target.
 	IntermediateUsage                     []Usage
 	ResponseID                            string

@@ -19,6 +19,10 @@ type Resolver interface {
 // ApprovedOrigins is operator configuration, never provider/user configuration.
 // Each entry is an exact scheme://host:port origin (default ports can be omitted).
 type DestinationPolicy struct {
+	// ProxyURL and NoProxy are explicit operator settings, never inherited from environment.
+	// ProxyURL accepts HTTP CONNECT, HTTPS CONNECT, or SOCKS5. A failed proxy never falls back direct.
+	ProxyURL        string
+	NoProxy         []string
 	ApprovedOrigins []string
 	Resolver        Resolver
 }
@@ -71,6 +75,11 @@ func (p DestinationPolicy) client(raw string) (*http.Client, bool, error) {
 	if e != nil {
 		return nil, false, e
 	}
+	if p.ProxyURL != "" {
+		if _, err := proxyURL(p.ProxyURL); err != nil {
+			return nil, false, err
+		}
+	}
 	allowed := p.approved(u)
 	if u.Scheme != "https" && !allowed {
 		return nil, false, ErrDestination
@@ -97,10 +106,26 @@ func (p DestinationPolicy) client(raw string) (*http.Client, bool, error) {
 				return nil, ErrDestination
 			}
 		}
+		useProxy := p.ProxyURL != ""
+		if useProxy {
+			allBypass := true
+			for _, ip := range ips {
+				if !p.bypassProxy(u, ip) {
+					allBypass = false
+				}
+			}
+			useProxy = !allBypass
+		}
 		d := net.Dialer{Timeout: 30 * time.Second}
 		var last error
 		for _, ip := range ips {
-			c, e := d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			var c net.Conn
+			var e error
+			if useProxy {
+				c, e = p.dialProxy(ctx, net.JoinHostPort(ip.String(), port))
+			} else {
+				c, e = d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			}
 			if e == nil {
 				return c, nil
 			}

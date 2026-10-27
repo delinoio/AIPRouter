@@ -360,6 +360,9 @@ func (h *Handler) save(ctx context.Context, p Principal, b, out object, rec *Usa
 		return e
 	}
 	input := b["input"]
+	if rec.continuationInput != nil {
+		input = rec.continuationInput
+	}
 	if s, ok := input.(string); ok {
 		input = []any{object{"role": "user", "content": s}}
 	}
@@ -824,6 +827,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 						return e
 					}
 					_, continued := ctx.Value(continuationKey{}).(Continuation)
+					continued = continued || issuerBoundHistory(b)
 					switch decision.Action {
 					case RecoveryRefresh:
 						if t.Auth != OAuth || refreshed {
@@ -839,6 +843,10 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 						}
 						next, err := h.c.Credentials.Select(ctx, p, t, cred.AccountID)
 						e = err
+						if e == ErrNoCredential {
+							cancel()
+							return &Error{resp.StatusCode, "upstream_refused", 0}
+						}
 						if e == nil {
 							if visited[next.AccountID] {
 								cancel()
@@ -905,6 +913,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			retry := false
 			nextTarget := false
 			_, continued := ctx.Value(continuationKey{}).(Continuation)
+			continued = continued || issuerBoundHistory(b)
 			allowed := rec.Sends < route.MaxSends && op != ImageGeneration && op != ImageEdit
 			if continued {
 				t.Retry.RotateOn429 = false
@@ -1033,6 +1042,7 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 	}
 	rec.ResponseID = str(out["id"])
 	rec.Usage = readUsage(out, t.Wire)
+	rec.ServiceTier = str(out["service_tier"])
 	if op == Generate && in != t.Wire {
 		r, e := parseResult(out, t.Wire)
 		if e != nil {

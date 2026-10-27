@@ -3,6 +3,7 @@ package inference
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -285,5 +286,25 @@ func Test507IsNotTransient(t *testing.T) {
 	w := call(h, "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
 	if w.Code != 507 || calls != 1 || u.records[0].Outcome != OutcomeUpstreamError {
 		t.Fatalf("%d calls=%d %+v", w.Code, calls, u.records)
+	}
+}
+
+func TestSignedToolReceiptCrossWireCanonicalIdentity(t *testing.T) {
+	forms := []object{
+		{"id": "c", "function": object{"name": "ns__f", "arguments": "{\"n\":1234567890123456789}"}, "signature": "sig"},
+		{"type": "function_call", "call_id": "c", "name": "f", "namespace": "ns", "arguments": "{\"n\":1234567890123456789}", "signature": "sig"},
+		{"type": "tool_use", "id": "c", "name": "ns__f", "input": object{"n": json.Number("1234567890123456789")}, "signature": "sig"},
+	}
+	var expected string
+	for _, form := range forms {
+		tokens, e := signedReplayTokens(form)
+		if e != nil || len(tokens) != 1 {
+			t.Fatal(e, tokens)
+		}
+		if expected == "" {
+			expected = tokens[0]
+		} else if expected != tokens[0] {
+			t.Fatal("cross-wire tool binding changed")
+		}
 	}
 }

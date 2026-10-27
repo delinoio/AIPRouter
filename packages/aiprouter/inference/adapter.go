@@ -90,3 +90,10 @@ type RequestRepairer interface {
 // AttemptUsage records a completed intermediate model leg, excluding the final
 // response and separately recorded cross-provider sidecars. Call once per leg.
 type AttemptUsage interface{ RecordUsage(Usage) }
+
+// ContinuationHistory replaces the saved request history with internally executed
+// hosted call/results. Pass a complete protocol request body, not a bare item array.
+// It is bounded and translated into Responses history before durable save.
+type ContinuationHistory interface {
+	RecordContinuationHistory(json.RawMessage, Wire) error
+}
