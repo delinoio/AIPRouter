@@ -184,8 +184,7 @@ func sessionFromResponse(r *http.Response) (*Session, error) {
 	return s, nil
 }
 
-func decodeStream(ctx context.Context, r io.Reader, w io.Writer, s *Session) error {
-	id := "chatcmpl-" + s.conversationID
+func chatEmitter(w io.Writer, s *Session, id string) func([]Event) error {
 	index := 0
 	emit := func(events []Event) error {
 		for _, e := range events {
@@ -232,6 +231,11 @@ func decodeStream(ctx context.Context, r io.Reader, w io.Writer, s *Session) err
 		}
 		return nil
 	}
+	return emit
+}
+
+func decodeStream(ctx context.Context, r io.Reader, w io.Writer, s *Session) error {
+	emit := chatEmitter(w, s, "chatcmpl-"+s.conversationID)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
