@@ -196,6 +196,9 @@ func (c *nativeRuntimeController) Enable(ctx context.Context, req NativeRuntimeR
 	if err != nil {
 		return NativeRuntimeStatus{}, err
 	}
+	if exists && req.Trial && !time.Now().Before(r.TrialUntil) {
+		return NativeRuntimeStatus{}, errors.New("account trial expired; disable it before granting new consent")
+	}
 	if exists && (r.Request != req || r.Consent != consent) {
 		return NativeRuntimeStatus{}, errors.New("native runtime configuration differs; disable it before changing consent or configuration")
 	}
@@ -267,7 +270,7 @@ func (c *nativeRuntimeController) statusRecord(ctx context.Context, r nativeRunt
 	manager := c.trust(root)
 	trust, err := manager.Status(ctx, ca)
 	s.Trusted = err == nil && trust.Trusted && ca.Fingerprint == r.Fingerprint
-	s.Ready = s.Trusted && r.Consent.Trust && r.Consent.Application && (!r.Request.Trial || c.trialValid(ctx, r, "")) && c.observed(ctx, r.Request) == nil && c.control(ctx, r, http.MethodGet, "health") == nil
+	s.Ready = !time.Now().Before(ca.Certificate.NotBefore) && time.Now().Before(ca.Certificate.NotAfter) && s.Trusted && r.Consent.Trust && r.Consent.Application && (!r.Request.Trial || c.trialValid(ctx, r, "")) && c.observed(ctx, r.Request) == nil && c.control(ctx, r, http.MethodGet, "health") == nil
 	return s
 }
 func (c *nativeRuntimeController) publicCA(req NativeRuntimeRequest) (*NativeCA, error) {

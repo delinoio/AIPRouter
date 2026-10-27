@@ -18,8 +18,12 @@ import (
 
 type controllerKeyProtection struct{}
 
-func (controllerKeyProtection) Protect(b []byte) ([]byte, error)   { return b, nil }
-func (controllerKeyProtection) Unprotect(b []byte) ([]byte, error) { return b, nil }
+func (controllerKeyProtection) Protect(b []byte) ([]byte, error) {
+	return append([]byte(nil), b...), nil
+}
+func (controllerKeyProtection) Unprotect(b []byte) ([]byte, error) {
+	return append([]byte(nil), b...), nil
+}
 
 type controllerTrust struct {
 	mu                      sync.Mutex
@@ -59,7 +63,11 @@ func (a *controllerTrust) Remove(context.Context, *NativeCA) error {
 }
 func controllerFixture(t *testing.T) (*nativeRuntimeController, NativeRuntimeRequest, *controllerTrust) {
 	t.Helper()
-	disk := Disk{Root: t.TempDir(), Protection: NativeProtector{}}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	disk := Disk{Root: root, Protection: NativeProtector{}}
 	trust := &controllerTrust{}
 	p := testProfile()
 	req := NativeRuntimeRequest{Profile: p, Mode: NativeCompatibilityClaudePicker, Build: NativeCompatibilityClaudeBuild, Port: DefaultNativePort}

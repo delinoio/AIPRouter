@@ -1,0 +1,309 @@
+// SPDX-License-Identifier: Apache-2.0
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"connectrpc.com/connect"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
+	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
+)
+
+type oauthTestExecutor func(context.Context, core.Scope, *http.Request) (*http.Response, error)
+
+func (f oauthTestExecutor) Do(c context.Context, s core.Scope, r *http.Request) (*http.Response, error) {
+	return f(c, s, r)
+}
+func oauthResponse(body string) *http.Response {
+	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
+}
+func oauthFixture(t *testing.T) (*management, context.Context, core.Scope) {
+	t.Helper()
+	s := serverStore(t)
+	u, _ := testIdentity(t, s, "oauth")
+	ctx := context.WithValue(context.Background(), identityKey{}, Identity{UserID: u.ID})
+	org, err := s.CreateOrganization(ctx, u.ID, "oauth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc, _, err := s.Membership(ctx, org.ID, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &management{store: s}, ctx, sc
+}
+func beginAnthropic(t *testing.T, m *management, ctx context.Context, sc core.Scope, connection string) *v1.ProviderOAuth {
+	t.Helper()
+	q := &v1.BeginProviderOAuthRequest{OrganizationId: sc.OrganizationID, ProviderId: "anthropic", Name: "Personal"}
+	if connection != "" {
+		q.ConnectionId = &connection
+	}
+	result, err := m.BeginProviderOAuth(ctx, connect.NewRequest(q))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result.Msg.Authorization
+}
+func TestProviderOAuthDurableCompletionAndIsolation(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	m.providerExecutor = oauthTestExecutor(func(context.Context, core.Scope, *http.Request) (*http.Response, error) {
+		return oauthResponse(`{"access_token":"private-access","refresh_token":"private-refresh","expires_in":3600}`), nil
+	})
+	flow := beginAnthropic(t, m, ctx, sc, "")
+	if strings.Contains(flow.String(), "Verifier") || flow.GetCallbackState() == "" {
+		t.Fatal("unsafe or missing challenge")
+	}
+	// A fresh management instance consumes the durable flow, without process state.
+	other := &management{store: m.store, providerExecutor: m.providerExecutor}
+	done, err := other.CompleteProviderOAuth(ctx, connect.NewRequest(&v1.CompleteProviderOAuthRequest{OrganizationId: sc.OrganizationID, AuthorizationId: flow.Id, Code: "code", State: flow.GetCallbackState()}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(done.Msg.String(), "private-") {
+		t.Fatal("secret in response")
+	}
+	got, err := m.GetProviderOAuth(ctx, connect.NewRequest(&v1.GetProviderOAuthRequest{OrganizationId: sc.OrganizationID, AuthorizationId: flow.Id}))
+	if err != nil || got.Msg.Authorization.State != v1.OAuthState_O_AUTH_STATE_COMPLETED {
+		t.Fatalf("receipt: %v %v", got, err)
+	}
+	if _, err = m.CompleteProviderOAuth(ctx, connect.NewRequest(&v1.CompleteProviderOAuthRequest{OrganizationId: sc.OrganizationID, AuthorizationId: flow.Id, Code: "code", State: flow.GetCallbackState()})); err == nil {
+		t.Fatal("replayed flow")
+	}
+	u, _ := testIdentity(t, m.store, "other")
+	foreign := context.WithValue(ctx, identityKey{}, Identity{UserID: u.ID})
+	if _, err = m.GetProviderOAuth(foreign, connect.NewRequest(&v1.GetProviderOAuthRequest{OrganizationId: sc.OrganizationID, AuthorizationId: flow.Id})); err == nil {
+		t.Fatal("cross-user read")
+	}
+}
+func TestProviderOAuthCancelFencesInflightCompletion(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	reader, writer := io.Pipe()
+	started := make(chan struct{})
+	m.providerExecutor = oauthTestExecutor(func(context.Context, core.Scope, *http.Request) (*http.Response, error) {
+		close(started)
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: reader}, nil
+	})
+	flow := beginAnthropic(t, m, ctx, sc, "")
+	done := make(chan error, 1)
+	go func() {
+		_, err := m.CompleteProviderOAuth(ctx, connect.NewRequest(&v1.CompleteProviderOAuthRequest{OrganizationId: sc.OrganizationID, AuthorizationId: flow.Id, Code: "code", State: flow.GetCallbackState()}))
+		done <- err
+	}()
+	<-started
+	if _, err := m.CancelProviderOAuth(ctx, connect.NewRequest(&v1.CancelProviderOAuthRequest{OrganizationId: sc.OrganizationID, AuthorizationId: flow.Id})); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = writer.Write([]byte(`{"access_token":"late-secret","refresh_token":"rotated","expires_in":3600}`))
+	_ = writer.Close()
+	if err := <-done; err == nil {
+		t.Fatal("canceled flow completed")
+	}
+	ids, err := m.store.ListPrivate(ctx, sc, string(providerKind))
+	if err != nil || len(ids) != 0 {
+		t.Fatalf("resurrected provider: %v %v", ids, err)
+	}
+	receipt, err := m.GetProviderOAuth(ctx, connect.NewRequest(&v1.GetProviderOAuthRequest{OrganizationId: sc.OrganizationID, AuthorizationId: flow.Id}))
+	if err != nil || receipt.Msg.Authorization.State != v1.OAuthState_O_AUTH_STATE_CANCELED {
+		t.Fatalf("cancel receipt: %v %v", receipt, err)
+	}
+}
+func TestProviderOAuthReconnectCannotResurrectDeletedConnection(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	d := oauthSavedProvider(t, m, ctx, sc)
+	flow := beginAnthropic(t, m, ctx, sc, d.Metadata.Id)
+	if err := m.store.DeletePrivate(ctx, sc, string(providerKind), d.Metadata.Id); err != nil {
+		t.Fatal(err)
+	}
+	var sends atomic.Int32
+	m.providerExecutor = oauthTestExecutor(func(context.Context, core.Scope, *http.Request) (*http.Response, error) {
+		sends.Add(1)
+		return oauthResponse(`{"access_token":"late","refresh_token":"rotated"}`), nil
+	})
+	if _, err := m.CompleteProviderOAuth(ctx, connect.NewRequest(&v1.CompleteProviderOAuthRequest{OrganizationId: sc.OrganizationID, AuthorizationId: flow.Id, Code: "code", State: flow.GetCallbackState()})); err == nil {
+		t.Fatal("deleted connection recreated")
+	}
+	if sends.Load() != 0 {
+		t.Fatal("deleted connection exchanged credentials")
+	}
+	if _, err := m.store.GetPrivate(ctx, sc, string(providerKind), d.Metadata.Id); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleted: %v", err)
+	}
+}
+func oauthSavedProvider(t *testing.T, m *management, ctx context.Context, sc core.Scope) providerData {
+	t.Helper()
+	d := providerData{Metadata: &v1.ProviderConnection{Id: core.ID(), OrganizationId: sc.OrganizationID, ProviderId: "anthropic", Name: "private", BaseUrl: "https://api.anthropic.com", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH, State: v1.ConnectionState_CONNECTION_STATE_READY}, Credential: &providers.Credential{Scope: sc, Provider: "anthropic", AccessToken: "old-token", RefreshToken: "rotating-token", ExpiresAt: time.Now().Add(-time.Minute)}}
+	if err := m.put(ctx, sc, providerKind, d.Metadata.Id, d); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+func oauthLease(t *testing.T, m *management, ctx context.Context, sc core.Scope) store.Lease {
+	t.Helper()
+	_, key, err := m.store.IssueKey(ctx, sc, "refresh", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := m.store.Admit(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.store.Release(context.Background(), lease) })
+	return lease
+}
+func TestProviderRefreshUncertainNeverRetries(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	d := oauthSavedProvider(t, m, ctx, sc)
+	lease := oauthLease(t, m, ctx, sc)
+	var sends atomic.Int32
+	executor := oauthTestExecutor(func(context.Context, core.Scope, *http.Request) (*http.Response, error) {
+		sends.Add(1)
+		return nil, errors.New("ambiguous fixture transport")
+	})
+	if _, err := refreshProviderCredentialWithExecutor(ctx, m.store, lease, d.Metadata.Id, executor); err == nil {
+		t.Fatal("ambiguous accepted")
+	}
+	if _, err := refreshProviderCredentialWithExecutor(ctx, m.store, lease, d.Metadata.Id, executor); !errors.Is(err, store.ErrReauthentication) {
+		t.Fatalf("retry: %v", err)
+	}
+	if sends.Load() != 1 {
+		t.Fatalf("rotating token sent %d times", sends.Load())
+	}
+	if _, err := m.store.GetPrivate(ctx, sc, string(providerKind), d.Metadata.Id); !errors.Is(err, store.ErrReauthentication) {
+		t.Fatalf("uncertain usable: %v", err)
+	}
+}
+func TestProviderRefreshPersistsRotatedToken(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	d := oauthSavedProvider(t, m, ctx, sc)
+	lease := oauthLease(t, m, ctx, sc)
+	executor := oauthTestExecutor(func(context.Context, core.Scope, *http.Request) (*http.Response, error) {
+		return oauthResponse(`{"access_token":"new-token","refresh_token":"new-refresh","expires_in":3600}`), nil
+	})
+	fresh, err := refreshProviderCredentialWithExecutor(ctx, m.store, lease, d.Metadata.Id, executor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Credential.AccessToken != "new-token" {
+		t.Fatal("token not rotated")
+	}
+	raw, err := m.store.GetPrivate(ctx, sc, string(providerKind), d.Metadata.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved providerData
+	if json.Unmarshal(raw, &saved) != nil || saved.Credential.RefreshToken != "new-refresh" {
+		t.Fatal("rotated token not durable")
+	}
+}
+
+func TestProviderRefreshReplacementFencesLateResponse(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	d := oauthSavedProvider(t, m, ctx, sc)
+	lease := oauthLease(t, m, ctx, sc)
+	reader, writer := io.Pipe()
+	started := make(chan struct{})
+	var sends atomic.Int32
+	executor := oauthTestExecutor(func(context.Context, core.Scope, *http.Request) (*http.Response, error) {
+		if sends.Add(1) == 1 {
+			close(started)
+			return &http.Response{StatusCode: 200, Header: make(http.Header), Body: reader}, nil
+		}
+		return oauthResponse(`{"data":[]}`), nil
+	})
+	result := make(chan error, 1)
+	go func() {
+		_, err := refreshProviderCredentialWithExecutor(ctx, m.store, lease, d.Metadata.Id, executor)
+		result <- err
+	}()
+	<-started
+	replacement := d
+	copyCredential := *d.Credential
+	copyCredential.AccessToken = "explicit-replacement"
+	replacement.Credential = &copyCredential
+	if err := m.put(ctx, sc, providerKind, d.Metadata.Id, replacement); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = writer.Write([]byte(`{"access_token":"late-token","refresh_token":"late-refresh"}`))
+	_ = writer.Close()
+	if err := <-result; err == nil {
+		t.Fatal("stale refresh accepted")
+	}
+	raw, err := m.store.GetPrivate(ctx, sc, string(providerKind), d.Metadata.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved providerData
+	if json.Unmarshal(raw, &saved) != nil || saved.Credential.AccessToken != "explicit-replacement" {
+		t.Fatal("replacement overwritten")
+	}
+	if sends.Load() != 1 {
+		t.Fatal("stale refresh sent catalog request")
+	}
+}
+func TestProviderPoolAndRoutingValidation(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	d := oauthSavedProvider(t, m, ctx, sc)
+	for _, strategy := range []v1.PoolStrategy{v1.PoolStrategy_POOL_STRATEGY_PRIORITY, v1.PoolStrategy_POOL_STRATEGY_ROUND_ROBIN, v1.PoolStrategy_POOL_STRATEGY_LEAST_RECENTLY_USED} {
+		if err := m.validatePool(ctx, sc, &v1.Pool{Name: "pool", Strategy: strategy, Members: []*v1.PoolMember{{ConnectionId: d.Metadata.Id}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := &v1.RouteTarget{Target: &v1.RouteTarget_ConnectionId{ConnectionId: d.Metadata.Id}, Weight: 1}
+	for _, strategy := range []v1.RoutingStrategy{v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT, v1.RoutingStrategy_ROUTING_STRATEGY_FALLBACK, v1.RoutingStrategy_ROUTING_STRATEGY_WEIGHTED, v1.RoutingStrategy_ROUTING_STRATEGY_ROUND_ROBIN} {
+		if err := m.validateRoute(ctx, sc, &v1.Route{ModelId: "model", Strategy: strategy, Targets: []*v1.RouteTarget{target}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target.Weight = 0
+	if err := m.validateRoute(ctx, sc, &v1.Route{ModelId: "model", Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_WEIGHTED, Targets: []*v1.RouteTarget{target}}); err == nil {
+		t.Fatal("zero weighted target")
+	}
+	if err := m.validatePool(ctx, sc, &v1.Pool{Name: "pool", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: []*v1.PoolMember{{ConnectionId: d.Metadata.Id}, {ConnectionId: d.Metadata.Id}}}); err == nil {
+		t.Fatal("duplicate member")
+	}
+}
+
+func TestProviderOAuthPendingPollPersistsInterval(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	id := core.ID()
+	connection := core.ID()
+	expires := time.Now().Add(time.Minute)
+	f := providerOAuthFlow{Flow: providers.Flow{Scope: sc, Provider: "kimi", Method: providers.Device, State: "state", DeviceCode: "private-device-code", ExpiresAt: expires, Interval: 5 * time.Second}, Challenge: providers.Challenge{State: "state", ExpiresAt: expires}, Connection: providerData{Metadata: &v1.ProviderConnection{Id: connection, OrganizationId: sc.OrganizationID, ProviderId: "kimi", Name: "kimi", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH, State: v1.ConnectionState_CONNECTION_STATE_READY}}}
+	raw, _ := json.Marshal(f)
+	if err := m.store.SaveProviderFlowBound(ctx, sc, id, string(providerKind), connection, "", raw, expires); err != nil {
+		t.Fatal(err)
+	}
+	var sends atomic.Int32
+	m.providerExecutor = oauthTestExecutor(func(context.Context, core.Scope, *http.Request) (*http.Response, error) {
+		sends.Add(1)
+		r := oauthResponse(`{"error":"slow_down"}`)
+		r.StatusCode = 400
+		return r, nil
+	})
+	for range 2 {
+		response, err := m.GetProviderOAuth(ctx, connect.NewRequest(&v1.GetProviderOAuthRequest{OrganizationId: sc.OrganizationID, AuthorizationId: id}))
+		if err != nil || response.Msg.Authorization.State != v1.OAuthState_O_AUTH_STATE_PENDING {
+			t.Fatalf("poll: %v %v", response, err)
+		}
+	}
+	if sends.Load() != 1 {
+		t.Fatal("ignored persisted poll interval")
+	}
+	raw, err := m.store.GetProviderFlow(ctx, sc, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if json.Unmarshal(raw, &f) != nil || f.Flow.Interval != 10*time.Second || !f.Flow.ExpiresAt.Equal(expires) {
+		t.Fatal("poll state or original expiry changed")
+	}
+}

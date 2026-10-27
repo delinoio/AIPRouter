@@ -10,6 +10,7 @@ import (
 	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
 	"google.golang.org/protobuf/proto"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -23,9 +24,12 @@ const (
 
 // Connection metadata and the secret are encrypted together. Only Metadata is returned by RPCs.
 type providerData struct {
-	Metadata   *v1.ProviderConnection
-	Secret     string
-	Credential *providers.Credential
+	Metadata           *v1.ProviderConnection
+	Secret             string
+	Credential         *providers.Credential
+	Models             *providers.ModelCatalog
+	ModelsDiscoveredAt time.Time
+	CodexCatalog       []json.RawMessage
 }
 
 func (m *management) put(ctx context.Context, sc core.Scope, kind privateKind, id string, v any) error {
@@ -70,7 +74,11 @@ func (m *management) ListProviderConnections(ctx context.Context, r *connect.Req
 	out := &v1.ListProviderConnectionsResponse{}
 	for _, id := range ids {
 		var d providerData
-		if e = m.get(ctx, sc, providerKind, id, &d); e != nil {
+		raw, _, readErr := m.store.GetPrivateVersionForManagement(ctx, sc, string(providerKind), id)
+		if readErr != nil {
+			return nil, rpcError(readErr)
+		}
+		if e = json.Unmarshal(raw, &d); e != nil {
 			return nil, rpcError(e)
 		}
 		out.Connections = append(out.Connections, d.Metadata)
@@ -88,15 +96,13 @@ func (m *management) CreateProviderConnection(ctx context.Context, r *connect.Re
 			q.BaseUrl = preset.BaseURL
 		}
 	}
-	if q.Name == "" || len(q.Name) > 200 || !validProviderURL(q.BaseUrl) {
+	if strings.TrimSpace(q.Name) == "" || len(q.Name) > 200 || !validProviderURL(q.BaseUrl) {
 		return nil, invalid("valid name and provider URL required")
 	}
 	if q.AuthKind != v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY && q.AuthKind != v1.ProviderAuthKind_PROVIDER_AUTH_KIND_NO_AUTH {
-		return nil, unimplemented()
+		return nil, invalid("use BeginProviderOAuth for OAuth connections")
 	}
-	if q.AuthKind == v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY && q.GetApiKey() == "" {
-		return nil, invalid("API key required")
-	}
+
 	d := providerData{Metadata: &v1.ProviderConnection{Id: core.ID(), OrganizationId: sc.OrganizationID, ProviderId: q.ProviderId, Name: q.Name, BaseUrl: q.BaseUrl, AuthKind: q.AuthKind, State: v1.ConnectionState_CONNECTION_STATE_READY, CreatedAt: timestamp(time.Now()), StallTimeoutSeconds: q.StallTimeoutSeconds}, Secret: q.GetApiKey()}
 	if e = providers.ValidateConnection(providerConnection(d)); e != nil {
 		return nil, invalid("provider connection does not match its catalog requirements")
@@ -111,8 +117,12 @@ func (m *management) UpdateProviderConnection(ctx context.Context, r *connect.Re
 	}
 	q := r.Msg
 	var d providerData
-	if e = m.get(ctx, sc, providerKind, q.ConnectionId, &d); e != nil {
+	raw, version, e := m.store.GetPrivateVersionForManagement(ctx, sc, string(providerKind), q.ConnectionId)
+	if e != nil {
 		return nil, rpcError(e)
+	}
+	if e = json.Unmarshal(raw, &d); e != nil || d.Metadata == nil {
+		return nil, invalid("invalid stored connection")
 	}
 	if q.Name != nil {
 		if q.GetName() == "" || len(q.GetName()) > 200 {
@@ -127,6 +137,9 @@ func (m *management) UpdateProviderConnection(ctx context.Context, r *connect.Re
 		d.Metadata.BaseUrl = q.GetBaseUrl()
 	}
 	if q.ApiKey != nil {
+		if d.Metadata.AuthKind != v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY {
+			return nil, invalid("use provider login to replace OAuth credentials")
+		}
 		d.Secret = q.GetApiKey()
 	}
 	if q.Enabled != nil {
@@ -143,7 +156,16 @@ func (m *management) UpdateProviderConnection(ctx context.Context, r *connect.Re
 	if e = providers.ValidateConnection(providerConnection(d)); e != nil {
 		return nil, invalid("provider connection does not match its catalog requirements")
 	}
-	e = m.put(ctx, sc, providerKind, q.ConnectionId, d)
+	if q.ApiKey != nil || q.BaseUrl != nil {
+		d.Models = nil
+		d.CodexCatalog = nil
+		d.ModelsDiscoveredAt = time.Time{}
+	}
+	raw, e = json.Marshal(d)
+	if e != nil {
+		return nil, rpcError(e)
+	}
+	e = m.store.CompareAndSwapScopePrivate(ctx, sc, string(providerKind), q.ConnectionId, version, raw)
 	return connect.NewResponse(&v1.UpdateProviderConnectionResponse{Connection: d.Metadata}), rpcError(e)
 }
 func (m *management) DeleteProviderConnection(ctx context.Context, r *connect.Request[v1.DeleteProviderConnectionRequest]) (*connect.Response[v1.DeleteProviderConnectionResponse], error) {
@@ -158,58 +180,42 @@ func (m *management) ListProviderModels(ctx context.Context, r *connect.Request[
 	if e != nil {
 		return nil, e
 	}
-	var d providerData
-	if e = m.get(ctx, sc, providerKind, r.Msg.ConnectionId, &d); e != nil {
-		return nil, rpcError(e)
-	}
-	p, ok := providers.Lookup(d.Metadata.ProviderId)
-	if !ok {
-		return nil, unimplemented()
+	d, e := m.discoverProviderModels(ctx, sc, r.Msg.ConnectionId)
+	if e != nil {
+		return nil, providerRPCError(e)
 	}
 	out := &v1.ListProviderModelsResponse{}
-	for _, id := range p.Models {
-		out.Models = append(out.Models, providerModel(p, id))
-	}
-	if len(out.Models) == 0 {
-		return nil, unimplemented()
+	p, _ := providers.Lookup(d.Metadata.ProviderId)
+	for _, model := range d.Models.Models {
+		item := providerModel(p, model.ID)
+		if model.Name != "" {
+			item.DisplayName = model.Name
+		}
+		if model.ContextWindow > 0 {
+			n := uint64(model.ContextWindow)
+			item.ContextLimit = &n
+		}
+		if model.MaxOutputTokens > 0 {
+			n := uint64(model.MaxOutputTokens)
+			item.OutputLimit = &n
+		}
+		out.Models = append(out.Models, item)
 	}
 	return connect.NewResponse(out), nil
 }
 
-func (m *management) BeginProviderOAuth(ctx context.Context, r *connect.Request[v1.BeginProviderOAuthRequest]) (*connect.Response[v1.BeginProviderOAuthResponse], error) {
-	if _, e := m.scope(ctx, r.Msg.OrganizationId); e != nil {
-		return nil, e
-	}
-	return nil, unimplemented()
-}
-func (m *management) GetProviderOAuth(ctx context.Context, r *connect.Request[v1.GetProviderOAuthRequest]) (*connect.Response[v1.GetProviderOAuthResponse], error) {
-	if _, e := m.scope(ctx, r.Msg.OrganizationId); e != nil {
-		return nil, e
-	}
-	return nil, unimplemented()
-}
-func (m *management) CompleteProviderOAuth(ctx context.Context, r *connect.Request[v1.CompleteProviderOAuthRequest]) (*connect.Response[v1.CompleteProviderOAuthResponse], error) {
-	if _, e := m.scope(ctx, r.Msg.OrganizationId); e != nil {
-		return nil, e
-	}
-	return nil, unimplemented()
-}
-func (m *management) CancelProviderOAuth(ctx context.Context, r *connect.Request[v1.CancelProviderOAuthRequest]) (*connect.Response[v1.CancelProviderOAuthResponse], error) {
-	if _, e := m.scope(ctx, r.Msg.OrganizationId); e != nil {
-		return nil, e
-	}
-	return nil, unimplemented()
-}
 func (m *management) validatePool(ctx context.Context, sc core.Scope, p *v1.Pool) error {
-	if p.Name == "" || len(p.Members) == 0 || len(p.Members) > 100 {
+	if strings.TrimSpace(p.Name) == "" || len(p.Name) > 200 || len(p.Members) == 0 || len(p.Members) > 100 {
 		return invalid("pool name and 1 to 100 members required")
 	}
-	if p.Strategy != v1.PoolStrategy_POOL_STRATEGY_PRIORITY {
-		return unimplemented()
+	switch p.Strategy {
+	case v1.PoolStrategy_POOL_STRATEGY_PRIORITY, v1.PoolStrategy_POOL_STRATEGY_ROUND_ROBIN, v1.PoolStrategy_POOL_STRATEGY_LEAST_RECENTLY_USED:
+	default:
+		return invalid("invalid pool strategy")
 	}
 	seen := map[string]bool{}
 	for _, member := range p.Members {
-		if member == nil || seen[member.ConnectionId] {
+		if member == nil || member.ConnectionId == "" || seen[member.ConnectionId] {
 			return invalid("duplicate or missing pool member")
 		}
 		seen[member.ConnectionId] = true
@@ -256,7 +262,11 @@ func (m *management) UpdatePool(ctx context.Context, r *connect.Request[v1.Updat
 		return nil, e
 	}
 	p := &v1.Pool{}
-	if e = m.get(ctx, sc, poolKind, r.Msg.PoolId, p); e != nil {
+	raw, version, e := m.store.GetPrivateVersion(ctx, sc, string(poolKind), r.Msg.PoolId)
+	if e != nil {
+		return nil, rpcError(e)
+	}
+	if e = json.Unmarshal(raw, p); e != nil {
 		return nil, rpcError(e)
 	}
 	p.Name = r.Msg.Name
@@ -265,7 +275,11 @@ func (m *management) UpdatePool(ctx context.Context, r *connect.Request[v1.Updat
 	if e = m.validatePool(ctx, sc, p); e != nil {
 		return nil, e
 	}
-	return connect.NewResponse(&v1.UpdatePoolResponse{Pool: p}), rpcError(m.put(ctx, sc, poolKind, p.Id, p))
+	raw, e = json.Marshal(p)
+	if e != nil {
+		return nil, rpcError(e)
+	}
+	return connect.NewResponse(&v1.UpdatePoolResponse{Pool: p}), rpcError(m.store.CompareAndSwapScopePrivate(ctx, sc, string(poolKind), p.Id, version, raw))
 }
 func (m *management) DeletePool(ctx context.Context, r *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error) {
 	sc, e := m.scope(ctx, r.Msg.OrganizationId)
@@ -293,19 +307,33 @@ func (m *management) getRoute(ctx context.Context, sc core.Scope, id string) (*v
 	return p, e
 }
 func (m *management) validateRoute(ctx context.Context, sc core.Scope, p *v1.Route) error {
-	if p.ModelId == "" || len(p.Targets) == 0 || len(p.Targets) > 100 {
+	if strings.TrimSpace(p.ModelId) == "" || len(p.ModelId) > 512 || len(p.Targets) == 0 || len(p.Targets) > 100 {
 		return invalid("model and 1 to 100 targets required")
 	}
-	if p.Strategy != v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT && p.Strategy != v1.RoutingStrategy_ROUTING_STRATEGY_FALLBACK {
-		return unimplemented()
+	switch p.Strategy {
+	case v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT, v1.RoutingStrategy_ROUTING_STRATEGY_FALLBACK, v1.RoutingStrategy_ROUTING_STRATEGY_WEIGHTED, v1.RoutingStrategy_ROUTING_STRATEGY_ROUND_ROBIN:
+	default:
+		return invalid("invalid routing strategy")
 	}
 	if p.Strategy == v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT && len(p.Targets) != 1 {
 		return invalid("direct route requires one target")
 	}
+	seen := map[string]bool{}
 	for _, target := range p.Targets {
 		if target == nil {
 			return invalid("target required")
 		}
+		if len(target.ModelId) > 512 {
+			return invalid("invalid target model")
+		}
+		if p.Strategy == v1.RoutingStrategy_ROUTING_STRATEGY_WEIGHTED && (target.Weight == 0 || target.Weight > 1000000) {
+			return invalid("weighted targets require weights from 1 to 1000000")
+		}
+		key := target.GetConnectionId() + "/" + target.GetPoolId() + "/" + target.ModelId
+		if seen[key] {
+			return invalid("duplicate target")
+		}
+		seen[key] = true
 		if target.GetConnectionId() != "" {
 			var d providerData
 			if e := m.get(ctx, sc, providerKind, target.GetConnectionId(), &d); e != nil {
@@ -357,8 +385,12 @@ func (m *management) UpdateRoute(ctx context.Context, r *connect.Request[v1.Upda
 	if e != nil {
 		return nil, e
 	}
-	p, e := m.getRoute(ctx, sc, r.Msg.RouteId)
+	raw, version, e := m.store.GetPrivateVersion(ctx, sc, string(routeKind), r.Msg.RouteId)
 	if e != nil {
+		return nil, rpcError(e)
+	}
+	p := &v1.Route{}
+	if e = proto.Unmarshal(raw, p); e != nil {
 		return nil, rpcError(e)
 	}
 	p.ModelId = r.Msg.ModelId
@@ -368,7 +400,11 @@ func (m *management) UpdateRoute(ctx context.Context, r *connect.Request[v1.Upda
 	if e = m.validateRoute(ctx, sc, p); e != nil {
 		return nil, e
 	}
-	return connect.NewResponse(&v1.UpdateRouteResponse{Route: p}), rpcError(m.putRoute(ctx, sc, p))
+	raw, e = proto.Marshal(p)
+	if e != nil {
+		return nil, rpcError(e)
+	}
+	return connect.NewResponse(&v1.UpdateRouteResponse{Route: p}), rpcError(m.store.CompareAndSwapScopePrivate(ctx, sc, string(routeKind), p.Id, version, raw))
 }
 func (m *management) DeleteRoute(ctx context.Context, r *connect.Request[v1.DeleteRouteRequest]) (*connect.Response[v1.DeleteRouteResponse], error) {
 	sc, e := m.scope(ctx, r.Msg.OrganizationId)

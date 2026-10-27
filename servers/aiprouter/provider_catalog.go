@@ -2,8 +2,13 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
 	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
+	"sync/atomic"
+	"time"
 )
 
 func providerConnection(d providerData) providers.Connection {
@@ -17,6 +22,9 @@ func providerConnection(d providerData) providers.Connection {
 	case v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH:
 		if p, ok := providers.Lookup(c.Provider); ok {
 			c.Auth = p.Auth
+		}
+		if c.Provider == "google-vertex" && c.Credential != nil && c.Credential.Google != nil {
+			c.Auth = providers.OAuth
 		}
 	case v1.ProviderAuthKind_PROVIDER_AUTH_KIND_NO_AUTH:
 		c.Auth = providers.Local
@@ -63,4 +71,58 @@ func providerModel(p providers.Preset, id string) *v1.Model {
 		out.OutputLimit = &v
 	}
 	return out
+}
+
+// discoverProviderModels serializes catalog calls with refresh. Some providers
+// renew an account token during discovery; their result must use the original CAS.
+func (m *management) discoverProviderModels(ctx context.Context, sc core.Scope, id string) (providerData, error) {
+	var d providerData
+	raw, version, claim, err := m.store.ClaimScopePrivateRefresh(ctx, sc, string(providerKind), id)
+	if err != nil {
+		return d, err
+	}
+	var sent atomic.Bool
+	complete := false
+	defer func() {
+		if complete {
+			return
+		}
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		// Zed discovery can rotate its LLM token. A failed/ambiguous call must not
+		// leave its previous token eligible for a later rotating exchange.
+		if sent.Load() && d.Metadata != nil && d.Metadata.ProviderId == "zed" {
+			_ = m.store.MarkScopePrivateRefreshUncertain(cleanup, sc, string(providerKind), id, claim)
+		} else {
+			_ = m.store.ReleaseScopePrivateRefresh(cleanup, sc, string(providerKind), id, claim)
+		}
+	}()
+	if err = json.Unmarshal(raw, &d); err != nil {
+		return providerData{}, err
+	}
+	if d.Metadata == nil || d.Metadata.State != v1.ConnectionState_CONNECTION_STATE_READY {
+		return providerData{}, providers.ErrReauthenticate
+	}
+	executor := &providerExecutor{store: m.store, scope: sc, test: m.providerExecutor, onSend: func() { sent.Store(true) }, gate: func(c context.Context, start func(context.Context) error) error {
+		return m.store.WithScopePrivateRefreshDispatch(c, sc, string(providerKind), id, claim, start)
+	}}
+	catalog, fresh, err := providers.NewAuth(executor).Discover(ctx, sc, providerConnection(d))
+	if err != nil {
+		return providerData{}, err
+	}
+	if fresh != nil {
+		d.Credential = fresh
+	}
+	d.CodexCatalog = catalog.CodexCatalog
+	d.Models = &catalog
+	d.ModelsDiscoveredAt = time.Now()
+	raw, err = json.Marshal(d)
+	if err != nil {
+		return providerData{}, err
+	}
+	if err = m.store.CompleteScopePrivateRefresh(ctx, sc, string(providerKind), id, version, claim, raw); err != nil {
+		return providerData{}, err
+	}
+	complete = true
+	return d, nil
 }
