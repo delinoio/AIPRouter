@@ -127,9 +127,10 @@ type turn struct {
 	callIDs       map[string]bool
 	outputs       []any
 	retained      int64
+	live          *liveStream
 }
 
-func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e inference.AdapterExecutor, s inference.AdapterStateStore) (*http.Response, inference.Wire, error) {
+func (a *Adapter) execute(ctx context.Context, in inference.AdapterInput, e inference.AdapterExecutor, s inference.AdapterStateStore, live *liveStream) (*http.Response, inference.Wire, error) {
 	body, err := decode(in.Body)
 	if err != nil {
 		return nil, "", err
@@ -157,9 +158,13 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 		return nil, "", err
 	}
 	stream := body["stream"] == true
-	body["stream"] = false
-	delete(body, "stream_options")
-	t := turn{a: a, input: in, counts: map[Kind]int{}, failedQueries: map[string]bool{}, callIDs: map[string]bool{}}
+	body["stream"] = live != nil
+	if live != nil {
+		body["stream_options"] = object{"include_usage": true}
+	} else {
+		delete(body, "stream_options")
+	}
+	t := turn{a: a, input: in, counts: map[Kind]int{}, failedQueries: map[string]bool{}, callIDs: map[string]bool{}, live: live}
 	if a.config.DescribeImages {
 		if err = t.describe(ctx, body); err != nil {
 			return nil, "", err
@@ -191,7 +196,7 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 		}
 		_, needsRecovery := r.Body.(*recoveryBody)
 		if needsRecovery || r.StatusCode < 200 || r.StatusCode >= 300 {
-			if round == 0 && len(t.outputs) == 0 && t.counts[Vision] == 0 {
+			if round == 0 && len(t.outputs) == 0 && t.counts[Vision] == 0 && (live == nil || !live.started) {
 				r.Body = &cancelBody{ReadCloser: r.Body, cancel: stopModel}
 				return r, wire, nil
 			}
@@ -199,7 +204,13 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 			stopModel()
 			return nil, "", fault(502, "hosted_followup_refused") // Never replay completed paid helpers.
 		}
-		raw, err = a.config.Codec.Collect(modelCtx, r, wire, a.config.MaxBytes)
+		if live != nil {
+			live.start()
+			live.beginTurn()
+			raw, err = a.config.Codec.(StreamingCodec).Stream(modelCtx, r, wire, a.config.MaxBytes, live.chunk)
+		} else {
+			raw, err = a.config.Codec.Collect(modelCtx, r, wire, a.config.MaxBytes)
+		}
 		stopModel()
 		if err != nil {
 			if partial, parseErr := decode(raw); parseErr == nil {
@@ -244,6 +255,11 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 			result["hosted_outputs"] = append(arr(result["hosted_outputs"]), t.outputs...)
 			if b, _ := json.Marshal(result); int64(len(b)) > a.config.MaxBytes {
 				return nil, "", fault(502, "hosted_buffer_limit")
+			}
+			if live != nil {
+				if err = live.remainder(result); err != nil {
+					return nil, "", err
+				}
 			}
 			raw, _ = json.Marshal(result)
 			out := finalResponse(raw, result, stream)
@@ -357,6 +373,11 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 			result["hosted_outputs"] = append(arr(result["hosted_outputs"]), t.outputs...)
 			if b, _ := json.Marshal(result); int64(len(b)) > a.config.MaxBytes {
 				return nil, "", fault(502, "hosted_buffer_limit")
+			}
+			if live != nil {
+				if err = live.remainder(result); err != nil {
+					return nil, "", err
+				}
 			}
 			raw, _ = json.Marshal(result)
 			out := finalResponse(raw, result, stream)
@@ -495,7 +516,26 @@ func (t *turn) execute(ctx context.Context, tool tool, id string, args object) (
 	}
 	return result, nil
 }
-func (t *turn) run(ctx context.Context, tool tool, id string, args object) (any, error) {
+func (t *turn) run(ctx context.Context, tool tool, id string, args object) (output any, runErr error) {
+	if t.live != nil {
+		if err := t.live.progress(tool.kind, id, "in_progress", nil); err != nil {
+			return nil, err
+		}
+		defer func() {
+			status := "failed"
+			extra := object{}
+			if runErr == nil && len(t.outputs) > 0 {
+				last := obj(t.outputs[len(t.outputs)-1])
+				status = str(last["status"])
+				for k, v := range last {
+					extra[k] = v
+				}
+			}
+			if err := t.live.progress(tool.kind, id, status, extra); runErr == nil && err != nil {
+				runErr = err
+			}
+		}()
+	}
 	if tool.kind == Search {
 		qs, err := queries(args)
 		if err != nil {
