@@ -91,7 +91,7 @@ func TestShortCacheAndExplicitBreakpoints(t *testing.T) {
 
 func TestRejectUnsupportedTranslationAndContinuation(t *testing.T) {
 	a, _ := New(Anthropic)
-	for _, body := range []string{`{"input":[{"role":"user","content":[{"type":"input_image","image_url":"https://example.com/img"}]}]}`, `{"input":"hi","reasoning":{"effort":"high"}}`, `{"input":"hi","previous_response_id":"resp_private"}`} {
+	for _, body := range []string{`{"input":[{"role":"user","content":[{"type":"unknown_part"}]}]}`, `{"input":"hi","previous_response_id":"resp_private"}`} {
 		_, err := a.Build(context.Background(), inference.AdapterInput{Operation: inference.Generate, Wire: inference.Responses, Body: json.RawMessage(body), Target: inference.Target{BaseURL: "https://cloud.zed.dev", Model: "claude"}, Credential: inference.Credential{Secret: "llm"}})
 		if err == nil {
 			t.Fatal("silently lost request semantics")
@@ -268,11 +268,7 @@ func TestGoogleToolsAndUsage(t *testing.T) {
 }
 
 func TestRichContentFailsWithoutSilentLoss(t *testing.T) {
-	_, err := googleRequest(object{"messages": []any{object{"role": "assistant", "content": "answer", "reasoning_content": "reason"}}}, inference.Chat)
-	if !errors.Is(err, inference.ErrUnsupported) {
-		t.Fatal("reasoning replay silently discarded")
-	}
-	for _, part := range []string{`{"executableCode":{"code":"print(1)"}}`, `{"thoughtSignature":"signature","text":"answer"}`, `{"functionCall":{"name":"lookup","args":null}}`} {
+	for _, part := range []string{`{"executableCode":{"code":"print(1)"}}`, `{"functionCall":{"name":"lookup","args":[]}}`} {
 		out := streamText(t, Google, `{"candidates":[{"content":{"parts":[`+part+`]},"finishReason":"STOP"}]}`+"\n")
 		if !strings.Contains(out, "unsupported Google event") {
 			t.Fatal(out)

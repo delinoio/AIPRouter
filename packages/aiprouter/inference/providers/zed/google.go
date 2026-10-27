@@ -3,7 +3,7 @@ package zed
 
 import (
 	"encoding/json"
-	"fmt"
+	"strings"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
 )
@@ -17,6 +17,9 @@ func googleRequest(b object, wire inference.Wire) (object, error) {
 		}
 	}
 	allowed := map[string]bool{"model": true, "messages": true, "stream": true, "tools": true, "tool_choice": true, "temperature": true, "top_p": true, "max_tokens": true, "max_completion_tokens": true, "stream_options": true}
+	for _, k := range strings.Fields("reasoning reasoning_effort thinking response_format text stop stop_sequences metadata user parallel_tool_calls") {
+		allowed[k] = true
+	}
 	for k := range b {
 		if !allowed[k] {
 			return nil, requestError("unsupported_zed_google_field")
@@ -31,9 +34,9 @@ func googleRequest(b object, wire inference.Wire) (object, error) {
 	for _, v := range messages {
 		m := objectOf(v)
 		role := stringOf(m["role"])
-		parts := []any{}
-		if text := stringOf(m["content"]); text != "" {
-			parts = append(parts, object{"text": text})
+		parts, err := googleContent(m["content"])
+		if err != nil {
+			return nil, err
 		}
 		if role == "system" || role == "developer" {
 			system = append(system, parts...)
@@ -42,38 +45,64 @@ func googleRequest(b object, wire inference.Wire) (object, error) {
 		if role == "assistant" {
 			role = "model"
 		}
+		fallbackSignature := ""
+		for _, v := range arrayOf(objectOf(objectOf(m["extra_content"])["google"])["parts"]) {
+			p := objectOf(v)
+			if p["thought"] == true {
+				if sig := thoughtSignature(p); realSignature(sig) {
+					fallbackSignature = sig
+				}
+			}
+		}
 		if role == "tool" {
 			name := names[stringOf(m["tool_call_id"])]
 			if name == "" {
 				return nil, requestError("unknown_zed_tool_result")
 			}
 			var response any
-			if json.Unmarshal([]byte(stringOf(m["content"])), &response) != nil {
+			decoded, decodeErr := decodeObject([]byte(stringOf(m["content"])))
+			if decodeErr != nil {
 				response = object{"result": m["content"]}
+			} else {
+				response = decoded
 			}
 			if objectOf(response) == nil {
 				response = object{"result": response}
 			}
 			role = "user"
-			parts = []any{object{"functionResponse": object{"name": name, "response": response}}}
+			parts = []any{object{"functionResponse": object{"id": m["tool_call_id"], "name": name, "response": response}}}
 		}
 		for _, v := range arrayOf(m["tool_calls"]) {
 			c := objectOf(v)
 			f := objectOf(c["function"])
+			if c["type"] == "custom" {
+				custom := objectOf(c["custom"])
+				f = object{"name": custom["name"], "arguments": jsonString(object{"input": custom["input"]})}
+			}
 			args, err := decodeObject([]byte(stringOf(f["arguments"])))
 			if err != nil {
 				return nil, requestError("invalid_tool_arguments")
 			}
 			names[stringOf(c["id"])] = stringOf(f["name"])
-			parts = append(parts, object{"functionCall": object{"name": f["name"], "args": args}})
+			part := object{"functionCall": object{"id": c["id"], "name": f["name"], "args": args}}
+			sig := thoughtSignature(c)
+			if sig == "" {
+				sig = fallbackSignature
+			}
+			if realSignature(sig) {
+				part["thoughtSignature"] = sig
+			}
+			parts = append(parts, part)
 		}
-		contents = append(contents, object{"role": role, "parts": parts})
+		if len(parts) > 0 {
+			contents = append(contents, object{"role": role, "parts": parts})
+		}
 	}
 	out := object{"contents": contents}
 	if len(system) > 0 {
 		out["systemInstruction"] = object{"parts": system}
 	}
-	config := object{}
+	config := googleGeneration(b)
 	for from, to := range map[string]string{"temperature": "temperature", "top_p": "topP", "max_tokens": "maxOutputTokens", "max_completion_tokens": "maxOutputTokens"} {
 		if v, ok := b[from]; ok {
 			config[to] = v
@@ -87,21 +116,32 @@ func googleRequest(b object, wire inference.Wire) (object, error) {
 	}
 	if tools, ok := b["tools"].([]any); ok {
 		decls := []any{}
+		strict := false
 		for _, v := range tools {
 			t := objectOf(v)
 			f := objectOf(t["function"])
-			if t["type"] != "function" || f == nil || f["strict"] == true {
+			if t["type"] == "custom" {
+				f = customFunction(t)
+			}
+			if (t["type"] != "function" && t["type"] != "custom") || f == nil {
 				return nil, inference.ErrUnsupported
 			}
+			strict = strict || f["strict"] == true
 			decls = append(decls, object{"name": f["name"], "description": f["description"], "parameters": f["parameters"]})
 		}
 		out["tools"] = []any{object{"functionDeclarations": decls}}
+		if strict {
+			out["toolConfig"] = object{"functionCallingConfig": object{"mode": "VALIDATED"}}
+		}
 	}
 	if choice, ok := b["tool_choice"]; ok {
 		mode := "AUTO"
 		c := object{"mode": mode}
 		switch choice {
 		case "auto":
+			if out["toolConfig"] != nil {
+				c = objectOf(objectOf(out["toolConfig"])["functionCallingConfig"])
+			}
 		case "none":
 			c["mode"] = "NONE"
 		case "required":
@@ -120,7 +160,11 @@ func googleRequest(b object, wire inference.Wire) (object, error) {
 	return out, nil
 }
 
-type googleStream struct{ calls int }
+type googleStream struct {
+	calls        int
+	signature    string
+	showThinking bool
+}
 
 func (g *googleStream) convert(m object) (object, error) {
 	if objectOf(m["promptFeedback"])["blockReason"] != nil {
@@ -135,6 +179,7 @@ func (g *googleStream) convert(m object) (object, error) {
 	if len(cs) == 1 {
 		c := objectOf(cs[0])
 		calls := []any{}
+		opaque := []any{}
 		text, thinking := "", ""
 		for _, v := range arrayOf(objectOf(c["content"])["parts"]) {
 			p := objectOf(v)
@@ -143,17 +188,44 @@ func (g *googleStream) convert(m object) (object, error) {
 			}
 			for key := range p {
 				switch key {
-				case "text", "thought", "functionCall":
+				case "text", "thought", "functionCall", "thoughtSignature", "thought_signature", "extra_content", "inlineData", "inline_data":
 				default:
 					return nil, inference.ErrUnsupported
 				}
 			}
+			sig := thoughtSignature(p)
+			if len(sig) > 64<<10 {
+				return nil, inference.ErrUnsupported
+			}
 			if p["thought"] == true {
-				thinking += stringOf(p["text"])
+				if realSignature(sig) {
+					g.signature = sig
+				}
+				opaque = append(opaque, p)
+				if g.showThinking {
+					thinking += stringOf(p["text"])
+				}
 			} else {
 				text += stringOf(p["text"])
+				if sig != "" {
+					opaque = append(opaque, p)
+				}
+			}
+			im := objectOf(p["inlineData"])
+			if im == nil {
+				im = objectOf(p["inline_data"])
+			}
+			if im != nil {
+				mime := stringOf(im["mimeType"])
+				if mime == "" {
+					mime = stringOf(im["mime_type"])
+				}
+				delta["images"] = append(arrayOf(delta["images"]), object{"type": "image_url", "image_url": object{"url": "data:" + mime + ";base64," + stringOf(im["data"])}})
 			}
 			if f := objectOf(p["functionCall"]); f != nil {
+				if f["args"] == nil {
+					f["args"] = object{}
+				}
 				if stringOf(f["name"]) == "" || objectOf(f["args"]) == nil {
 					return nil, inference.ErrUnsupported
 				}
@@ -164,7 +236,22 @@ func (g *googleStream) convert(m object) (object, error) {
 				if err != nil {
 					return nil, err
 				}
-				calls = append(calls, object{"index": g.calls, "id": fmt.Sprintf("call_zed_%d", g.calls), "type": "function", "function": object{"name": f["name"], "arguments": string(args)}})
+				id := stringOf(f["id"])
+				if id == "" {
+					generated, err := randomID()
+					if err != nil {
+						return nil, err
+					}
+					id = "call_" + generated
+				}
+				call := object{"index": g.calls, "id": id, "type": "function", "function": object{"name": f["name"], "arguments": string(args)}}
+				if sig == "" {
+					sig = g.signature
+				}
+				if realSignature(sig) {
+					call["extra_content"] = object{"google": object{"thought_signature": sig}}
+				}
+				calls = append(calls, call)
 				g.calls++
 			}
 		}
@@ -176,6 +263,9 @@ func (g *googleStream) convert(m object) (object, error) {
 		}
 		if len(calls) > 0 {
 			delta["tool_calls"] = calls
+		}
+		if len(opaque) > 0 {
+			delta["extra_content"] = object{"google": object{"parts": opaque}}
 		}
 		var finish any
 		if reason := stringOf(c["finishReason"]); reason != "" {

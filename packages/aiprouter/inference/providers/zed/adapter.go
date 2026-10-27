@@ -125,6 +125,30 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	if model == "" {
 		return inference.AdapterRequest{}, requestError("missing_model")
 	}
+	body["model"] = model
+	for i, v := range arrayOf(body["tools"]) {
+		t := objectOf(v)
+		if t["type"] == "custom" && objectOf(t["custom"]) != nil {
+			c := objectOf(t["custom"])
+			c["type"] = "custom"
+			arrayOf(body["tools"])[i] = c
+		}
+	}
+	state, _ := ctx.Value(stateKey{}).(*requestState)
+	if state != nil {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		if state.built {
+			return inference.AdapterRequest{}, requestError("zed_request_context_reused")
+		}
+	}
+	aliases, custom := map[string]string{}, map[string]bool{}
+	if a.provider != OpenAI {
+		aliases, custom = aliasTools(body)
+		if len(aliases) > 0 && state == nil {
+			return inference.AdapterRequest{}, requestError("zed_request_context_required")
+		}
+	}
 	// A stored continuation needs central owner-scoped expansion before reaching Zed.
 	if stringOf(body["previous_response_id"]) != "" {
 		return inference.AdapterRequest{}, inference.ErrContinuation
@@ -137,9 +161,18 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 		request["model"] = model
 		request["stream"] = true
 	}
+	if a.provider == Google {
+		applyGooglePolicy(request, body, model, requestOptions(ctx))
+	}
 	thread, err := randomID()
 	if err != nil {
 		return inference.AdapterRequest{}, err
+	}
+	if trusted := requestOptions(ctx).ThreadID; trusted != "" {
+		if len(trusted) > 512 || strings.ContainsAny(trusted, "\x00\r\n") {
+			return inference.AdapterRequest{}, requestError("invalid_zed_thread_id")
+		}
+		thread = trusted
 	}
 	prompt, err := randomID()
 	if err != nil {
@@ -163,6 +196,11 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	h.Set("x-zed-client-supports-stream-ended-request-completion-status", "true")
 	// Secret is the short-lived LLM token supplied by the central credential service.
 	h.Set("Authorization", "Bearer "+in.Credential.Secret)
+	if state != nil {
+		state.aliases = aliases
+		state.custom = custom
+		state.built = true
+	}
 	return inference.AdapterRequest{URL: u.String(), Headers: h, Body: data, ResponseWire: a.responseWire()}, nil
 }
 
@@ -186,7 +224,15 @@ func (a *Adapter) Decode(ctx context.Context, response *http.Response) (*http.Re
 	out.Header.Del("Content-Length")
 	out.Header.Del("Content-Encoding")
 	out.ContentLength = -1
-	out.Body = newEventStream(ctx, response.Body, a.provider)
+	s := newEventStream(ctx, response.Body, a.provider)
+	if state, _ := ctx.Value(stateKey{}).(*requestState); state != nil {
+		state.mu.Lock()
+		s.aliases = state.aliases
+		s.custom = state.custom
+		state.mu.Unlock()
+	}
+	s.google.showThinking = requestOptions(ctx).ShowThinkingSummaries
+	out.Body = s
 	return out, nil
 }
 

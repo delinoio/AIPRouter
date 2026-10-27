@@ -22,6 +22,8 @@ type eventStream struct {
 	closeOnce                sync.Once
 	stop                     func() bool
 	google                   googleStream
+	aliases                  map[string]string
+	custom                   map[string]bool
 }
 
 func newEventStream(ctx context.Context, body io.ReadCloser, provider Provider) *eventStream {
@@ -79,6 +81,7 @@ func (s *eventStream) Read(p []byte) (int, error) {
 	return n, nil
 }
 func (s *eventStream) emit(m object) {
+	restoreNames(m, s.aliases, s.custom)
 	b, err := json.Marshal(m)
 	if err != nil {
 		s.fail("Zed stream sent an invalid event")
