@@ -63,6 +63,7 @@ type Route struct {
 	MaxSends int
 }
 type Target struct {
+	AttemptTimeout           time.Duration
 	Provider, BaseURL, Model string
 	Wire                     Wire
 	Auth                     AuthMode
@@ -94,9 +95,10 @@ type FailureReporter interface {
 	Failed(context.Context, Principal, Target, Credential, int, time.Duration) error
 }
 type Continuation struct {
-	Model     string
-	Input     json.RawMessage
-	ExpiresAt time.Time
+	Provider, AccountID string
+	Model               string
+	Input               json.RawMessage
+	ExpiresAt           time.Time
 }
 
 // Load must reject expiry and ownership mismatches. Save must atomically recheck membership,
@@ -112,6 +114,7 @@ type Usage struct {
 	CacheWriteTokens *int64 `json:"cache_write_tokens,omitempty"`
 }
 type UsageRecord struct {
+	UnmeasuredAttempts                    int
 	RequestID, Provider, Model, AccountID string
 	Status, Sends                         int
 	Usage                                 Usage
@@ -126,11 +129,26 @@ type Observer interface{ Event(context.Context, string) }
 
 // ArtifactStore owns R2 upload, owner-scoped metadata, 200-file eviction, 24h expiry,
 // and signed URLs of at most five minutes, bounded by the object's expiry.
+type GeneratedImage struct {
+	Data        []byte
+	ContentType string
+}
+
+// ArtifactBatchStore publishes all validated response images through one owner-scoped R2 batch.
+type ArtifactBatchStore interface {
+	PutBatch(context.Context, Principal, []GeneratedImage) ([]string, error)
+}
+
 type ArtifactStore interface {
 	Put(context.Context, Principal, []byte, string) (string, error)
 	URL(context.Context, Principal, string) (string, error)
 }
 type Config struct {
+	BodyDecoders    map[string]BodyDecoder
+	Views           ClientViews
+	Contexts        ContextResolver
+	LiveBindings    LiveBindingStore
+	SocketDialer    SocketDialer
 	Adapters        map[Wire]Adapter
 	Authorizer      Authorizer
 	Router          Router
@@ -165,6 +183,9 @@ func publicError(err error) *Error {
 	var e *Error
 	if errors.As(err, &e) {
 		return e
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &Error{Status: 504, Code: "upstream_timeout"}
 	}
 	if errors.Is(err, context.Canceled) {
 		return &Error{Status: 499, Code: "request_canceled"}

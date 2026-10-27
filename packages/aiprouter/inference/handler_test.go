@@ -46,6 +46,13 @@ func (a *testAuth) BeforeSend(ctx context.Context, _ Principal) error {
 	return nil
 }
 
+func (a *testAuth) Dispatch(ctx context.Context, p Principal, start func(context.Context) error) error {
+	if e := a.BeforeSend(ctx, p); e != nil {
+		return e
+	}
+	return start(ctx)
+}
+
 type testRouter struct{ route Route }
 
 func (r testRouter) Resolve(context.Context, Principal, string, Operation) (Route, error) {

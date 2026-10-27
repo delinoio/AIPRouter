@@ -52,8 +52,13 @@ func (h *Handler) ServeSocket(ctx context.Context, token string, s Socket) error
 	var turnCancel context.CancelFunc
 	var done <-chan struct{}
 	defer func() {
+		cancel()
 		if turnCancel != nil {
 			turnCancel()
+		}
+		s.Close()
+		if done != nil {
+			<-done
 		}
 	}()
 	for {

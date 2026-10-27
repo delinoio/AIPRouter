@@ -24,11 +24,17 @@ func New(c Config) (*Handler, error) {
 	if c.Authorizer == nil || c.Router == nil || c.Credentials == nil || c.Usage == nil {
 		return nil, errors.New("inference: authorizer, router, credentials and usage recorder are required")
 	}
+	if _, ok := c.Authorizer.(Dispatcher); !ok {
+		return nil, errors.New("inference: authorizer must implement atomic Dispatcher")
+	}
+	if c.MaxRequestBytes > 512<<20 {
+		return nil, errors.New("inference: request limit exceeds 512 MiB")
+	}
 	if c.Logger == nil {
 		c.Logger = slog.Default()
 	}
 	if c.MaxRequestBytes <= 0 {
-		c.MaxRequestBytes = 32 << 20
+		c.MaxRequestBytes = 256 << 20
 	}
 	return &Handler{c}, nil
 }
@@ -85,6 +91,16 @@ func routePath(path string) (Wire, Operation, bool) {
 	return "", "", false
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/backend-api/codex/") {
+		copy := r.Clone(r.Context())
+		u := *r.URL
+		u.Path = "/v1/" + strings.TrimPrefix(u.Path, "/backend-api/codex/")
+		copy.URL = &u
+		r = copy
+	}
+	if h.serveExtra(w, r) {
+		return
+	}
 	tracked := &trackedWriter{ResponseWriter: w}
 	w = tracked
 	wire, op, ok := routePath(r.URL.Path)
@@ -137,9 +153,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, u, http.StatusSeeOther)
 		return
 	}
-	raw, e := io.ReadAll(io.LimitReader(r.Body, h.c.MaxRequestBytes+1))
+	raw, e := h.readRequest(r, h.c.MaxRequestBytes)
 	if e != nil {
-		writeError(w, &Error{400, "invalid_body", 0})
+		writeError(w, e)
 		return
 	}
 	if int64(len(raw)) > h.c.MaxRequestBytes {
@@ -156,9 +172,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if op == Generate && wire == Responses {
-		if e = h.restore(r.Context(), p, b); e != nil {
+		var state *Continuation
+		state, e = h.restore(r.Context(), p, b)
+		if e != nil {
 			writeError(w, e)
 			return
+		}
+		if state != nil {
+			r = r.WithContext(context.WithValue(r.Context(), continuationKey{}, *state))
 		}
 	}
 	id := newID()
@@ -188,24 +209,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
-func (h *Handler) restore(ctx context.Context, p Principal, b object) error {
+func (h *Handler) restore(ctx context.Context, p Principal, b object) (*Continuation, error) {
 	id := str(b["previous_response_id"])
 	if id == "" {
-		return nil
+		return nil, nil
 	}
 	if h.c.Continuations == nil {
-		return ErrContinuation
+		return nil, ErrContinuation
 	}
 	c, e := h.c.Continuations.Load(ctx, p, id)
 	if e != nil {
-		return ErrContinuation
+		return nil, ErrContinuation
 	}
 	if !c.ExpiresAt.After(time.Now()) || c.Model != str(b["model"]) {
-		return ErrContinuation
+		return nil, ErrContinuation
 	}
 	var old []any
 	if json.Unmarshal(c.Input, &old) != nil {
-		return ErrContinuation
+		return nil, ErrContinuation
 	}
 	input := b["input"]
 	if s, ok := input.(string); ok {
@@ -213,9 +234,15 @@ func (h *Handler) restore(ctx context.Context, p Principal, b object) error {
 	}
 	b["input"] = append(old, arr(input)...)
 	delete(b, "previous_response_id")
-	return nil
+	return &c, nil
 }
-func (h *Handler) save(ctx context.Context, p Principal, b, out object) error {
+
+type continuationKey struct{}
+type BoundCredentials interface {
+	SelectBound(context.Context, Principal, Target, string) (Credential, error)
+}
+
+func (h *Handler) save(ctx context.Context, p Principal, b, out object, rec *UsageRecord) error {
 	if b["store"] == false {
 		return nil
 	}
@@ -237,7 +264,7 @@ func (h *Handler) save(ctx context.Context, p Principal, b, out object) error {
 	if len(data) > 32<<20 {
 		return &Error{502, "continuation_too_large", 0}
 	}
-	return h.c.Continuations.Save(ctx, p, str(out["id"]), Continuation{Model: str(b["model"]), Input: data, ExpiresAt: time.Now().Add(24 * time.Hour)})
+	return h.c.Continuations.Save(ctx, p, str(out["id"]), Continuation{Provider: rec.Provider, AccountID: rec.AccountID, Model: str(b["model"]), Input: data, ExpiresAt: time.Now().Add(24 * time.Hour)})
 }
 func (h *Handler) guard(ctx context.Context, p Principal) error {
 	if e := ctx.Err(); e != nil {
@@ -294,7 +321,22 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 		if e = h.guard(ctx, p); e != nil {
 			return e
 		}
-		cred, e := h.c.Credentials.Select(ctx, p, t, "")
+		var cred Credential
+		if state, ok := ctx.Value(continuationKey{}).(Continuation); ok && state.Provider != "" {
+			if t.Provider != state.Provider {
+				return ErrContinuation
+			}
+			if bound, ok := h.c.Credentials.(BoundCredentials); ok {
+				cred, e = bound.SelectBound(ctx, p, t, state.AccountID)
+			} else {
+				cred, e = h.c.Credentials.Select(ctx, p, t, "")
+				if cred.AccountID != state.AccountID {
+					return ErrContinuation
+				}
+			}
+		} else {
+			cred, e = h.c.Credentials.Select(ctx, p, t, "")
+		}
 		if e != nil {
 			return e
 		}
@@ -305,7 +347,18 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			if rec.Sends >= route.MaxSends {
 				return &Error{429, "request_send_budget_exhausted", 0}
 			}
+			attemptCtx := ctx
+			if prepare, ok := adapter.(ContextPreparer); ok {
+				attemptCtx = prepare.PrepareContext(ctx)
+			}
+			attemptTimeout := t.AttemptTimeout
+			if attemptTimeout == 0 && t.Wire == Wire("kiro") {
+				attemptTimeout = 200 * time.Second
+			}
 			payload := clone(b)
+			if op == ImageGeneration || op == ImageEdit {
+				payload["response_format"] = "b64_json"
+			}
 			if op == Generate && adapter == nil {
 				payload, e = translateRequest(b, in, t.Wire)
 				if e != nil {
@@ -334,8 +387,17 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			responseTarget := t
 			endpoint := strings.TrimRight(t.BaseURL, "/") + path
 			var adapterHeaders http.Header
+			var adapterInput AdapterInput
 			if adapter != nil {
-				built, err := adapter.Build(ctx, AdapterInput{Principal: p, Target: t, Credential: cred, Operation: op, Wire: in, Body: data})
+				adapterInput = AdapterInput{Principal: p, Target: t, Credential: cred, Operation: op, Wire: in, Body: data}
+				if pre, ok := adapter.(PreparingAdapter); ok {
+					prepared, err := pre.Prepare(attemptCtx, adapterInput, &requestExecutor{h: h, p: p, target: t, record: rec, maxSends: route.MaxSends})
+					if err != nil {
+						return err
+					}
+					adapterInput.Body = prepared
+				}
+				built, err := adapter.Build(attemptCtx, adapterInput)
 				if err != nil {
 					return err
 				}
@@ -343,6 +405,9 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				base, _ := url.Parse(t.BaseURL)
 				if err != nil || u.User != nil || u.Fragment != "" || origin(u) != origin(base) {
 					return ErrDestination
+				}
+				if built.AttemptTimeout > 0 {
+					attemptTimeout = built.AttemptTimeout
 				}
 				endpoint = built.URL
 				data = built.Body
@@ -352,7 +417,11 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					return ErrUnsupported
 				}
 			}
-			sendCtx, cancel := context.WithCancel(ctx)
+			sendCtx, cancel := context.WithCancel(attemptCtx)
+			if attemptTimeout > 0 {
+				cancel()
+				sendCtx, cancel = context.WithTimeout(attemptCtx, attemptTimeout)
+			}
 			req, e := http.NewRequestWithContext(sendCtx, "POST", endpoint, bytes.NewReader(data))
 			if e != nil {
 				cancel()
@@ -374,13 +443,13 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					req.Header.Add(k, v)
 				}
 			}
-			if cred.Secret != "" {
+			if adapter == nil && cred.Secret != "" {
 				if t.Wire == Anthropic && t.Auth != OAuth {
 					req.Header.Set("x-api-key", cred.Secret)
 				} else {
 					req.Header.Set("Authorization", "Bearer "+cred.Secret)
 				}
-			} else if t.Auth != Anonymous {
+			} else if adapter == nil && t.Auth != Anonymous {
 				cancel()
 				return ErrNoCredential
 			}
@@ -394,25 +463,42 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				cancel()
 				return e
 			}
-			rec.Sends++
 			transientSends++
 			rec.Provider = t.Provider
 			rec.Model = str(payload["model"])
 			rec.AccountID = cred.AccountID
-			h.event(ctx, "upstream_send")
+			client, local, e = h.c.Destinations.client(t.BaseURL)
+			if e != nil {
+				cancel()
+				return e
+			}
+			sent := gateClient(client, sendCtx, p, h.c.Authorizer, func() { rec.Sends++; h.event(ctx, "upstream_send") })
 			resp, e := client.Do(req)
 			if e != nil {
 				cancel()
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
+				if !sent.Load() {
+					return e
+				}
+				rec.UnmeasuredAttempts++
 				return ErrAmbiguous
 			}
 			rec.Status = resp.StatusCode
+			if resp.StatusCode >= 500 {
+				rec.UnmeasuredAttempts++
+			}
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				if adapter != nil {
 					original := resp
-					decoded, err := adapter.Decode(sendCtx, resp)
+					var decoded *http.Response
+					var err error
+					if contextual, ok := adapter.(ContextualAdapter); ok {
+						decoded, err = contextual.DecodeWithInput(sendCtx, adapterInput, resp)
+					} else {
+						decoded, err = adapter.Decode(sendCtx, resp)
+					}
 					if err != nil {
 						original.Body.Close()
 						cancel()
@@ -430,6 +516,24 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				cancel()
 				return err
 			}
+			// Read only bounded error data for replay markers; never log provider payloads.
+			errorBody, readErr := readBody(resp.Body, 1<<20, 5*time.Second, 5*time.Second, cancel)
+			resp.Body.Close()
+			if readErr != nil {
+				cancel()
+				return &Error{resp.StatusCode, "upstream_refused", 0}
+			}
+			if m, err := decode(errorBody); err == nil {
+				code := str(obj(m["error"])["code"])
+				if code == "" {
+					code = str(m["code"])
+				}
+				switch code {
+				case "upstream_reset_replay_refused", "upstream_no_response", "upstream_closed_before_response":
+					cancel()
+					return ErrAmbiguous
+				}
+			}
 			// These responses have not reached the client. Only explicit refusal policies permit replay.
 			delay := retryWait(resp.Header.Get("Retry-After"), t.Retry.Interval)
 			maxWait := t.Retry.MaxWait
@@ -438,7 +542,13 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			}
 			retry := false
 			nextTarget := false
+			_, continued := ctx.Value(continuationKey{}).(Continuation)
 			allowed := rec.Sends < route.MaxSends && op != ImageGeneration && op != ImageEdit
+			if continued {
+				t.Retry.RotateOn429 = false
+				t.Retry.FallbackOn429 = false
+				t.Retry.FallbackOn5xx = false
+			}
 			if reporter, ok := h.c.Credentials.(FailureReporter); ok && resp.StatusCode == 429 {
 				if e = h.guard(ctx, p); e == nil {
 					e = reporter.Failed(ctx, p, t, cred, resp.StatusCode, delay)
@@ -543,7 +653,11 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 		total = 15 * time.Minute
 		idle = stall
 	}
-	raw, e := readBody(resp.Body, 32<<20, total, idle, cancel)
+	maxBody := int64(32 << 20)
+	if op == ImageGeneration || op == ImageEdit {
+		maxBody = 140 << 20
+	}
+	raw, e := readBody(resp.Body, maxBody, total, idle, cancel)
 	if e != nil {
 		return e
 	}
@@ -568,7 +682,7 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 		}
 	}
 	if op == Generate && in == Responses {
-		if e = h.save(ctx, p, b, out); e != nil {
+		if e = h.save(ctx, p, b, out, rec); e != nil {
 			h.event(ctx, "continuation_write_failed")
 			h.c.Logger.WarnContext(ctx, "inference continuation not saved", "request_id", rec.RequestID)
 		}
@@ -613,7 +727,9 @@ func (h *Handler) images(ctx context.Context, p Principal, out object) error {
 		return ErrUnsupported
 	}
 	var total int
-	for _, v := range arr(out["data"]) {
+	var images []GeneratedImage
+	rows := arr(out["data"])
+	for _, v := range rows {
 		m := obj(v)
 		s := str(m["b64_json"])
 		if s == "" {
@@ -630,15 +746,40 @@ func (h *Handler) images(ctx context.Context, p Principal, out object) error {
 		if len(b) > 50<<20 || total > 100<<20 {
 			return &Error{502, "image_too_large", 0}
 		}
-		if e = h.guard(ctx, p); e != nil {
-			return e
-		}
-		u, e := h.c.Artifacts.Put(ctx, p, b, http.DetectContentType(b))
+		images = append(images, GeneratedImage{Data: b, ContentType: http.DetectContentType(b)})
+	}
+	if len(images) == 0 {
+		return &Error{502, "image_result_empty", 0}
+	}
+	if e := h.guard(ctx, p); e != nil {
+		return e
+	}
+	var urls []string
+	if batch, ok := h.c.Artifacts.(ArtifactBatchStore); ok {
+		var e error
+		urls, e = batch.PutBatch(ctx, p, images)
 		if e != nil {
 			return e
 		}
+		if len(urls) != len(images) {
+			return &Error{502, "invalid_artifact_batch", 0}
+		}
+	} else {
+		for _, im := range images {
+			if e := h.guard(ctx, p); e != nil {
+				return e
+			}
+			u, e := h.c.Artifacts.Put(ctx, p, im.Data, im.ContentType)
+			if e != nil {
+				return e
+			}
+			urls = append(urls, u)
+		}
+	}
+	for i, row := range rows {
+		m := obj(row)
 		delete(m, "b64_json")
-		m["url"] = u
+		m["url"] = urls[i]
 	}
 	return nil
 }
