@@ -1,0 +1,134 @@
+name: AIPRouter
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Optional base revision for affected validation
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: aiprouter-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6-bookworm
+        env:
+          POSTGRES_DB: aiprouter_test
+          POSTGRES_USER: aiprouter
+          POSTGRES_PASSWORD: fixture-only-password
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aiprouter -d aiprouter_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          lfs: true
+      - name: Resolve affected comparison
+        id: comparison
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          MANUAL_BASE: ${{ inputs.base }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          case "$EVENT" in
+            pull_request) base="$PR_BASE"; head="$PR_HEAD" ;;
+            push)
+              base="$PUSH_BASE"
+              if [[ "$base" =~ ^0+$ ]]; then
+                empty_tree="$(git hash-object -t tree /dev/null)"
+                base="$(git -c user.name=CI -c user.email=ci@example.invalid commit-tree "$empty_tree" -m 'Empty comparison')"
+              fi
+              ;;
+            workflow_dispatch)
+              if [[ -n "$MANUAL_BASE" ]]; then
+                base="$(git rev-parse --verify --end-of-options "${MANUAL_BASE}^{commit}")"
+              else
+                base="$(git merge-base origin/main "$head")"
+              fi
+              ;;
+            *) exit 1 ;;
+          esac
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          echo "Validation revision: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Comparison: $base..$head" >> "$GITHUB_STEP_SUMMARY"
+      - name: Select affected AIPRouter paths
+        id: affected
+        env:
+          BASE: ${{ steps.comparison.outputs.base }}
+          HEAD: ${{ steps.comparison.outputs.head }}
+        run: |
+          if git diff --name-only "$BASE" "$HEAD" | rg '^(go\.(mod|sum)|servers/aiprouter/|cmds/aiprouter/|packages/aiprouter/|protos/aiprouter/|scripts/aiprouter/|packaging/aiprouter/|docs/.*aiprouter.*|\.github/workflows/aiprouter\.yml)$|^(servers|cmds|packages|protos|scripts|packaging)/aiprouter/'; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        if: steps.affected.outputs.run == 'true'
+        with:
+          go-version: "1.26.10"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: steps.affected.outputs.run == 'true'
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Unit and fixture validation
+        if: steps.affected.outputs.run == 'true'
+        run: |
+          go mod download all
+          go test ./...
+          scripts/aiprouter/validate.sh
+          AIPROUTER_TEST_DATABASE_URL='postgres://aiprouter:fixture-only-password@127.0.0.1:55432/aiprouter_test?sslmode=disable' go test -v ./scripts/aiprouter/recovery
+      - name: Alert condition fixtures
+        if: steps.affected.outputs.run == 'true'
+        run: docker run --rm --entrypoint promtool -v "$PWD/packaging/aiprouter/observability:/rules:ro" prom/prometheus:v3.5.0 test rules /rules/alerts.test.yml
+      - name: Compose installation and recovery fixture
+        if: steps.affected.outputs.run == 'true'
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/aiprouter/compose-smoke.py
+      - name: Cross-platform binaries and npm package validation
+        if: steps.affected.outputs.run == 'true'
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/aiprouter/build-release.py "$RUNNER_TEMP/aiprouter-release"
+      - name: Reproducible mock load
+        if: steps.affected.outputs.run == 'true'
+        run: |
+          go build -o "$RUNNER_TEMP/aiprouter-fixture" ./scripts/aiprouter/fixture
+          "$RUNNER_TEMP/aiprouter-fixture" &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18090/healthz > /dev/null; then break; fi
+            sleep 1
+          done
+          python3 scripts/aiprouter/load.py --server-pid "$fixture_pid" --output "$RUNNER_TEMP/aiprouter-load.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always() && steps.affected.outputs.run == 'true'
+        with:
+          name: aiprouter-validation
+          path: |
+            ${{ runner.temp }}/aiprouter-load.json
+            ${{ runner.temp }}/aiprouter-release/build.json
+            ${{ runner.temp }}/aiprouter-release/SHA256SUMS
+          if-no-files-found: warn
+      - name: Record validation boundaries
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+          AFFECTED: ${{ steps.affected.outputs.run }}
+        run: |
+          echo "Affected: ${AFFECTED:-false}; result: $RESULT" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Commands: go test ./...; validate.sh; promtool test rules; compose-smoke.py; build-release.py; load.py' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Linux fixture/build checks only. No npm publication, deployment, real provider/account or native macOS/Windows acceptance. Mock load measures the fixture, not router capacity.' >> "$GITHUB_STEP_SUMMARY"
