@@ -4,7 +4,13 @@
 
 The server integration interface defines `/healthz`, `/readyz`, and `/metrics`. Keep metrics private; do not publish them through the public proxy. Confirm each endpoint's exact checks in the matching release. A health response alone does not verify OIDC, SMTP, provider access, or successful disaster recovery.
 
-Required observability includes structured logs with request IDs, Prometheus metrics, OpenTelemetry traces, Grafana dashboard examples, and role-scoped audits. Complete exporter configuration, metric names, dashboard setup, and live operational verification are not established by this page. Do not invent scrape labels or alert expressions.
+Required observability includes structured logs with request IDs, Prometheus metrics, OpenTelemetry traces, Grafana dashboard examples, and role-scoped audits. The Compose assets provide Prometheus and Grafana examples. After setting a strong `GRAFANA_ADMIN_PASSWORD` in the deployment configuration, enable them from the directory containing the matching Compose file:
+
+```sh
+docker compose --profile observability up -d prometheus grafana
+```
+
+The example binds Prometheus to `127.0.0.1:9090` and Grafana to `127.0.0.1:3000`. Keep both private. Supplied dashboards cover aggregate health/outcomes. Configure alert delivery separately; evaluation of an alert does not deliver a notification by itself. Complete exporter configuration and live operational verification are not established by this page. Do not invent scrape labels or alert expressions.
 
 Never log provider secrets, API keys, device secrets, raw prompts, or raw responses. Use request IDs and redacted error metadata to correlate problems. Keep unknown usage, usage-write failure, cancellation, limits, and upstream versus gateway errors distinct.
 

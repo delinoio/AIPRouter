@@ -41,7 +41,23 @@ The existing reverse proxy terminates public TLS. The service speaks internal HT
 
 Conceptually, `https://router.example.com` routes to the private service listener; `/auth/callback` returns to the same public origin. This is an address example, not a complete proxy configuration. A container-to-container deployment needs the listener and proxy network selected by its Compose configuration, rather than a host-loopback address copied blindly.
 
-Register provider OAuth callbacks only when the provider integration supplies the exact callback and client requirements. The OIDC callback is not a substitute for provider OAuth callbacks. Production proxy examples and provider callback details remain unavailable until established by the matching deployment/integration package.
+Register provider OAuth callbacks only when the provider integration supplies the exact callback and client requirements. The OIDC callback is not a substitute for provider OAuth callbacks. Provider callback details remain unavailable until established by the matching integration.
+
+### Caddy example
+
+This example comes from the deployment assets. Replace `router.example.com` with your public hostname and configure the matching public origin. It assumes Caddy can reach the Compose listener on the same host. Validate certificate issuance, streaming, and WebSockets in your environment before admitting users.
+
+```text
+router.example.com {
+    @internal path /metrics /healthz /readyz
+    respond @internal 404
+    reverse_proxy 127.0.0.1:8080 {
+        flush_interval -1
+    }
+}
+```
+
+Keep the internal routes available only to trusted health checks and monitoring. This example has not been presented as a live TLS acceptance result.
 
 ## Required R2 storage
 
