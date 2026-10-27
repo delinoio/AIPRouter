@@ -162,6 +162,11 @@ func (r *hostedResolver) Resolve(ctx context.Context, req hosted.OperationReques
 					choice.Model = model
 				}
 			}
+			if backend != "media" && backend != "exa" && backend != "devin" {
+				if _, eligible := modelEvidence(row, model, time.Now()); !eligible {
+					return nil, inference.ErrNoCredential
+				}
+			}
 			rows[m.ConnectionId] = row
 			versions[m.ConnectionId] = v
 			weight := int(m.Weight)

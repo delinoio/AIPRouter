@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/artifacts"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/hosted"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/store"
@@ -200,6 +201,15 @@ func TestHostedResolverMediaOwnerFenceAndVideoLifecycle(t *testing.T) {
 	if sends != 4 || len(result.Artifacts) != 1 || result.Artifacts[0].ContentType != "video/mp4" || len(objects.objects) != 1 || len(delays) != 2 || delays[0] != 5*time.Second || delays[1] != 7500*time.Millisecond {
 		t.Fatalf("sends=%d result=%+v delays=%v", sends, result, delays)
 	}
+	rows, _, e := auth.s.QueryUsage(ctx, sc, store.UsageFilter{UserID: sc.UserID, Provider: "xai", Limit: 100})
+	if e != nil || len(rows) != 4 {
+		t.Fatalf("durable helper receipts=%d err=%v", len(rows), e)
+	}
+	for _, row := range rows {
+		if row.InputTokens != nil || row.OutputTokens != nil || row.Cost != nil {
+			t.Fatal("unknown video usage invented")
+		}
+	}
 	// Replacing the helper account must fence a resolved operation at physical write.
 	d.Secret = "new-secret"
 	putRoutingProvider(t, auth, sc, d)
@@ -343,5 +353,50 @@ func TestHostedTransportDeniesRedirectAndOversizedBody(t *testing.T) {
 	}
 	if destinationWrites.Load() != 0 {
 		t.Fatal("redirect carried helper request")
+	}
+}
+
+func TestHostedSameAccountIDAcrossOrganizations(t *testing.T) {
+	auth, sc, key := dispatchFixture(t)
+	ctx := context.Background()
+	org, e := auth.s.CreateOrganization(ctx, sc.UserID, "other helper organization")
+	if e != nil {
+		t.Fatal(e)
+	}
+	other, _, e := auth.s.Membership(ctx, org.ID, sc.UserID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, otherKey, e := auth.s.IssueKey(ctx, other, "helper", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	cfg := &v1.HostedSettings{Images: &v1.HostedImageSettings{Target: &v1.HostedHelperTarget{Selection: &v1.HostedHelperTarget_ConnectionId{ConnectionId: "same-id"}}, BridgeEnabled: true}}
+	raw, _ := protojson.Marshal(cfg)
+	for i, owner := range []struct {
+		scope       core.Scope
+		key, secret string
+	}{{sc, key, "org-a"}, {other, otherKey, "org-b"}} {
+		d := providerData{Metadata: &v1.ProviderConnection{Id: "same-id", ProviderId: "xai", AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY, State: v1.ConnectionState_CONNECTION_STATE_READY}, Secret: owner.secret}
+		putRoutingProvider(t, auth, owner.scope, d)
+		if e := auth.s.PutPrivate(ctx, owner.scope, "hosted-helpers", "settings", raw); e != nil {
+			t.Fatal(e)
+		}
+		requestAuth := &inferenceAdapter{s: auth.s, telemetry: auth.telemetry}
+		p, release, e := requestAuth.Admit(ctx, owner.key)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer release()
+		requestAuth.activeAccount = "parent-account"
+		resolver := &hostedResolver{auth: requestAuth, artifacts: artifacts.New(auth.s, &objectFixture{objects: map[string][]byte{}})}
+		exec, e := resolver.Resolve(ctx, hosted.OperationRequest{Principal: p, RequestID: "same-request", CallID: "same-call", Kind: hosted.Image})
+		if e != nil {
+			t.Fatal(e)
+		}
+		op := exec.(*hostedOperation)
+		if op.credential.Secret != owner.secret || requestAuth.activeAccount != "parent-account" {
+			t.Fatalf("owner %d credential crossed scope or changed parent", i)
+		}
 	}
 }

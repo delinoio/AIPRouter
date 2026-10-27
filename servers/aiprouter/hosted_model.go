@@ -32,6 +32,12 @@ func (hostedStandardAdapter) Build(ctx context.Context, in inference.AdapterInpu
 		return inference.AdapterRequest{}, inference.ErrUnsupported
 	}
 	obj["model"] = in.Target.Model
+	if in.Operation == inference.Generate && in.Target.Policy != nil {
+		obj, e = in.Target.Policy.TransformRequest(obj)
+		if e != nil {
+			return inference.AdapterRequest{}, e
+		}
+	}
 	body, e = json.Marshal(obj)
 	if e != nil {
 		return inference.AdapterRequest{}, e
@@ -69,7 +75,11 @@ func (hostedStandardAdapter) Build(ctx context.Context, in inference.AdapterInpu
 	if in.Target.Wire == inference.Anthropic {
 		h.Set("Anthropic-Version", "2023-06-01")
 	}
-	return inference.AdapterRequest{Method: http.MethodPost, URL: strings.TrimRight(in.Target.BaseURL, "/") + path, Headers: h, Body: body, ResponseWire: in.Target.Wire}, nil
+	endpoint := strings.TrimRight(in.Target.BaseURL, "/") + path
+	if in.Operation == inference.Generate && in.Target.Endpoint != "" {
+		endpoint = in.Target.Endpoint
+	}
+	return inference.AdapterRequest{Method: http.MethodPost, URL: endpoint, Headers: h, Body: body, ResponseWire: in.Target.Wire}, nil
 }
 func (hostedStandardAdapter) Decode(_ context.Context, r *http.Response) (*http.Response, error) {
 	return r, nil
