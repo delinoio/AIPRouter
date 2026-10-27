@@ -192,6 +192,9 @@ Apply these inspected reference limits **per user within each organization**:
 - Responses continuation: 24-hour TTL, at most 1,000 entries, 1 GiB total retained storage; also cap an optional resident memory cache at 64 MiB.
 - Tool-call reasoning replay: one-hour TTL, at most 64 entries and 256 KiB.
 - Bridged web-search result replay: one-hour TTL, at most 64 entries and 512 KiB.
+- Retained compaction reasoning: 24-hour TTL, at most 256 entries and 512 MiB total, with a 32 MiB limit per entry. Store overflow in the `compaction-reasoning` namespace in encrypted temporary PostgreSQL storage. Bind reads, writes, and merges to the selected account and credential version as well as the organization, user, key, and membership. Credential replacement or deletion invalidates reuse.
+
+Readable compaction reasoning retention requires explicit opt-in. Keep retained reasoning outside the summarizer and preserve portable continuation frames. Default inline limits are 20% of the authenticated compacting model's context window and 100,000 tokens, using the smaller limit; an unknown context window uses the token limit alone. Overflow references must not expose filesystem paths. Missing, expired, evicted, or unavailable required retained state produces an explicit error. A required archive write that exceeds its bounds or fails must stop compaction before the upstream send. Do not substitute permanent filesystem archives or R2 objects for this temporary SQL policy.
 
 The reference's memory-only replay caches move to encrypted temporary PostgreSQL storage under this explicit AIPRouter decision. Inventory other provider-specific state against the fixed reference rather than claiming these three stores are the whole system.
 
