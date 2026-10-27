@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { pageHref, type Page } from "./routes";
 import { useState } from "react";
 import { useQuery } from "@connectrpc/connect-query";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -47,8 +48,7 @@ export function OverviewPage({ organization, session }: PageProps) {
     userId: session.userId,
     timeRange,
   });
-  const link = (page: string) =>
-    `?organization=${organization.id}&page=${page}`;
+  const link = (page: Page) => pageHref(page, organization.id);
   const steps = [
     ["Choose organization", "overview", true],
     [
@@ -236,8 +236,8 @@ export function ConnectPage({ organization }: PageProps) {
         </p>
         <p>
           If server revocation could not finish, open{" "}
-          <a href={`?organization=${organization.id}&page=keys`}>API keys</a>{" "}
-          and revoke the outstanding CLI key.
+          <a href={pageHref("keys", organization.id)}>API keys</a> and revoke
+          the outstanding CLI key.
         </p>
         <p>
           If restoration detects settings conflicts, preserve your settings and

@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-var consoleRoutes = map[string]bool{"/": true, "/sign-in": true, "/onboarding": true, "/organizations": true, "/overview": true, "/providers": true, "/pools": true, "/routing": true, "/keys": true, "/usage": true, "/connect": true, "/connect-client": true, "/device": true, "/members": true, "/invitation": true, "/invitations": true, "/invitations/accept": true, "/ownership": true, "/audit": true, "/settings": true, "/account": true, "/instance": true, "/instance/settings": true, "/instance/health": true, "/instance/usage": true, "/instance/prices": true, "/instance/audit": true}
+var consoleRoutes = map[string]bool{"/": true, "/sign-in": true, "/onboarding": true, "/organizations": true, "/overview": true, "/providers": true, "/pools": true, "/routing": true, "/keys": true, "/usage": true, "/organization-usage": true, "/connect": true, "/connect-client": true, "/device": true, "/members": true, "/invitation": true, "/invitations": true, "/invitations/accept": true, "/ownership": true, "/audit": true, "/settings": true, "/account": true, "/instance": true, "/instance/settings": true, "/instance/retention": true, "/instance/destinations": true, "/instance/health": true, "/instance/usage": true, "/instance/prices": true, "/instance/audit": true}
 
 func knownConsoleRoute(value string) bool { return consoleRoutes[value] }
 func safeReturnTo(raw string) string {

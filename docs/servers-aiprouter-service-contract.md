@@ -53,6 +53,10 @@ Organization owners, administrators, members, and separately configured instance
 - Manage request limits, retention settings, allowed destinations, and common price overrides through the web operator console.
 - Do not implement operator functions by granting access to individual provider configurations.
 
+### Console route integration
+
+Serve the console document and permit local OIDC return targets for every canonical page and compatibility alias in the [console page-route contract](apps-aiprouter-console-contract.md#page-routes). Keep unknown paths and authentication, inference, and management API paths outside the console fallback. Route support does not grant management authority.
+
 ### OIDC, web sessions, and onboarding
 
 - Support only an operator-configured generic OIDC identity provider; no email/password login.

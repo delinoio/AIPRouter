@@ -14,6 +14,7 @@ import {
   type GetSessionResponse,
 } from "@aiprouter/client";
 import { ApiProvider, DirtyContext, useApi, pageSize } from "./api";
+import { pageHref, resolveRoute, type Page } from "./routes";
 import {
   Button,
   Badge,
@@ -72,14 +73,14 @@ const personalLinks = [
   ["keys", "API keys"],
   ["usage", "Usage"],
   ["connect", "Connect a client"],
-];
+] as const;
 const adminLinks = [
   ["members", "Members"],
   ["invitations", "Invitations"],
   ["organization-usage", "Organization usage"],
   ["audit", "Audit"],
   ["settings", "Settings"],
-];
+] as const;
 function roleLabel(role: Role) {
   return role === Role.OWNER
     ? "Owner"
@@ -90,18 +91,30 @@ function roleLabel(role: Role) {
         : "Unknown role";
 }
 export function App() {
-  const path = window.location.pathname;
+  const route = resolveRoute(new URL(window.location.href));
+  useEffect(() => {
+    if (route && route.url.href !== window.location.href)
+      window.history.replaceState(null, "", route.url);
+  }, [route?.url.href]);
+  if (!route)
+    return (
+      <main className="standalone">
+        <h1>Page not found</h1>
+        <a href={pageHref("overview")}>Back to organizations</a>
+      </main>
+    );
+  const page = route.page;
   return (
     <Suspense fallback={<Loading />}>
-      {["/device", "/invitation", "/ownership", "/sign-in"].includes(path) ? (
+      {["device", "invitation", "ownership", "sign-in"].includes(page) ? (
         <main className="standalone">
-          {path === "/device" ? (
+          {page === "device" ? (
             <DevicePage />
-          ) : path === "/invitation" ? (
+          ) : page === "invitation" ? (
             <InvitationPage />
-          ) : path === "/ownership" ? (
+          ) : page === "ownership" ? (
             <OwnershipAcceptancePage />
-          ) : path === "/sign-in" ? (
+          ) : page === "sign-in" ? (
             <SignInPage
               error={
                 new URLSearchParams(window.location.search).get("error") ??
@@ -111,12 +124,12 @@ export function App() {
           ) : null}
         </main>
       ) : (
-        <AuthenticatedApp />
+        <AuthenticatedApp page={page} />
       )}
     </Suspense>
   );
 }
-function AuthenticatedApp() {
+function AuthenticatedApp({ page }: { page: Page }) {
   const api = useApi();
   const cache = useQueryClient();
   const transport = useTransport();
@@ -127,27 +140,6 @@ function AuthenticatedApp() {
       new URLSearchParams(window.location.search).get("org") ??
       "",
   );
-  const page =
-    new URLSearchParams(window.location.search).get("page") ??
-    (
-      {
-        "/keys": "keys",
-        "/onboarding": "create",
-        "/providers": "providers",
-        "/pools": "pools",
-        "/routing": "routing",
-        "/usage": "usage",
-        "/connect": "connect",
-        "/connect-client": "connect",
-        "/account": "account",
-        "/instance": "instance",
-        "/members": "members",
-        "/invitations": "invitations",
-        "/settings": "settings",
-        "/audit": "audit",
-      } as Record<string, string>
-    )[window.location.pathname] ??
-    "overview";
   const [switcher, setSwitcher] = useState(false);
   const [menu, setMenu] = useState(false);
   const [search, setSearch] = useState("");
@@ -236,6 +228,7 @@ function AuthenticatedApp() {
     const url = new URL(window.location.href);
     url.searchParams.set("organization", id);
     url.searchParams.delete("org");
+    url.searchParams.delete("organization_id");
     window.history.replaceState(null, "", url);
   };
   const selectScope = (id: string) => {
@@ -306,7 +299,7 @@ function AuthenticatedApp() {
         <a
           key={id}
           aria-current={page === id ? "page" : undefined}
-          href={`?organization=${organization?.id ?? ""}&page=${id}`}
+          href={pageHref(id, organization?.id)}
         >
           {label}
         </a>
@@ -321,7 +314,7 @@ function AuthenticatedApp() {
               <a
                 key={id}
                 aria-current={page === id ? "page" : undefined}
-                href={`?organization=${organization.id}&page=${id}`}
+                href={pageHref(id, organization.id)}
               >
                 {label}
               </a>
@@ -329,11 +322,11 @@ function AuthenticatedApp() {
           </>
         )}
       <div className="account-nav">
-        <a href={`?organization=${organization?.id ?? ""}&page=account`}>
+        <a href={pageHref("account", organization?.id)}>
           {session.data?.displayName || "Account"}
         </a>
         {session.data?.isInstanceOperator && (
-          <a href="?page=instance">Instance console</a>
+          <a href={pageHref("instance")}>Instance console</a>
         )}
         <Button variant="ghost" onClick={() => void logout()}>
           Sign out
@@ -367,7 +360,7 @@ function AuthenticatedApp() {
         {switchButton}
       </header>
       <aside className="sidebar">
-        <a href="/" className="brand">
+        <a href={pageHref("overview", selected?.id)} className="brand">
           AIPRouter
         </a>
         {switchButton}
@@ -396,7 +389,7 @@ function AuthenticatedApp() {
           <DirtyContext value={setDirty}>
             <OnboardingPage
               onOrganizationCreated={(o) => {
-                window.location.assign(`/?organization=${o.id}&page=overview`);
+                window.location.assign(pageHref("overview", o.id));
               }}
             />
           </DirtyContext>
@@ -423,7 +416,7 @@ function AuthenticatedApp() {
             <p>Previously scoped data and editors have been cleared.</p>
             <a
               className="button primary"
-              href={`?organization=${selected.id}&page=overview`}
+              href={pageHref("overview", selected.id)}
             >
               Return to your workspace
             </a>
@@ -476,7 +469,7 @@ function AuthenticatedApp() {
               (o) => !o.name.toLowerCase().includes(search.toLowerCase()),
             ) && <p>No memberships match your search.</p>}
           </div>
-          <a className="button" href="?page=create">
+          <a className="button" href={pageHref("create")}>
             Create organization
           </a>
           <p>Each organization has separate personal settings.</p>
@@ -508,7 +501,7 @@ function OrganizationContent({
 }: {
   organization: Organization;
   session: GetSessionResponse;
-  page: string;
+  page: Page;
 }) {
   const cache = useQueryClient();
   const current = useQuery(

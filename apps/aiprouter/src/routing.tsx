@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { pageHref } from "./routes";
 import { useState } from "react";
 import {
   NativePoolFields,
@@ -168,10 +169,7 @@ export function PoolsPage({ organization }: PageProps) {
         >
           Connections remain available. Routes using this pool must be repaired
           before future requests can use them.{" "}
-          <a href={`?organization=${organization.id}&page=routing`}>
-            Review routing
-          </a>
-          .
+          <a href={pageHref("routing", organization.id)}>Review routing</a>.
         </ConfirmDialog>
       )}
     </>

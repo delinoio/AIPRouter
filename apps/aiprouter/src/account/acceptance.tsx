@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { pageHref } from "../routes";
 import { useState } from "react";
 import { useMutation, useQuery } from "@connectrpc/connect-query";
 import { useQueryClient } from "@tanstack/react-query";
@@ -72,11 +73,7 @@ export function InvitationPage({
       {organization ? (
         <div className="account-card">
           <p role="status">You joined {organization.name}.</p>
-          <a
-            href={`/?organization=${encodeURIComponent(organization.id)}&page=overview`}
-          >
-            Open organization
-          </a>
+          <a href={pageHref("overview", organization.id)}>Open organization</a>
         </div>
       ) : (
         <div className="account-card">
@@ -360,9 +357,7 @@ export function OwnershipAcceptancePage({
               </button>
             )}
             <p>
-              <a
-                href={`/?organization=${encodeURIComponent(organizationId)}&page=overview`}
-              >
+              <a href={pageHref("overview", organizationId)}>
                 Back to organization
               </a>
             </p>
