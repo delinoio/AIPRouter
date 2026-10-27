@@ -527,3 +527,30 @@ func TestNativeHealthPolicyPresence(t *testing.T) {
 		}
 	}
 }
+
+func TestVertexConfigurationPresence(t *testing.T) {
+	for _, value := range []*v1.ProviderConfiguration{{}, {VertexProject: proto.String(""), VertexLocation: proto.String("")}, {VertexProject: proto.String("auto"), VertexLocation: proto.String("global")}, {VertexProject: proto.String("project-id"), VertexLocation: proto.String("us-central1")}} {
+		wire, err := protojson.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := &v1.ProviderConfiguration{}
+		if err := protojson.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(value, decoded) {
+			t.Fatalf("Vertex JSON presence lost: %v", decoded)
+		}
+		wire, err = proto.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded.Reset()
+		if err := proto.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(value, decoded) {
+			t.Fatalf("Vertex binary presence lost: %v", decoded)
+		}
+	}
+}

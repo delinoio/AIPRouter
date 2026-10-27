@@ -539,3 +539,30 @@ test("native health options preserve zero, false, and explicit unspecified", asy
     );
   }
 });
+
+test("Vertex project and location preserve optional selection", async () => {
+  const { ProviderConfigurationSchema } = await import("../src/index.js");
+  for (const fields of [
+    {},
+    { vertexProject: "", vertexLocation: "" },
+    { vertexProject: "auto", vertexLocation: "global" },
+    { vertexProject: "project-id", vertexLocation: "us-central1" },
+  ]) {
+    const value = create(ProviderConfigurationSchema, fields);
+    assert.deepEqual(
+      fromBinary(
+        ProviderConfigurationSchema,
+        toBinary(ProviderConfigurationSchema, value),
+      ),
+      value,
+    );
+    assert.deepEqual(toJson(ProviderConfigurationSchema, value), fields);
+    assert.deepEqual(
+      fromJson(
+        ProviderConfigurationSchema,
+        toJson(ProviderConfigurationSchema, value),
+      ),
+      value,
+    );
+  }
+});

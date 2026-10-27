@@ -523,8 +523,14 @@ type ProviderConfiguration struct {
 	// Optional positive Azure output-budget floor. Apply the same effective budget at
 	// admission and serialization. This is not permission to bypass request limits.
 	MinMaxOutputTokens *int64 `protobuf:"varint,6,opt,name=min_max_output_tokens,json=minMaxOutputTokens,proto3,oneof" json:"min_max_output_tokens,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Vertex only. Explicit "auto" is API-key-only and resolves through a fixed-host
+	// probe bounded to 10 seconds and 4 KiB. Reject "auto" for OAuth credentials.
+	// Omission must never inherit the service host's ambient project or identity.
+	VertexProject *string `protobuf:"bytes,7,opt,name=vertex_project,json=vertexProject,proto3,oneof" json:"vertex_project,omitempty"`
+	// Vertex only. OAuth requires an explicit project and location; no ambient defaults.
+	VertexLocation *string `protobuf:"bytes,8,opt,name=vertex_location,json=vertexLocation,proto3,oneof" json:"vertex_location,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ProviderConfiguration) Reset() {
@@ -597,6 +603,20 @@ func (x *ProviderConfiguration) GetMinMaxOutputTokens() int64 {
 		return *x.MinMaxOutputTokens
 	}
 	return 0
+}
+
+func (x *ProviderConfiguration) GetVertexProject() string {
+	if x != nil && x.VertexProject != nil {
+		return *x.VertexProject
+	}
+	return ""
+}
+
+func (x *ProviderConfiguration) GetVertexLocation() string {
+	if x != nil && x.VertexLocation != nil {
+		return *x.VertexLocation
+	}
+	return ""
 }
 
 // WRITE ONLY. Encrypt values with the personal connection; never echo, log, or trace.
@@ -3967,7 +3987,7 @@ const file_aiprouter_v1_provider_proto_rawDesc = "" +
 	"(_supports_open_ai_web_search_tool_fieldsB\x18\n" +
 	"\x16_show_thinking_summaryB\x1c\n" +
 	"\x1a_escape_builtin_tool_namesB\x0f\n" +
-	"\r_fast_enabledJ\x04\b\x0f\x10\x10\"\xa9\x04\n" +
+	"\r_fast_enabledJ\x04\b\x0f\x10\x10\"\xaa\x05\n" +
 	"\x15ProviderConfiguration\x123\n" +
 	"\x04wire\x18\x01 \x01(\x0e2\x1a.aiprouter.v1.ProviderWireH\x00R\x04wire\x88\x01\x01\x12T\n" +
 	"\vmodel_wires\x18\x02 \x03(\v23.aiprouter.v1.ProviderConfiguration.ModelWiresEntryR\n" +
@@ -3975,14 +3995,18 @@ const file_aiprouter_v1_provider_proto_rawDesc = "" +
 	"\x0eresponses_path\x18\x03 \x01(\tH\x01R\rresponsesPath\x88\x01\x01\x127\n" +
 	"\x15chat_completions_path\x18\x04 \x01(\tH\x02R\x13chatCompletionsPath\x88\x01\x01\x12=\n" +
 	"\x06policy\x18\x05 \x01(\v2%.aiprouter.v1.ProviderPolicyOverridesR\x06policy\x126\n" +
-	"\x15min_max_output_tokens\x18\x06 \x01(\x03H\x03R\x12minMaxOutputTokens\x88\x01\x01\x1aY\n" +
+	"\x15min_max_output_tokens\x18\x06 \x01(\x03H\x03R\x12minMaxOutputTokens\x88\x01\x01\x12*\n" +
+	"\x0evertex_project\x18\a \x01(\tH\x04R\rvertexProject\x88\x01\x01\x12,\n" +
+	"\x0fvertex_location\x18\b \x01(\tH\x05R\x0evertexLocation\x88\x01\x01\x1aY\n" +
 	"\x0fModelWiresEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
 	"\x05value\x18\x02 \x01(\x0e2\x1a.aiprouter.v1.ProviderWireR\x05value:\x028\x01B\a\n" +
 	"\x05_wireB\x11\n" +
 	"\x0f_responses_pathB\x18\n" +
 	"\x16_chat_completions_pathB\x18\n" +
-	"\x16_min_max_output_tokens\"\x9b\x01\n" +
+	"\x16_min_max_output_tokensB\x11\n" +
+	"\x0f_vertex_projectB\x12\n" +
+	"\x10_vertex_location\"\x9b\x01\n" +
 	"\x15ProviderCustomHeaders\x12G\n" +
 	"\x06values\x18\x01 \x03(\v2/.aiprouter.v1.ProviderCustomHeaders.ValuesEntryR\x06values\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +

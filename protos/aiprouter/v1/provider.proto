@@ -71,6 +71,12 @@ message ProviderConfiguration {
   // Optional positive Azure output-budget floor. Apply the same effective budget at
   // admission and serialization. This is not permission to bypass request limits.
   optional int64 min_max_output_tokens = 6;
+  // Vertex only. Explicit "auto" is API-key-only and resolves through a fixed-host
+  // probe bounded to 10 seconds and 4 KiB. Reject "auto" for OAuth credentials.
+  // Omission must never inherit the service host's ambient project or identity.
+  optional string vertex_project = 7;
+  // Vertex only. OAuth requires an explicit project and location; no ambient defaults.
+  optional string vertex_location = 8;
 }
 
 // WRITE ONLY. Encrypt values with the personal connection; never echo, log, or trace.
