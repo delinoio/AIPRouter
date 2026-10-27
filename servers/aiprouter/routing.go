@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/policy"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/azure"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/dsh"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/kiro"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/providers/zed"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
@@ -57,7 +60,7 @@ func targetFor(d providerData, model string) (inference.Target, error) {
 	return targetForContext(context.Background(), d, model)
 }
 func targetForContext(ctx context.Context, d providerData, model string) (inference.Target, error) {
-	r, e := providers.Resolve(providerConnection(d), model, providerInbound(ctx))
+	r, resolved, e := resolvedProviderRoute(ctx, d, model)
 	if e != nil {
 		return inference.Target{}, inference.ErrUnsupported
 	}
@@ -67,12 +70,8 @@ func targetForContext(ctx context.Context, d providerData, model string) (infere
 	} else if d.Metadata.AuthKind == v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH {
 		auth = inference.OAuth
 	}
-	// Authentication belongs to the selected credential, not the first pool member.
-	headers := r.Headers.Clone()
-	for _, key := range []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key", "Api-Key", "ChatGPT-Account-Id"} {
-		headers.Del(key)
-	}
-	t := inference.Target{Provider: d.Metadata.Id, BaseURL: r.BaseURL, Model: r.Model, Wire: routeWire(r), Auth: auth, Headers: headers}
+	// Every header, including private custom values, comes from the selected account.
+	t := inference.Target{Provider: d.Metadata.Id, BaseURL: r.BaseURL, Model: r.Model, Wire: routeWire(r), Auth: auth, Policy: resolved, Endpoint: resolved.Endpoint}
 	if d.Metadata.StallTimeoutSeconds != nil {
 		v := time.Duration(*d.Metadata.StallTimeoutSeconds) * time.Second
 		t.StallTimeout = &v
@@ -80,8 +79,43 @@ func targetForContext(ctx context.Context, d providerData, model string) (infere
 	t.Retry = providerRetryPolicy(r, auth)
 	return t, nil
 }
+
+// Resolve the selected configuration before synthesizing final-wire authentication.
+func resolvedProviderRoute(ctx context.Context, d providerData, model string) (providers.Route, *policy.Resolved, error) {
+	c := providerConnection(d)
+	if d.Metadata.ProviderId == "dsh" {
+		h := make(http.Header)
+		for k, v := range d.CustomHeaders {
+			h.Set(k, v)
+		}
+		if err := dsh.ValidateHeaders(h); err != nil {
+			return providers.Route{}, nil, err
+		}
+	}
+	r, err := providers.Resolve(c, model, providerInbound(ctx))
+	if err != nil {
+		return r, nil, err
+	}
+	overrides, err := providerPolicyOverrides(d)
+	if err != nil {
+		return r, nil, err
+	}
+	resolved, err := policy.Resolve(policy.Config{ProviderID: r.Preset.ID, Model: r.Model, BaseURL: r.BaseURL, Wire: policyDefaultWire(c, r), Inbound: providerInbound(ctx), Auth: c.Auth, Registry: r.Preset.Metadata, Overrides: overrides})
+	if err != nil {
+		return r, nil, err
+	}
+	if resolved.Wire != r.Wire {
+		c.ModelWires = map[string]providers.Wire{r.Model: resolved.Wire}
+		r, err = providers.Resolve(c, r.Model, providerInbound(ctx))
+		if err != nil {
+			return r, nil, err
+		}
+	}
+	r.BaseURL, r.Model, r.Wire = resolved.BaseURL, resolved.Model, resolved.Wire
+	return r, &resolved, nil
+}
 func sameCredentialLane(a, b inference.Target) bool {
-	return a.BaseURL == b.BaseURL && a.Model == b.Model && a.Wire == b.Wire && a.Auth == b.Auth
+	return a.BaseURL == b.BaseURL && a.Model == b.Model && a.Wire == b.Wire && a.Auth == b.Auth && a.Endpoint == b.Endpoint && policyIdentity(a) == policyIdentity(b)
 }
 
 func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, model string, op inference.Operation) (inference.Route, error) {
@@ -233,6 +267,10 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 		}
 	} else if chosen.Strategy != v1.RoutingStrategy_ROUTING_STRATEGY_FALLBACK {
 		out.Targets = out.Targets[:1]
+	} else if len(out.Targets) > 2 {
+		// The guarded request ledger allows one provider/model transition. Account
+		// rotation within a target is tracked separately and does not expand this.
+		out.Targets = out.Targets[:2]
 	}
 	a.mu.Lock()
 	a.selections = selections
@@ -250,16 +288,33 @@ func credentialFor(ctx context.Context, d providerData, t inference.Target) (inf
 	if e != nil || !sameCredentialLane(t, current) {
 		return inference.Credential{}, inference.ErrNoCredential
 	}
-	r, e := providers.Resolve(providerConnection(d), t.Model, providerInbound(ctx))
+	r, _, e := resolvedProviderRoute(ctx, d, t.Model)
 	if e != nil {
 		return inference.Credential{}, inference.ErrNoCredential
 	}
 	c := inference.Credential{AccountID: d.Metadata.Id, Secret: d.Secret, Headers: r.Headers.Clone()}
 	if d.Credential != nil {
 		c.Secret = d.Credential.AccessToken
+		if d.Metadata.ProviderId == "workbuddy-ai" {
+			for field, header := range map[string]string{"uid": "X-User-Id", "domain": "X-Domain", "enterpriseId": "X-Enterprise-Id"} {
+				if value := d.Credential.Metadata[field]; value != "" {
+					c.Headers.Set(header, value)
+				}
+			}
+			if value := d.Credential.Metadata["enterpriseId"]; value != "" {
+				c.Headers.Set("X-Tenant-Id", value)
+			}
+		}
 		if d.Credential.ProjectID != "" {
 			c.Headers.Set("X-Aiprouter-Google-Project", d.Credential.ProjectID)
 		}
+	}
+	if r.Wire == providers.Wire(azure.Wire) && d.Metadata.Configuration != nil && d.Metadata.Configuration.MinMaxOutputTokens != nil {
+		raw, err := json.Marshal(azure.Options{MinMaxOutputTokens: d.Metadata.Configuration.GetMinMaxOutputTokens()})
+		if err != nil {
+			return inference.Credential{}, inference.ErrUnavailable
+		}
+		c.Headers.Set(azure.OptionsHeader, string(raw))
 	}
 	return c, nil
 }
@@ -288,6 +343,16 @@ func (a *inferenceAdapter) Select(ctx context.Context, p inference.Principal, t 
 	req.Candidates = nil
 	if previous != "" {
 		a.mu.Lock()
+		limit := 6
+		if selection.provider == "openai" && t.Auth == inference.OAuth {
+			limit = 2
+		} else if (selection.provider == "anthropic" || selection.provider == "anthropic2") && t.Auth == inference.OAuth {
+			limit = 4
+		}
+		if t.Auth == inference.OAuth && len(a.attempted[selectionKey(t)]) >= limit {
+			a.mu.Unlock()
+			return inference.Credential{}, inference.ErrNoCredential
+		}
 		for id := range a.attempted[selectionKey(t)] {
 			req.Exclude = append(req.Exclude, id)
 		}
@@ -319,6 +384,9 @@ func (a *inferenceAdapter) Select(ctx context.Context, p inference.Principal, t 
 		return inference.Credential{}, inference.ErrNoCredential
 	}
 	receipt, e := a.s.SelectAccount(ctx, lease, req)
+	if errors.Is(e, store.ErrNotFound) {
+		return inference.Credential{}, inference.ErrNoCredential
+	}
 	if e != nil {
 		return inference.Credential{}, inferenceError(e)
 	}
@@ -373,6 +441,9 @@ func (a *inferenceAdapter) Failed(ctx context.Context, p inference.Principal, t 
 	if e != nil {
 		return e
 	}
+	if canonicalMistral(t) {
+		return nil
+	}
 	if status != http.StatusTooManyRequests {
 		return nil
 	}
@@ -396,7 +467,7 @@ func (a *inferenceAdapter) Failed(ctx context.Context, p inference.Principal, t 
 func providerRetryPolicy(r providers.Route, auth inference.AuthMode) inference.RetryPolicy {
 	policy := inference.RetryPolicy{MaxWait: 60 * time.Second}
 	if auth == inference.OAuth {
-		policy.RefreshOn401 = r.Preset.ID != "zed" && r.Preset.ID != "meta-muse"
+		policy.RefreshOn401 = r.Preset.ID != "zed" && r.Preset.ID != "meta-muse" && r.Preset.ID != "dsh" && r.Preset.ID != "mimo-free"
 		return policy
 	}
 	if auth != inference.APIKey {
@@ -465,8 +536,11 @@ func (a *inferenceAdapter) captureCredential(ctx context.Context, p inference.Pr
 	if a.connections == nil {
 		a.connections = map[string]providerData{}
 	}
+	c.CredentialVersion = version
+	c.StateBinding = selectionVersion([]string{id, version})
 	a.versions[id] = version
 	a.connections[id] = d
+	a.activeTarget = t
 	a.activeAccount = id
 	a.activeVersion = version
 	return c, nil
@@ -535,9 +609,22 @@ func providerInbound(ctx context.Context) providers.Inbound {
 const cursorPhysicalExchangeBudget = 2 + 256
 
 func selectionKey(t inference.Target) string {
-	return selectionVersion([]string{t.Provider, t.BaseURL, t.Model, string(t.Wire), string(t.Auth)})
+	return selectionVersion([]string{t.Provider, t.BaseURL, t.Model, string(t.Wire), string(t.Auth), t.Endpoint, policyIdentity(t)})
 }
 
 func genericAffinityEnabled(pool *v1.Pool, auth inference.AuthMode, provider string) bool {
 	return pool != nil && pool.GetAffinityEnabled() && auth == inference.OAuth && provider != "openai" && provider != "anthropic" && provider != "anthropic2"
+}
+
+func policyDefaultWire(c providers.Connection, r providers.Route) providers.Wire {
+	if c.Wire != "" {
+		return c.Wire
+	}
+	return r.Preset.Wire
+}
+func policyIdentity(t inference.Target) string {
+	if t.Policy == nil {
+		return ""
+	}
+	return string(t.Policy.Metadata())
 }

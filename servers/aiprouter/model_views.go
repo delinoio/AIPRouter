@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,8 @@ import (
 type routeModelView struct {
 	ID, Name            string
 	Context, Output     int
+	Input               int
+	Metadata            map[string]any
 	Modalities, Efforts []string
 	Catalog             json.RawMessage
 }
@@ -69,7 +72,7 @@ func (a *inferenceAdapter) targetMembers(ctx context.Context, sc core.Scope, t *
 // The six-hour bound matches the pinned account roster lifetime.
 func modelEvidence(d providerData, model string, now time.Time) (routeModelView, bool) {
 	out := routeModelView{Name: model}
-	p, known := providers.Lookup(d.Metadata.ProviderId)
+	_, known := providers.Lookup(d.Metadata.ProviderId)
 	gated := d.Metadata.ProviderId == "openai" && d.Credential != nil && (model == "gpt-daybreak-blue-latest" || model == "gpt-6-astra-minor")
 	fresh := d.Models != nil && !d.ModelsDiscoveredAt.IsZero() && !d.ModelsDiscoveredAt.After(now) && now.Sub(d.ModelsDiscoveredAt) <= 6*time.Hour
 	found := false
@@ -96,29 +99,38 @@ func modelEvidence(d providerData, model string, now time.Time) (routeModelView,
 		return out, false
 	}
 	if known {
-		if out.Context == 0 {
-			out.Context = p.ModelContextWindows[model]
-			if out.Context == 0 {
-				out.Context = p.ContextWindow
+		if _, resolved, err := resolvedProviderRoute(context.Background(), d, model); err == nil {
+			m := resolved.ModelPolicy()
+			if out.Context == 0 && m.ContextWindow != nil {
+				out.Context = int(*m.ContextWindow)
 			}
-		}
-		if out.Output == 0 {
-			out.Output = p.ModelMaxOutputTokens[model]
-			if out.Output == 0 {
-				out.Output = p.DefaultMaxOutputTokens
+			if out.Output == 0 && m.MaxOutputTokens != nil {
+				out.Output = int(*m.MaxOutputTokens)
 			}
-		}
-		if out.Modalities == nil {
-			out.Modalities = p.ModelInputModalities[model]
+			if m.MaxInputTokens != nil {
+				out.Input = int(*m.MaxInputTokens)
+			}
 			if out.Modalities == nil {
-				out.Modalities = p.InputModalities
+				out.Modalities = m.InputModalities
 			}
-		}
-		if out.Efforts == nil {
-			var present bool
-			out.Efforts, present = p.ModelReasoningEfforts[model]
-			if !present {
-				out.Efforts = p.ReasoningEfforts
+			if out.Efforts == nil {
+				out.Efforts = m.ReasoningEfforts
+			}
+			out.Metadata = map[string]any{}
+			for key, value := range map[string]*bool{"supports_reasoning": m.SupportsReasoning, "supports_thinking_toggle": m.SupportsThinkingToggle, "supports_reasoning_effort": m.SupportsReasoningEffort, "default_thinking_enabled": m.DefaultThinkingEnabled, "supports_reasoning_summaries": m.SupportsReasoningSummaries} {
+				if value != nil {
+					out.Metadata[key] = *value
+				}
+			}
+			if m.SupportsReasoningEffort != nil && !*m.SupportsReasoningEffort || m.SupportsReasoning != nil && !*m.SupportsReasoning {
+				if out.Efforts != nil {
+					out.Efforts = []string{}
+				}
+			}
+			for _, effort := range out.Efforts {
+				if effort == m.DefaultReasoningEffort && effort != "" {
+					out.Metadata["default_reasoning_effort"] = effort
+				}
 			}
 		}
 	}
@@ -201,6 +213,17 @@ func (a *inferenceAdapter) modelViews(ctx context.Context, sc core.Scope) ([]rou
 // A route can use multiple accounts or models. Publish only their shared facts;
 // metadata from the first account must not overstate another target's ability.
 func mergeModelEvidence(a *routeModelView, b routeModelView) {
+	if a.Input == 0 || b.Input == 0 {
+		a.Input = 0
+	} else if b.Input < a.Input {
+		a.Input = b.Input
+	}
+	for k, v := range a.Metadata {
+		if other, ok := b.Metadata[k]; !ok || other != v {
+			delete(a.Metadata, k)
+		}
+	}
+
 	if a.Context == 0 || b.Context == 0 {
 		a.Context = 0
 	} else if b.Context < a.Context {
@@ -297,6 +320,9 @@ func (a *inferenceAdapter) Read(ctx context.Context, p inference.Principal, op i
 	if ids != "" && ids != "cli" && ids != "desktop" || format != "" && format != "desktop-config" || format == "desktop-config" && (ids == "cli" || q.Has("client_version")) {
 		return nil, &inference.Error{Status: 400, Code: "invalid_model_query"}
 	}
+	if q.Has("client_version") && !validClientVersion(q.Get("client_version")) {
+		return nil, &inference.Error{Status: 400, Code: "invalid_model_query"}
+	}
 	views, e := a.modelViews(ctx, scopeOf(p))
 	if e != nil {
 		return nil, e
@@ -312,6 +338,13 @@ func (a *inferenceAdapter) Read(ctx context.Context, p inference.Principal, op i
 			var row map[string]json.RawMessage
 			if json.Unmarshal(v.Catalog, &row) != nil {
 				return nil, inference.ErrUnavailable
+			}
+			if q.Has("client_version") {
+				var minimum string
+				_ = json.Unmarshal(row["minimal_client_version"], &minimum)
+				if minimum != "" && !clientVersionAtLeast(q.Get("client_version"), minimum) {
+					continue
+				}
 			}
 			for field := range row {
 				if !codexPublicFields[field] {
@@ -368,9 +401,18 @@ func (a *inferenceAdapter) Read(ctx context.Context, p inference.Principal, op i
 				row["created_at"] = "2026-01-01T00:00:00Z"
 				row["max_input_tokens"] = nil
 				row["max_tokens"] = nil
-				if v.Context > 0 {
-					row["max_input_tokens"] = v.Context
+				if v.Input > 0 {
+					row["max_input_tokens"] = v.Input
 				}
+			}
+			for k, value := range v.Metadata {
+				row[k] = value
+			}
+			if v.Input > 0 {
+				row["max_input_tokens"] = v.Input
+			}
+			if v.Efforts != nil {
+				row["reasoning_efforts_known"] = true
 			}
 			if v.Context > 0 {
 				row["context_window"] = v.Context
@@ -442,4 +484,44 @@ func anthropicViewCapabilities(v routeModelView) map[string]any {
 		out["effort"] = effort
 	}
 	return out
+}
+
+var clientVersionPattern = regexp.MustCompile(`^\d+(?:\.\d+)*(?:[-+][0-9A-Za-z.-]+)?$`)
+
+func validClientVersion(v string) bool {
+	if len(v) == 0 || len(v) > 64 || !clientVersionPattern.MatchString(v) {
+		return false
+	}
+	core := strings.FieldsFunc(v, func(r rune) bool { return r == '-' || r == '+' })[0]
+	nonzero := false
+	for _, part := range strings.Split(core, ".") {
+		n, e := strconv.ParseUint(part, 10, 32)
+		if e != nil {
+			return false
+		}
+		nonzero = nonzero || n > 0
+	}
+	return nonzero
+}
+func clientVersionAtLeast(value, minimum string) bool {
+	if !validClientVersion(value) || !validClientVersion(minimum) {
+		return false
+	}
+	parts := func(v string) []string {
+		return strings.Split(strings.FieldsFunc(v, func(r rune) bool { return r == '-' || r == '+' })[0], ".")
+	}
+	a, b := parts(value), parts(minimum)
+	for i := 0; i < len(a) || i < len(b); i++ {
+		var x, y uint64
+		if i < len(a) {
+			x, _ = strconv.ParseUint(a[i], 10, 32)
+		}
+		if i < len(b) {
+			y, _ = strconv.ParseUint(b[i], 10, 32)
+		}
+		if x != y {
+			return x > y
+		}
+	}
+	return true
 }

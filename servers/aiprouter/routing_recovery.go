@@ -46,6 +46,21 @@ func (p serviceRecoveryPolicy) RecoverHTTP(ctx context.Context, in inference.Ada
 	if err := ctx.Err(); err != nil {
 		return inference.RecoveryDecision{}, err
 	}
+	if err := p.adapter.observeMistral(ctx, in, f); err != nil {
+		return inference.RecoveryDecision{}, err
+	}
+	if in.Target.Wire == "dsh-account" && f.Status == http.StatusUnauthorized {
+		lease, err := p.adapter.current(in.Principal)
+		if err != nil {
+			return inference.RecoveryDecision{}, err
+		}
+		p.adapter.mu.Lock()
+		version := p.adapter.versions[in.Credential.AccountID]
+		p.adapter.mu.Unlock()
+		if err = p.adapter.s.MarkPrivateReauthentication(ctx, lease, string(providerKind), in.Credential.AccountID, version); err != nil {
+			return inference.RecoveryDecision{}, inferenceError(err)
+		}
+	}
 	// Adapter-local recovery has precedence, including an explicit terminal verdict.
 	if p.delegate != nil {
 		d, err := p.delegate.RecoverHTTP(ctx, in, f)
@@ -60,6 +75,27 @@ func (p serviceRecoveryPolicy) RecoverHTTP(ctx context.Context, in inference.Ada
 		return inference.RecoveryDecision{Action: inference.RecoveryDefault}, nil
 	}
 	d, hold := pinnedRecovery(selection.provider, in, f, time.Now())
+	if in.Target.Auth == inference.APIKey && f.Status == 429 {
+		if !in.Target.Retry.RotateOn429 {
+			hold = nil
+		}
+		delay, valid := recoveryRetryAfter(f.Header.Get("Retry-After"), time.Now(), true)
+		if f.Attempt <= in.Target.Retry.RateLimitRetries && (!valid || delay <= in.Target.Retry.MaxWait) {
+			d.Action = inference.RecoveryDefault
+		}
+	}
+	if selection.provider == "openai" && codexRefusedModel(f, in.Target.Model) {
+		lease, err := p.adapter.current(in.Principal)
+		if err != nil {
+			return inference.RecoveryDecision{}, err
+		}
+		p.adapter.mu.Lock()
+		version := p.adapter.versions[in.Credential.AccountID]
+		p.adapter.mu.Unlock()
+		if err = p.adapter.s.SetAccountSoftDenial(ctx, lease, in.Credential.AccountID, version, in.Target.Model); err != nil {
+			return inference.RecoveryDecision{}, inferenceError(err)
+		}
+	}
 	if hold != nil {
 		if err := p.adapter.recordRecoveryHold(ctx, in, *hold); err != nil {
 			return inference.RecoveryDecision{}, err

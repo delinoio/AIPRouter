@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -186,5 +187,46 @@ func TestRoutingGenericAffinityRequiresOptInAndProviderBoundary(t *testing.T) {
 	}
 	if !genericAffinityEnabled(&v1.Pool{AffinityEnabled: true}, inference.OAuth, "nous") {
 		t.Fatal("explicit generic affinity ignored")
+	}
+}
+
+func TestRoutingCodexSoftDenialDoesNotEmptyPool(t *testing.T) {
+	a, sc, key := poolRoutingFixture(t, v1.PoolStrategy_POOL_STRATEGY_PRIORITY)
+	for _, id := range []string{"a", "b", "c"} {
+		d, e := a.provider(context.Background(), sc, id)
+		if e != nil {
+			t.Fatal(e)
+		}
+		d.Metadata.ProviderId = "openai"
+		d.Metadata.AuthKind = v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH
+		d.Metadata.BaseUrl = ""
+		d.Secret = ""
+		d.Credential = &providers.Credential{Provider: "openai", Scope: sc, AccessToken: "fixture-" + id, AccountID: id}
+		putRoutingProvider(t, a, sc, d)
+	}
+	putRoutingRoute(t, a, sc, &v1.Route{Id: "r", ModelId: "model", Enabled: true, Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT, Targets: []*v1.RouteTarget{{Target: &v1.RouteTarget_PoolId{PoolId: "pool"}, ModelId: "gpt-6-astra"}}})
+	for i, want := range []string{"a", "b", "c", "a"} {
+		instance := &inferenceAdapter{s: a.s, telemetry: a.telemetry}
+		p, release, e := instance.Admit(context.Background(), key)
+		if e != nil {
+			t.Fatal(e)
+		}
+		r, e := instance.Resolve(context.Background(), p, "model", inference.Generate)
+		if e != nil {
+			t.Fatal(e)
+		}
+		c, e := instance.Select(context.Background(), p, r.Targets[0], "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if c.AccountID != want {
+			t.Fatalf("selection %d=%s want %s", i, c.AccountID, want)
+		}
+		f := inference.HTTPFailure{Status: 400, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"error":{"message":"The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account."}}`)}
+		decision, e := instance.recoveryPolicies(nil)[inference.Responses].RecoverHTTP(context.Background(), inference.AdapterInput{Principal: p, Target: r.Targets[0], Credential: c}, f)
+		if e != nil || decision.Action != inference.RecoveryRotate {
+			t.Fatalf("soft-denial recovery=%v %v", decision, e)
+		}
+		release()
 	}
 }

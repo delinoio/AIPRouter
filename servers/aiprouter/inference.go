@@ -27,12 +27,25 @@ type inferenceAdapter struct {
 	selections                   map[string]routeSelection
 	versions                     map[string]string
 	activeAccount, activeVersion string
+	activeTarget                 inference.Target
+	mistral                      map[string]mistralWait
+	releaseCompleted             func(store.Lease, func(context.Context))
 	attempted                    map[string]map[string]bool
 }
 
 func inferenceError(e error) error {
 	if e == nil {
 		return nil
+	}
+	var public *inference.Error
+	if errors.As(e, &public) {
+		return public
+	}
+	if errors.Is(e, context.Canceled) || errors.Is(e, context.DeadlineExceeded) {
+		return e
+	}
+	if errors.Is(e, store.ErrReauthentication) {
+		return inference.ErrNoCredential
 	}
 	var limit *store.LimitError
 	if errors.As(e, &limit) {
@@ -62,13 +75,29 @@ func (a *inferenceAdapter) Admit(ctx context.Context, raw string) (inference.Pri
 	var once sync.Once
 	release := func() {
 		once.Do(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if e := a.s.Release(ctx, l); e != nil {
-				a.telemetry.Event(ctx, "admission_release_failed")
+			cleanup := func(ctx context.Context) { a.leaveMistral(ctx, l) }
+			if a.releaseCompleted != nil {
+				a.releaseCompleted(l, cleanup)
+				return
 			}
+			// Standalone adapters used by fixtures have no service shutdown owner.
+			// Try the idempotent release once; retain failed work rather than lose it.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err := a.s.Release(ctx, l)
+			cancel()
+			if err == nil {
+				cleanup(context.Background())
+				return
+			}
+			a.telemetry.Event(context.Background(), "admission_release_retry")
+			go func() {
+				if a.s.ReleaseUntilRecorded(context.Background(), l) == nil {
+					cleanup(context.Background())
+				}
+			}()
 		})
 	}
+
 	return inference.Principal{OrganizationID: l.Principal.Scope.OrganizationID, UserID: l.Principal.Scope.UserID, KeyID: l.Principal.KeyID, MembershipGeneration: l.Principal.Scope.Generation}, release, nil
 }
 func (a *inferenceAdapter) current(p inference.Principal) (store.Lease, error) {
@@ -91,6 +120,9 @@ func (a *inferenceAdapter) BeforeSend(ctx context.Context, p inference.Principal
 // Dispatch is called by the transport around its first bounded plaintext write.
 // DNS/TCP/TLS and response headers are outside the organization transaction gate.
 func (a *inferenceAdapter) Dispatch(ctx context.Context, p inference.Principal, start func(context.Context) error) error {
+	if e := a.awaitMistral(ctx, p); e != nil {
+		return e
+	}
 	l, e := a.current(p)
 	if e != nil {
 		return e
