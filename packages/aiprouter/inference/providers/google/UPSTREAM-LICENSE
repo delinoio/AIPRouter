@@ -1,6 +1,8 @@
 Behavior and fixture adaptations reference lidge-jun/opencodex revision
 88aaa754566d119b6b8fc898f8fb47602387d82e, src/adapters/google.ts,
-google-antigravity-wire.ts, and tests/adapters/google/. Repository-owned Go
+google-antigravity-wire.ts, google-tool-schema.ts, google-wire-compiler.ts,
+google-progress-history.ts, src/providers/antigravity-models.ts,
+src/claude/inbound-model-options.ts, and tests/adapters/google/. Repository-owned Go
 implementation is licensed under Apache-2.0; adapted material retains this notice.
 
 MIT License

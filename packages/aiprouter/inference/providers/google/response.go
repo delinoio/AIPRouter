@@ -5,12 +5,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"math"
+	"mime"
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
 )
 
 // Decode preserves HTTP failures for the central executor's retry classifier.
@@ -35,7 +39,7 @@ func (a *Adapter) Decode(ctx context.Context, response *http.Response) (*http.Re
 	out.Header.Del("ETag")
 	out.ContentLength = -1
 	if strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
-		r := &streamReader{ctx: ctx, body: response.Body, adapter: a, state: newResponseState(), frameLimit: a.options.MaxFrameBytes}
+		r := &streamReader{ctx: ctx, body: response.Body, adapter: a, state: stateForResponse(ctx), frameLimit: a.options.MaxFrameBytes}
 		r.scanner = bufio.NewScanner(response.Body)
 		r.scanner.Buffer(make([]byte, 4096), a.options.MaxFrameBytes+1)
 		r.stop = context.AfterFunc(ctx, func() { _ = r.closeBody() })
@@ -60,7 +64,7 @@ func (a *Adapter) Decode(ctx context.Context, response *http.Response) (*http.Re
 	if err != nil {
 		return nil, err
 	}
-	state := newResponseState()
+	state := stateForResponse(ctx)
 	message, err := a.convert(root, state)
 	if err != nil {
 		return nil, err
@@ -73,6 +77,9 @@ func (a *Adapter) Decode(ctx context.Context, response *http.Response) (*http.Re
 		message["content"] = ""
 	}
 	result := object{"id": state.id, "object": "chat.completion", "model": state.model, "choices": []any{object{"index": 0, "message": message, "finish_reason": state.finish()}}, "usage": state.usage}
+	if state.wire == inference.Anthropic {
+		result = anthropicResponse(message, state)
+	}
 	data, err = json.Marshal(result)
 	if err != nil {
 		return nil, protocol()
@@ -83,11 +90,15 @@ func (a *Adapter) Decode(ctx context.Context, response *http.Response) (*http.Re
 }
 
 type responseState struct {
+	blocks                              []any
 	id, model, reason, thoughtSignature string
 	terminal                            bool
 	toolIndex                           int
 	usage                               object
 	callIDs                             map[string]bool
+	aliases                             map[string]string
+	wire                                inference.Wire
+	mediaCount, mediaBytes              int
 }
 
 func newResponseState() *responseState {
@@ -107,6 +118,7 @@ func (s *responseState) finish() string {
 }
 
 func (a *Adapter) convert(root object, s *responseState) (object, error) {
+	s.blocks = nil
 	if root["error"] != nil {
 		return nil, failure(502, "google_upstream_error")
 	}
@@ -206,7 +218,7 @@ func (a *Adapter) convert(root object, s *responseState) (object, error) {
 		}
 		for k := range p {
 			switch k {
-			case "text", "thought", "thoughtSignature", "thought_signature", "extra_content", "functionCall":
+			case "text", "thought", "thoughtSignature", "thought_signature", "extra_content", "functionCall", "inlineData", "inline_data":
 			default:
 				return nil, failure(502, "google_unsupported_response_part")
 			}
@@ -216,9 +228,40 @@ func (a *Adapter) convert(root object, s *responseState) (object, error) {
 		}
 	}
 	var visible, reasoning strings.Builder
-	var calls, opaque []any
+	var calls, opaque, media []any
 	for _, raw := range parts {
 		p := obj(raw)
+		if p["inlineData"] != nil || p["inline_data"] != nil {
+			if !a.options.NativeMedia {
+				return nil, failure(502, "google_media_projection_disabled")
+			}
+			inline := obj(p["inlineData"])
+			if inline == nil {
+				inline = obj(p["inline_data"])
+			}
+			mt := text(inline["mimeType"])
+			if mt == "" {
+				mt = text(inline["mime_type"])
+			}
+			parsed, _, err := mime.ParseMediaType(mt)
+			if err != nil || !(strings.HasPrefix(parsed, "image/") || strings.HasPrefix(parsed, "audio/")) {
+				return nil, failure(502, "google_invalid_media_type")
+			}
+			data := text(inline["data"])
+			if data == "" || len(data) > a.options.MaxBodyBytes {
+				return nil, failure(502, "google_media_limit")
+			}
+			decoded, err := base64.StdEncoding.DecodeString(data)
+			if err != nil {
+				return nil, failure(502, "google_invalid_media_data")
+			}
+			if s.mediaCount >= 16 || len(decoded) > a.options.MaxBodyBytes-s.mediaBytes {
+				return nil, failure(502, "google_media_limit")
+			}
+			media = append(media, object{"index": s.mediaCount, "mime_type": parsed, "encoding": "base64", "data": data})
+			s.mediaCount++
+			s.mediaBytes += len(decoded)
+		}
 		sig := signature(p)
 		if p["thought"] == true {
 			if realSignature(sig) {
@@ -227,11 +270,21 @@ func (a *Adapter) convert(root object, s *responseState) (object, error) {
 			// Keep the thought visibility bit and signature together. Never fold
 			// raw thought text into normal assistant content.
 			opaque = append(opaque, p)
-			if a.options.ShowThinkingSummaries {
+			if a.options.ShowThinkingSummaries && (!a.cca || strings.HasPrefix(s.model, "gemini-")) {
 				reasoning.WriteString(text(p["text"]))
+				if value := text(p["text"]); value != "" {
+					block := object{"type": "thinking", "thinking": value}
+					if realSignature(sig) {
+						block["signature"] = sig
+					}
+					s.blocks = append(s.blocks, block)
+				}
 			}
 		} else {
 			visible.WriteString(text(p["text"]))
+			if value := text(p["text"]); value != "" {
+				s.blocks = append(s.blocks, object{"type": "text", "text": value})
+			}
 		}
 		if call := obj(p["functionCall"]); call != nil {
 			if s.toolIndex >= 4096 {
@@ -258,7 +311,11 @@ func (a *Adapter) convert(root object, s *responseState) (object, error) {
 			if err != nil {
 				return nil, protocol()
 			}
-			tool := object{"index": s.toolIndex, "id": id, "type": "function", "function": object{"name": call["name"], "arguments": string(encoded)}}
+			name := text(call["name"])
+			if restored, ok := s.aliases[name]; ok {
+				name = restored
+			}
+			tool := object{"index": s.toolIndex, "id": id, "type": "function", "function": object{"name": name, "arguments": string(encoded)}}
 			if sig == "" {
 				sig = s.thoughtSignature
 			}
@@ -266,6 +323,11 @@ func (a *Adapter) convert(root object, s *responseState) (object, error) {
 				tool["extra_content"] = opaqueSignature(sig)
 			}
 			calls = append(calls, tool)
+			block := object{"type": "tool_use", "id": id, "name": name, "input": args}
+			if tool["extra_content"] != nil {
+				block["extra_content"] = tool["extra_content"]
+			}
+			s.blocks = append(s.blocks, block)
 			s.toolIndex++
 		}
 	}
@@ -280,6 +342,12 @@ func (a *Adapter) convert(root object, s *responseState) (object, error) {
 	}
 	if len(opaque) > 0 {
 		delta["extra_content"] = object{"google": object{"parts": opaque}}
+	}
+	if len(media) > 0 {
+		if delta["extra_content"] == nil {
+			delta["extra_content"] = object{"google": object{}}
+		}
+		obj(obj(delta["extra_content"])["google"])["media"] = media
 	}
 	return delta, nil
 }
@@ -335,17 +403,20 @@ func mergeUsage(dst, src object) error {
 }
 
 type streamReader struct {
-	ctx        context.Context
-	body       io.ReadCloser
-	adapter    *Adapter
-	state      *responseState
-	scanner    *bufio.Scanner
-	frameLimit int
-	pending    []byte
-	end        bool
-	stop       func() bool
-	closeOnce  sync.Once
-	closeErr   error
+	ctx              context.Context
+	body             io.ReadCloser
+	adapter          *Adapter
+	state            *responseState
+	scanner          *bufio.Scanner
+	frameLimit       int
+	pending          []byte
+	end              bool
+	stop             func() bool
+	closeOnce        sync.Once
+	closeErr         error
+	anthropicStarted bool
+	blockIndex       int
+	sourceEOF        bool
 }
 
 func (r *streamReader) closeBody() error {
@@ -400,6 +471,9 @@ func (r *streamReader) Read(p []byte) (int, error) {
 				if len(delta) > 0 {
 					chunk := object{"id": r.state.id, "object": "chat.completion.chunk", "model": r.state.model, "choices": []any{object{"index": 0, "delta": delta, "finish_reason": nil}}}
 					r.pending = encodeEvent(chunk)
+					if r.state.wire == inference.Anthropic {
+						r.pending = r.anthropicDelta(delta)
+					}
 				}
 			}
 		}
@@ -412,6 +486,14 @@ func (r *streamReader) Read(p []byte) (int, error) {
 			terminal := object{"id": r.state.id, "object": "chat.completion.chunk", "model": r.state.model, "choices": []any{object{"index": 0, "delta": object{}, "finish_reason": r.state.finish()}}, "usage": r.state.usage}
 			r.pending = append(r.pending, encodeEvent(terminal)...)
 			r.pending = append(r.pending, []byte("data: [DONE]\n\n")...)
+			if r.state.wire == inference.Anthropic {
+				// Preserve a final delta from an unterminated last SSE frame.
+				r.pending = nil
+				// frame() returns a last data frame before EOF on the next read.
+				r.pending = append(r.pending, r.anthropicStart()...)
+				r.pending = append(r.pending, namedEvent("message_delta", object{"delta": object{"stop_reason": anthropicStop(r.state), "stop_sequence": nil}, "usage": anthropicUsage(r.state.usage)})...)
+				r.pending = append(r.pending, namedEvent("message_stop", object{})...)
+			}
 			r.end = true
 			_ = r.Close()
 		}
@@ -426,6 +508,9 @@ func encodeEvent(v object) []byte {
 }
 
 func (r *streamReader) frame() ([]byte, string, bool, error) {
+	if r.sourceEOF {
+		return nil, "", true, nil
+	}
 	var data []byte
 	event := ""
 	size := 0
@@ -467,5 +552,9 @@ func (r *streamReader) frame() ([]byte, string, bool, error) {
 	if r.scanner.Err() != nil {
 		return nil, "", false, failure(502, "google_stream_read_failed")
 	}
-	return bytes.TrimSuffix(data, []byte("\n")), event, true, nil
+	if len(data) > 0 || event != "" {
+		r.sourceEOF = true
+		return bytes.TrimSuffix(data, []byte("\n")), event, false, nil
+	}
+	return nil, event, true, nil
 }

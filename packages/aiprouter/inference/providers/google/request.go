@@ -14,19 +14,20 @@ import (
 )
 
 type message struct {
+	phase    string
 	role     string
 	parts    []any
 	resultID string
 	result   any
 }
 
-var toolNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$`)
 var callIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+var sentinelModelPattern = regexp.MustCompile(`(?i)^gemini[-.\d]`)
 
 func (a *Adapter) request(root object, wire inference.Wire, model string) (object, string, error) {
 	// Unrepresented options fail before dispatch instead of silently weakening a
 	// tool constraint, output schema or reasoning request.
-	allowed := strings.Fields("model stream messages input instructions system tools tool_choice temperature top_p max_tokens max_completion_tokens max_output_tokens stop stop_sequences reasoning reasoning_effort thinking response_format text metadata user store stream_options parallel_tool_calls")
+	allowed := strings.Fields("model stream messages input instructions system tools tool_choice temperature top_p max_tokens max_completion_tokens max_output_tokens stop stop_sequences reasoning reasoning_effort thinking output_config response_format text metadata user store stream_options parallel_tool_calls")
 	for key := range root {
 		found := false
 		for _, k := range allowed {
@@ -59,13 +60,17 @@ func (a *Adapter) request(root object, wire inference.Wire, model string) (objec
 	if len(system) > 0 {
 		body["systemInstruction"] = object{"parts": system}
 	}
-	tools, strict, err := parseTools(root["tools"], wire)
+	toolInput, choice, err := filterToolSubset(root["tools"], root["tool_choice"], wire)
+	if err != nil {
+		return nil, "", err
+	}
+	tools, strict, err := parseTools(toolInput, wire)
 	if err != nil {
 		return nil, "", err
 	}
 	if len(tools) > 0 {
 		body["tools"] = []any{object{"functionDeclarations": tools}}
-		config, e := toolConfig(root["tool_choice"], wire, tools, strict)
+		config, e := toolConfig(choice, wire, tools, strict)
 		if e != nil {
 			return nil, "", e
 		}
@@ -152,14 +157,20 @@ func (a *Adapter) request(root object, wire inference.Wire, model string) (objec
 	}
 	if effort != "" {
 		switch effort {
-		case "minimal", "low", "medium", "high":
+		case "minimal", "low", "medium", "high", "max", "xhigh", "ultra", "none":
 			thinking["thinkingLevel"] = effort
 		default:
 			return nil, "", unsupported()
 		}
 	}
+	if config := obj(root["output_config"]); config != nil {
+		if level := normalizedEffort(text(config["effort"])); level != "" {
+			thinking["thinkingLevel"] = level
+		}
+	}
 	if t := obj(root["thinking"]); t != nil {
 		switch text(t["type"]) {
+		case "adaptive":
 		case "enabled":
 			n, ok := t["budget_tokens"].(json.Number)
 			if !ok {
@@ -169,7 +180,15 @@ func (a *Adapter) request(root object, wire inference.Wire, model string) (objec
 			if e != nil || x <= 0 {
 				return nil, "", invalid()
 			}
-			thinking["thinkingBudget"] = x
+			level := "high"
+			if x <= 4096 {
+				level = "low"
+			} else if x <= 16384 {
+				level = "medium"
+			}
+			if thinking["thinkingLevel"] == nil {
+				thinking["thinkingLevel"] = level
+			}
 		case "disabled":
 			thinking["thinkingBudget"] = 0
 		default:
@@ -204,6 +223,9 @@ func (a *Adapter) request(root object, wire inference.Wire, model string) (objec
 		}
 	}
 	if format != nil && format["type"] != "text" {
+		if imageModel(model) {
+			return nil, "", failure(400, "google_image_structured_output_unsupported")
+		}
 		if a.cca && !strings.HasPrefix(model, "gemini-") {
 			return nil, "", unsupported()
 		}
@@ -272,9 +294,28 @@ func parseMessages(root object, wire inference.Wire) ([]message, error) {
 			if wire == inference.Anthropic {
 				if blocks, ok := m["content"].([]any); ok {
 					var parts []any
+					if raw := obj(obj(m["extra_content"])["google"])["parts"]; raw != nil {
+						opaque, err := replayParts(raw)
+						if err != nil {
+							return nil, err
+						}
+						// Visible thinking blocks already carry their exact signature.
+						for _, p := range opaque {
+							found := false
+							for _, b := range blocks {
+								if obj(b)["type"] == "thinking" && text(obj(b)["signature"]) == signature(obj(p)) {
+									found = true
+									break
+								}
+							}
+							if !found {
+								parts = append(parts, p)
+							}
+						}
+					}
 					flush := func() {
 						if len(parts) > 0 {
-							out = append(out, message{role: role, parts: parts})
+							out = append(out, message{role: role, parts: parts, phase: text(m["phase"])})
 							parts = nil
 						}
 					}
@@ -325,6 +366,7 @@ func parseMessages(root object, wire inference.Wire) ([]message, error) {
 				return nil, err
 			}
 			last := &out[len(out)-1]
+			last.phase = text(m["phase"])
 			if opaque := obj(obj(m["extra_content"])["google"]); opaque["parts"] != nil {
 				if role != "assistant" {
 					return nil, invalid()
@@ -381,6 +423,7 @@ func parseMessages(root object, wire inference.Wire) ([]message, error) {
 				if err := add(text(m["role"]), m["content"]); err != nil {
 					return nil, err
 				}
+				out[len(out)-1].phase = text(m["phase"])
 			case "function_call":
 				args, err := arguments(m["arguments"])
 				if err != nil {
@@ -427,7 +470,7 @@ func arguments(v any) (object, error) {
 	return m, nil
 }
 func callPart(id, name, args any, source object) (object, error) {
-	if !toolNamePattern.MatchString(text(name)) || obj(args) == nil {
+	if !validSourceToolName(text(name)) || obj(args) == nil {
 		return nil, invalid()
 	}
 	if text(id) == "" {
@@ -541,6 +584,9 @@ func compileMessages(msgs []message, model string) ([]any, []any, string, error)
 			role = "model"
 		}
 		parts := m.parts
+		if strings.Contains(strings.ToLower(model), "gemini") && m.phase != "final_answer" {
+			parts = pruneProgress(parts)
+		}
 		if len(parts) == 0 {
 			if role == "model" {
 				continue
@@ -560,7 +606,7 @@ func compileMessages(msgs []message, model string) ([]any, []any, string, error)
 			p := obj(raw)
 			if call := obj(p["functionCall"]); call != nil {
 				calls = append(calls, call)
-				if len(calls) == 1 && strings.HasPrefix(model, "gemini-3") && !realSignature(signature(p)) {
+				if len(calls) == 1 && sentinelModelPattern.MatchString(model) && !realSignature(signature(p)) {
 					p["thoughtSignature"] = "skip_thought_signature_validator"
 				}
 			}
@@ -753,7 +799,7 @@ func parseTools(v any, wire inference.Wire) ([]any, bool, error) {
 			return nil, false, unsupported()
 		}
 		name := text(t["name"])
-		if !toolNamePattern.MatchString(name) || seen[name] {
+		if !validSourceToolName(name) || seen[name] {
 			return nil, false, invalid()
 		}
 		seen[name] = true
@@ -764,13 +810,6 @@ func parseTools(v any, wire inference.Wire) ([]any, bool, error) {
 		if schema == nil {
 			schema = object{"type": "object", "properties": object{}}
 		}
-		nodes := 0
-		if err := validateSchema(obj(schema), 0, &nodes); err != nil {
-			return nil, false, err
-		}
-		if obj(schema)["type"] != "object" {
-			return nil, false, unsupported()
-		}
 		tool := object{"name": name, "parameters": schema}
 		if t["description"] != nil {
 			tool["description"] = t["description"]
@@ -779,61 +818,6 @@ func parseTools(v any, wire inference.Wire) ([]any, bool, error) {
 		strict = strict || t["strict"] == true
 	}
 	return tools, strict, nil
-}
-
-// This lossless subset rejects unsupported constraints. The reference's lossy
-// compatible sanitizer needs an explicit policy and loss report at the executor
-// boundary before it can replace this rejection without hiding schema loss.
-func validateSchema(s object, depth int, nodes *int) error {
-	*nodes++
-	if s == nil || depth > 24 || *nodes > 1024 {
-		return failure(400, "google_tool_schema_limit")
-	}
-	for k, v := range s {
-		switch k {
-		case "type":
-			switch text(v) {
-			case "object", "array", "string", "integer", "number", "boolean":
-			default:
-				return unsupported()
-			}
-		case "description", "format":
-			if _, ok := v.(string); !ok {
-				return invalid()
-			}
-		case "nullable":
-			if _, ok := v.(bool); !ok {
-				return invalid()
-			}
-		case "enum", "required":
-			list, ok := v.([]any)
-			if !ok {
-				return invalid()
-			}
-			for _, e := range list {
-				if _, ok := e.(string); !ok {
-					return unsupported()
-				}
-			}
-		case "properties":
-			props := obj(v)
-			if props == nil {
-				return invalid()
-			}
-			for _, child := range props {
-				if err := validateSchema(obj(child), depth+1, nodes); err != nil {
-					return err
-				}
-			}
-		case "items":
-			if err := validateSchema(obj(v), depth+1, nodes); err != nil {
-				return err
-			}
-		default:
-			return failure(400, "google_tool_schema_loss_refused")
-		}
-	}
-	return nil
 }
 
 func toolConfig(v any, wire inference.Wire, tools []any, strict bool) (object, error) {

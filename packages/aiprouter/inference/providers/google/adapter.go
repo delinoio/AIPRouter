@@ -33,11 +33,22 @@ const (
 )
 
 type Options struct {
+	// SchemaObserver receives only bounded category counts, never schema content.
+	SchemaObserver func(context.Context, SchemaLossReport)
+	SchemaPolicy   SchemaPolicy
+	// ReasoningEfforts overrides the pinned direct model ladder. Empty disables it.
+	ReasoningEfforts          []string
+	DisableDirectModelRenames bool
+	// NativeMedia exposes bounded inline media in extra_content.google.media.
+	// Storage and client URL projection remain the central artifact owner's job.
+	NativeMedia   bool
 	MaxBodyBytes  int
 	MaxFrameBytes int
 	// ShowThinkingSummaries exposes provider-authored summaries as reasoning_content.
 	// Raw thought parts remain opaque metadata when this option is false.
 	ShowThinkingSummaries bool
+	// HideThinkingSummaries overrides the pinned CCA default of showing summaries.
+	HideThinkingSummaries bool
 }
 
 // Adapter is immutable and can be shared between concurrent requests. It has no
@@ -57,6 +68,15 @@ func NewAntigravity(options Options) *Adapter { return newAdapter(true, options)
 func NewGeminiCLI(options Options) *Adapter { return newAdapter(true, options) }
 
 func newAdapter(cca bool, options Options) *Adapter {
+	if cca {
+		options.ShowThinkingSummaries = true
+	}
+	if options.HideThinkingSummaries {
+		options.ShowThinkingSummaries = false
+	}
+	if options.ReasoningEfforts != nil {
+		options.ReasoningEfforts = append([]string{}, options.ReasoningEfforts...)
+	}
 	if options.MaxBodyBytes <= 0 || options.MaxBodyBytes > defaultBodyLimit {
 		options.MaxBodyBytes = defaultBodyLimit
 	}
@@ -90,7 +110,7 @@ func decodeJSON(data []byte) (object, error) {
 	return root, nil
 }
 
-var modelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+var modelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]*$`)
 var cliModelPattern = regexp.MustCompile(`^gemini-4-argon(?:-(?:low|medium|high))?$`)
 var signaturePattern = regexp.MustCompile(`^[A-Za-z0-9+/_=-]+$`)
 var foreignSignaturePattern = regexp.MustCompile(`(?i)^(fc|ctc|tsc|call|msg|rs|resp|reasoning|item|ws|toolu|tool|func|function)[-_]`)
@@ -123,6 +143,20 @@ func randomID() (string, error) {
 
 func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inference.AdapterRequest, error) {
 	var out inference.AdapterRequest
+	var observation *SchemaLossReport
+	defer func() {
+		if observation != nil && a.options.SchemaObserver != nil {
+			a.options.SchemaObserver(ctx, observation.clone())
+		}
+	}()
+	state, _ := ctx.Value(requestKey{}).(*requestState)
+	if state != nil {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		if state.built {
+			return out, failure(500, "google_request_context_reused")
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return out, err
 	}
@@ -150,6 +184,40 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	body, anchor, err := a.request(root, in.Wire, model)
 	if err != nil {
 		return out, err
+	}
+	model = a.normalizeGeneration(body, root, model)
+	aliases := compileToolNames(body)
+	report := SchemaLossReport{Version: 1, EndpointClass: "ai-studio", Categories: map[string]int{}}
+	if a.cca {
+		report.EndpointClass = "cloud-code-assist"
+	}
+	for _, tool := range array(body["tools"]) {
+		for _, raw := range array(obj(tool)["functionDeclarations"]) {
+			d := obj(raw)
+			schema, loss := SanitizeToolSchema(d["parameters"], a.cca)
+			d["parameters"] = schema
+			report.merge(loss)
+		}
+	}
+	if state != nil {
+		state.report = report.clone()
+	}
+	observation = &report
+	if a.options.SchemaPolicy != "" && a.options.SchemaPolicy != SchemaCompatible && a.options.SchemaPolicy != SchemaRejectLossy {
+		return out, failure(500, "google_invalid_schema_policy")
+	}
+	if a.options.SchemaPolicy == SchemaRejectLossy && (report.Lossy || report.UncertainComparisons > 0) {
+		return out, failure(400, "google_tool_schema_loss_refused")
+	}
+	needsContext := false
+	for alias, name := range aliases {
+		if alias != name {
+			needsContext = true
+			break
+		}
+	}
+	if needsContext && state == nil {
+		return out, failure(500, "google_request_context_required")
 	}
 	base := in.Target.BaseURL
 	if base == "" {
@@ -232,5 +300,16 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	if err := ctx.Err(); err != nil {
 		return out, err
 	}
-	return inference.AdapterRequest{URL: u.String(), Headers: headers, Body: data, ResponseWire: inference.Chat}, nil
+	responseWire := inference.Chat
+	if a.cca && in.Wire == inference.Anthropic && state != nil {
+		responseWire = inference.Anthropic
+	}
+	if state != nil {
+		state.built = true
+		state.aliases = aliases
+		state.report = report
+		state.model = model
+		state.wire = responseWire
+	}
+	return inference.AdapterRequest{URL: u.String(), Headers: headers, Body: data, ResponseWire: responseWire}, nil
 }

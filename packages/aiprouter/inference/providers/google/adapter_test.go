@@ -21,7 +21,7 @@ const signatureB = "sig-beta-opaque-value"
 func input(body string) inference.AdapterInput {
 	return inference.AdapterInput{
 		Principal:  inference.Principal{OrganizationID: "org-a", UserID: "user-a"},
-		Target:     inference.Target{Model: "gemini-3.1-pro", Auth: inference.APIKey},
+		Target:     inference.Target{Model: "gemini-3.1-pro-preview", Auth: inference.APIKey},
 		Credential: inference.Credential{AccountID: "account-a", Secret: "selected-secret"},
 		Operation:  inference.Generate, Wire: inference.Chat, Body: json.RawMessage(body),
 	}
@@ -111,7 +111,8 @@ func TestAuthenticationAndEnvelope(t *testing.T) {
 				if !strings.HasPrefix(r.Headers.Get("User-Agent"), tc.ua) {
 					t.Fatal("wrong client family")
 				}
-				if body["project"] != "discovered-project" || body["model"] != tc.model || body["userAgent"] != "antigravity" || body["requestType"] != "agent" {
+				wireModel, _ := ResolveModel(tc.model, "", true)
+				if body["project"] != "discovered-project" || body["model"] != wireModel || body["userAgent"] != "antigravity" || body["requestType"] != "agent" {
 					t.Fatal(body)
 				}
 				if !strings.HasPrefix(text(obj(body["request"])["sessionId"]), "-") || body["sessionId"] != nil {
@@ -212,7 +213,7 @@ func TestRequestRefusals(t *testing.T) {
 		`{"messages":[],"response_format":{"type":"json_schema"}}`,
 		`{"messages":[]} {"messages":[]}`,
 	} {
-		if _, err := NewAPI(Options{}).Build(context.Background(), input(body)); err == nil {
+		if _, err := NewAPI(Options{SchemaPolicy: SchemaRejectLossy}).Build(context.Background(), input(body)); err == nil {
 			t.Fatalf("accepted %s", body)
 		}
 	}
