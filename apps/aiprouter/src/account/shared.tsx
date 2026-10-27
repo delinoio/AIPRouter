@@ -3,6 +3,7 @@ import {
   ErrorDetailSchema,
   ErrorReason,
   OrganizationService,
+  InvitationService,
 } from "@aiprouter/client";
 import { useInfiniteQuery } from "@connectrpc/connect-query";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -118,6 +119,26 @@ export function useOrganizations() {
   };
 }
 
+export function useMyInvitations(enabled = true) {
+  const query = useInfiniteQuery(
+    InvitationService.method.listMyInvitations,
+    { page: { pageSize: 100 } },
+    {
+      pageParamKey: "page",
+      enabled,
+      retry: false,
+      getNextPageParam: (last) =>
+        last.page?.nextPageToken
+          ? { pageSize: 100, pageToken: last.page.nextPageToken }
+          : undefined,
+    },
+  );
+  return {
+    ...query,
+    invitations: query.data?.pages.flatMap((page) => page.invitations) ?? [],
+  };
+}
+
 export function AccountSurface({
   title,
   subtitle,
@@ -167,6 +188,23 @@ export function AccountDialog({
       className="account-dialog"
       ref={ref}
       aria-labelledby={titleId}
+      onKeyDown={(event) => {
+        if (event.key !== "Tab") return;
+        const elements = Array.from(
+          ref.current?.querySelectorAll<HTMLElement>(
+            'button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]',
+          ) ?? [],
+        );
+        const first = elements[0];
+        const last = elements.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }}
       onCancel={(event) => {
         event.preventDefault();
         onClose();

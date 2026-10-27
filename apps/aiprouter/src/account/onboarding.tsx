@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useState } from "react";
-import { useMutation, useQuery } from "@connectrpc/connect-query";
+import { useMutation } from "@connectrpc/connect-query";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  InvitationService,
-  OrganizationService,
-  type Organization,
-} from "@aiprouter/client";
-import { AccountError, AccountSurface } from "./shared";
+import { OrganizationService, type Organization } from "@aiprouter/client";
+import { AccountError, AccountSurface, useMyInvitations } from "./shared";
 
 export function OnboardingPage({
   onOrganizationCreated,
@@ -17,11 +13,7 @@ export function OnboardingPage({
   const [name, setName] = useState("");
   const [created, setCreated] = useState<Organization>();
   const cache = useQueryClient();
-  const invitations = useQuery(
-    InvitationService.method.listMyInvitations,
-    { page: { pageSize: 100 } },
-    { retry: false },
-  );
+  const invitations = useMyInvitations();
   const create = useMutation(OrganizationService.method.createOrganization, {
     retry: false,
   });
@@ -50,7 +42,7 @@ export function OnboardingPage({
             void invitations.refetch();
           }}
         />
-        {invitations.data?.invitations.map((invitation) => (
+        {invitations.invitations.map((invitation) => (
           <p key={invitation.id}>
             <strong>{invitation.organizationName}</strong>{" "}
             <a
@@ -60,6 +52,17 @@ export function OnboardingPage({
             </a>
           </p>
         ))}
+        {invitations.hasNextPage && (
+          <button
+            type="button"
+            disabled={invitations.isFetching}
+            onClick={() => {
+              void invitations.fetchNextPage();
+            }}
+          >
+            Load more invitations
+          </button>
+        )}
         <p>
           Open the invitation link from your email to review and accept it. Sign
           in with the invited email address.

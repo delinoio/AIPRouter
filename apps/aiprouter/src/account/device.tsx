@@ -157,6 +157,21 @@ function DeviceReview({
             <dd>{authorization.serverAddress}</dd>
             <dt>Device</dt>
             <dd>{authorization.deviceName}</dd>
+            {state !== State.PENDING && authorization.organizationId && (
+              <>
+                <dt>Organization</dt>
+                <dd>
+                  {orgs.find((org) => org.id === authorization.organizationId)
+                    ?.name ?? authorization.organizationId}
+                </dd>
+                <dt>Key expiry</dt>
+                <dd>
+                  {authorization.keyExpiresAt
+                    ? dateLabel(authorization.keyExpiresAt)
+                    : "No expiry"}
+                </dd>
+              </>
+            )}
           </dl>
           <p>Connection code</p>
           <strong className="account-code">{code}</strong>
@@ -164,7 +179,12 @@ function DeviceReview({
             Confirm this code matches your CLI. Approve only a connection you
             started.
           </p>
-          <p>Original deadline: {dateLabel(authorization.expiresAt)}</p>
+          <p>
+            Original deadline:{" "}
+            {deadline === undefined
+              ? "Not available"
+              : dateLabel(timestampFromDate(new Date(deadline)))}
+          </p>
           {remaining !== undefined && (
             <p aria-live="off">
               Code expires in {Math.floor(remaining / 60)}:
@@ -301,7 +321,12 @@ function DeviceReview({
                 <p>
                   If local storage fails, the CLI attempts to revoke the key. If
                   it reports incomplete revocation, revoke the CLI key in{" "}
-                  <a href="/keys">API keys</a>.
+                  <a
+                    href={`/?organization=${encodeURIComponent(authorization.organizationId)}&page=keys`}
+                  >
+                    API keys
+                  </a>
+                  .
                 </p>
               </>
             )}

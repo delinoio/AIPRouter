@@ -243,6 +243,15 @@ describe("account and onboarding", () => {
     await user.click(trigger);
     const dialog = screen.getByRole("dialog");
     expect(deletion).not.toHaveBeenCalled();
+    screen.getByRole("button", { name: "Cancel" }).focus();
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Close Delete your account?" }),
+    );
+    await user.tab();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Cancel" }),
+    );
     fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(trigger);
@@ -394,5 +403,107 @@ describe("public acceptance", () => {
       organizationId: org.id,
       transferId: "transfer",
     });
+  });
+});
+
+describe("account lifecycle races", () => {
+  it("blocks deletion until all organization pages have been inspected", async () => {
+    const user = userEvent.setup();
+    mount(<AccountPage />, (router) => {
+      router.service(AccountService, { getSession: () => session });
+      router.service(OrganizationService, {
+        listOrganizations: (request) =>
+          request.page?.pageToken
+            ? { organizations: [{ ...org, role: Role.OWNER }] }
+            : { organizations: [], page: { nextPageToken: "next" } },
+      });
+    });
+    await screen.findByText(
+      "The organization list is incomplete. Account deletion is blocked until all ownership can be checked.",
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Delete my account",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await user.click(
+      screen.getByRole("button", { name: "Check more organizations" }),
+    );
+    await screen.findByText("These organizations block account deletion:");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Delete my account",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  it("keeps failed logout visible and clears private cache only after server confirmation", async () => {
+    const user = userEvent.setup();
+    let fail = true;
+    const logout = vi.fn(() => {
+      if (fail) throw new ConnectError("outage", Code.Unavailable);
+      return {};
+    });
+    const { cache } = mount(<AccountPage />, (router) => {
+      router.service(AccountService, { getSession: () => session, logout });
+      router.service(OrganizationService, {
+        listOrganizations: () => ({ organizations: [] }),
+      });
+    });
+    cache.setQueryData(["private-fixture"], "private");
+    await user.click(await screen.findByRole("button", { name: "Sign out" }));
+    await screen.findByText(
+      "The service is unavailable. No change has been confirmed.",
+    );
+    expect(screen.queryByRole("heading", { name: "Signed out" })).toBeNull();
+    expect(cache.getQueryData(["private-fixture"])).toBe("private");
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await screen.findByRole("heading", { name: "Signed out" });
+    await waitFor(() =>
+      expect(cache.getQueryData(["private-fixture"])).toBeUndefined(),
+    );
+  });
+
+  it("allows dismissal during deletion and reports the final result on the page", async () => {
+    const user = userEvent.setup();
+    let finish!: () => void;
+    const deletion = vi.fn(
+      () =>
+        new Promise<Record<string, never>>((resolve) => {
+          finish = () => resolve({});
+        }),
+    );
+    mount(<AccountPage />, (router) => {
+      router.service(AccountService, {
+        getSession: () => session,
+        deleteAccount: deletion,
+      });
+      router.service(OrganizationService, {
+        listOrganizations: () => ({ organizations: [] }),
+      });
+    });
+    await screen.findByText("person@example.test");
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Delete my account",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete my account" }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(dialog.querySelector("button.account-danger")!);
+    await waitFor(() => expect(deletion).toHaveBeenCalledTimes(1));
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    finish();
+    await screen.findByRole("heading", { name: "Account deleted" });
   });
 });

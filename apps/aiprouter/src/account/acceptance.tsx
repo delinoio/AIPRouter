@@ -17,6 +17,7 @@ import {
   dateLabel,
   timestampMs,
   useNow,
+  useMyInvitations,
 } from "./shared";
 
 export function InvitationPage({
@@ -44,11 +45,7 @@ export function InvitationPage({
     { token },
     { enabled: Boolean(token), retry: false },
   );
-  const mine = useQuery(
-    InvitationService.method.listMyInvitations,
-    { page: { pageSize: 100 } },
-    { enabled: Boolean(invitationId) && !token, retry: false },
-  );
+  const mine = useMyInvitations(Boolean(invitationId) && !token);
   const accept = useMutation(InvitationService.method.acceptInvitation, {
     retry: false,
   });
@@ -56,7 +53,7 @@ export function InvitationPage({
   const organization = accept.data?.organization;
   const invitation = token
     ? detail.data?.invitation
-    : mine.data?.invitations.find((value) => value.id === invitationId);
+    : mine.invitations.find((value) => value.id === invitationId);
   const now = useNow();
   const deadline = timestampMs(invitation?.expiresAt);
   const expired = deadline !== undefined && deadline <= now;
@@ -163,13 +160,24 @@ export function InvitationPage({
                   )}
                 </>
               )}
-              {!token && mine.isSuccess && !invitation && (
+              {!token && mine.isSuccess && !invitation && !mine.hasNextPage && (
                 <p role="alert">
                   This invitation is no longer pending or is unavailable to your
                   account. Open the original email link for its current status.
                 </p>
               )}
               <AccountError error={accept.error} />
+              {!token && mine.hasNextPage && !invitation && (
+                <button
+                  type="button"
+                  disabled={mine.isFetching}
+                  onClick={() => {
+                    void mine.fetchNextPage();
+                  }}
+                >
+                  Check more invitations
+                </button>
+              )}
               <button
                 type="button"
                 className="account-primary"
