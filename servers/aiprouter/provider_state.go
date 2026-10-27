@@ -21,7 +21,7 @@ func statePolicy(namespace string) (store.ProviderStatePolicy, error) {
 	return store.ProviderStatePolicy{TTL: p.TTL, Entries: p.Entries, MaxEntryBytes: p.MaxEntryBytes, MaxTotalBytes: p.MaxTotalBytes}, nil
 }
 func statePrincipal(p inference.Principal) store.Principal {
-	return store.Principal{Scope: scopeOf(p), KeyID: p.KeyID}
+	return store.Principal{Scope: scopeOf(p), KeyID: p.KeyID, AccountID: p.AccountID, CredentialVersion: p.CredentialVersion}
 }
 func (a *inferenceAdapter) LookupProviderState(ctx context.Context, p inference.Principal, namespace, id string) (inference.ProviderState, bool, error) {
 	if _, e := statePolicy(namespace); e != nil {

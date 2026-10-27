@@ -13,6 +13,14 @@ type providerStateLimits struct {
 // Adapter wire names are the core's durable namespace; unknown namespaces fail closed.
 func providerStatePolicy(namespace string) (providerStateLimits, bool) {
 	switch namespace {
+	case "openai-chat", "openai-responses", "anthropic":
+		return providerStateLimits{time.Hour, 256, 4 << 10, 1 << 20}, true
+	case "jev-route-pin":
+		return providerStateLimits{24 * time.Hour, 64, 4096, 262144}, true
+	case "mimo-free":
+		return providerStateLimits{time.Hour, 64, 128 << 10, 256 << 10}, true
+	case "tool-reasoning-replay":
+		return providerStateLimits{time.Hour, 64, 256 << 10, 256 << 10}, true
 	case "cursor-agent":
 		return providerStateLimits{15 * time.Minute, 64, 16 << 20, 16 << 20}, true
 	case "devin":
