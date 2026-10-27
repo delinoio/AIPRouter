@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
 )
@@ -23,6 +25,18 @@ func New(inner inference.Adapter, c Config) (*Adapter, error) {
 	}
 	if inner == nil || c.Resolver == nil {
 		return nil, fault(500, "hosted_configuration_missing")
+	}
+	native := map[Kind]bool{}
+	for k, v := range c.NativeTools {
+		native[k] = v
+	}
+	c.NativeTools = native
+	if c.EnabledTools != nil {
+		enabled := map[Kind]bool{}
+		for k, v := range c.EnabledTools {
+			enabled[k] = v
+		}
+		c.EnabledTools = enabled
 	}
 	return &Adapter{inner: inner, config: defaults(c)}, nil
 }
@@ -63,7 +77,12 @@ func (a *Adapter) model(ctx context.Context, in inference.AdapterInput, e infere
 		in.Body = b
 	}
 	if p, ok := a.inner.(inference.ExecutingAdapter); ok {
-		return p.Execute(ctx, in, e, s)
+		r, w, err := p.Execute(ctx, in, e, s)
+		if err != nil {
+			return nil, "", err
+		}
+		_, err = a.preempt(ctx, in, r)
+		return r, w, err
 	}
 	req, err := a.inner.Build(ctx, in)
 	if err != nil {
@@ -76,7 +95,16 @@ func (a *Adapter) model(ctx context.Context, in inference.AdapterInput, e infere
 	if r == nil || r.Body == nil {
 		return nil, "", fault(502, "hosted_invalid_response")
 	}
+	r, req, err = a.repair(ctx, in, req, r, e)
+	if err != nil {
+		return nil, "", err
+	}
 	if r.StatusCode < 200 || r.StatusCode >= 300 {
+		return r, req.ResponseWire, nil
+	}
+	if preempt, err := a.preempt(ctx, in, r); err != nil {
+		return nil, "", err
+	} else if preempt {
 		return r, req.ResponseWire, nil
 	}
 	var out *http.Response
@@ -96,6 +124,7 @@ type turn struct {
 	input         inference.AdapterInput
 	counts        map[Kind]int
 	failedQueries map[string]bool
+	callIDs       map[string]bool
 	outputs       []any
 }
 
@@ -104,10 +133,13 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 	if err != nil {
 		return nil, "", err
 	}
+	if in.Operation == inference.Search {
+		return a.search(ctx, in, body, e, s)
+	}
 	if in.Operation != inference.Generate {
 		return a.model(ctx, in, e, s)
 	}
-	active, err := catalog(body, in.Wire, a.config.EnableVideo)
+	active, err := catalog(body, in.Wire, a.config.EnableVideo, a.config.NativeTools, a.config.EnabledTools)
 	if err != nil {
 		return nil, "", err
 	}
@@ -126,7 +158,7 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 	stream := body["stream"] == true
 	body["stream"] = false
 	delete(body, "stream_options")
-	t := turn{a: a, input: in, counts: map[Kind]int{}, failedQueries: map[string]bool{}}
+	t := turn{a: a, input: in, counts: map[Kind]int{}, failedQueries: map[string]bool{}, callIDs: map[string]bool{}}
 	if a.config.DescribeImages {
 		if err = t.describe(ctx, body); err != nil {
 			return nil, "", err
@@ -146,21 +178,28 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 		next := in
 		next.Wire = inference.Chat
 		next.Body = raw
-		r, wire, sendErr := a.model(ctx, next, e, s)
+		modelCtx, stopModel := context.WithTimeout(ctx, 15*time.Minute)
+		r, wire, sendErr := a.model(modelCtx, next, e, s)
 		if sendErr != nil {
+			stopModel()
 			return nil, "", sendErr
 		}
 		if r == nil || r.Body == nil {
+			stopModel()
 			return nil, "", fault(502, "hosted_invalid_response")
 		}
-		if r.StatusCode < 200 || r.StatusCode >= 300 {
-			if round == 0 && len(t.outputs) == 0 {
+		_, needsRecovery := r.Body.(*recoveryBody)
+		if needsRecovery || r.StatusCode < 200 || r.StatusCode >= 300 {
+			if round == 0 && len(t.outputs) == 0 && t.counts[Vision] == 0 {
+				r.Body = &cancelBody{ReadCloser: r.Body, cancel: stopModel}
 				return r, wire, nil
 			}
 			r.Body.Close()
+			stopModel()
 			return nil, "", fault(502, "hosted_followup_refused") // Never replay completed paid helpers.
 		}
-		raw, err = a.config.Codec.Collect(ctx, r, wire, a.config.MaxBytes)
+		raw, err = a.config.Codec.Collect(modelCtx, r, wire, a.config.MaxBytes)
+		stopModel()
 		if err != nil {
 			if partial, parseErr := decode(raw); parseErr == nil {
 				if x, ok := e.(inference.AttemptUsage); ok {
@@ -185,6 +224,9 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 			return nil, "", fault(502, "hosted_invalid_message")
 		}
 		calls := arr(message["tool_calls"])
+		if len(calls) > 128 {
+			return nil, "", fault(502, "hosted_tool_call_limit")
+		}
 		hostedCalls := 0
 		for _, v := range calls {
 			if _, ok := active[str(obj(obj(v)["function"])["name"])]; ok {
@@ -192,21 +234,50 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 			}
 		}
 		if hostedCalls == 0 {
-			result["hosted_outputs"] = t.outputs
+			result["hosted_outputs"] = append(arr(result["hosted_outputs"]), t.outputs...)
+			if b, _ := json.Marshal(result); int64(len(b)) > a.config.MaxBytes {
+				return nil, "", fault(502, "hosted_buffer_limit")
+			}
 			raw, _ = json.Marshal(result)
-			return finalResponse(raw, result, stream), inference.Chat, nil
+			out := finalResponse(raw, result, stream)
+			for k, v := range r.Header {
+				if k != "Content-Type" && k != "Content-Length" && k != "Content-Encoding" {
+					out.Header[k] = append([]string(nil), v...)
+				}
+			}
+			return out, inference.Chat, nil
 		}
-		// Record consumed model legs before any sidecar can fail or be canceled.
-		if accounting, ok := e.(inference.AttemptUsage); ok {
-			accounting.RecordUsage(readUsage(obj(result["usage"])))
-		} else if x, ok := e.(inference.AttemptAccounting); ok {
-			x.RecordUnmeasuredAttempt()
+		// Final mixed client/hosted turns remain core-accounted; intermediate
+		// model turns are recorded before a helper can fail or be canceled.
+		recordLeg := func() {
+			if x, ok := e.(inference.AttemptUsage); ok {
+				x.RecordUsage(readUsage(obj(result["usage"])))
+			} else if x, ok := e.(inference.AttemptAccounting); ok {
+				x.RecordUnmeasuredAttempt()
+			}
+		}
+		if hostedCalls == len(calls) {
+			recordLeg()
+		}
+
+		if body["tool_choice"] == "none" {
+			return nil, "", fault(502, "hosted_tool_choice_violation")
+		}
+		if selected := obj(body["tool_choice"]); selected != nil {
+			n := str(obj(selected["function"])["name"])
+			if n != "" {
+				for _, v := range calls {
+					if str(obj(obj(v)["function"])["name"]) != n {
+						return nil, "", fault(502, "hosted_tool_choice_violation")
+					}
+				}
+			}
 		}
 		if round == a.config.MaxRounds {
 			return nil, "", fault(502, "hosted_loop_limit")
 		}
 
-		seen := map[string]bool{}
+		seen := t.callIDs
 		for _, v := range calls {
 			call := obj(v)
 			id := str(call["id"])
@@ -231,6 +302,9 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 			}
 			output, runErr := t.run(ctx, tool, id, args)
 			if runErr != nil {
+				if hostedCalls != len(calls) {
+					recordLeg()
+				}
 				return nil, "", runErr
 			}
 			data, _ := json.Marshal(output)
@@ -243,14 +317,50 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, e infe
 					clientCalls = append(clientCalls, v)
 				}
 			}
+			hostedMessage := object{}
+			for k, v := range message {
+				hostedMessage[k] = v
+			}
+			hostedOnly := []any{}
+			for _, v := range calls {
+				if _, ok := active[str(obj(obj(v)["function"])["name"])]; ok {
+					hostedOnly = append(hostedOnly, v)
+				}
+			}
+			hostedMessage["tool_calls"] = hostedOnly
+			messages[len(arr(body["messages"]))] = hostedMessage
+			historyBody := object{}
+			for k, v := range body {
+				historyBody[k] = v
+			}
+			historyBody["messages"] = messages
+			if history, ok := e.(inference.ContinuationHistory); ok {
+				encoded, _ := json.Marshal(historyBody)
+				if err := history.RecordContinuationHistory(encoded, inference.Chat); err != nil {
+					return nil, "", err
+				}
+			}
 			message["tool_calls"] = clientCalls
-			result["hosted_outputs"] = t.outputs
-			// This model leg has already been recorded as intermediate usage.
-			delete(result, "usage")
+			result["hosted_outputs"] = append(arr(result["hosted_outputs"]), t.outputs...)
+			if b, _ := json.Marshal(result); int64(len(b)) > a.config.MaxBytes {
+				return nil, "", fault(502, "hosted_buffer_limit")
+			}
 			raw, _ = json.Marshal(result)
-			return finalResponse(raw, result, stream), inference.Chat, nil
+			out := finalResponse(raw, result, stream)
+			for k, v := range r.Header {
+				if k != "Content-Type" && k != "Content-Length" && k != "Content-Encoding" {
+					out.Header[k] = append([]string(nil), v...)
+				}
+			}
+			return out, inference.Chat, nil
 		}
 		body["messages"] = messages
+		if history, ok := e.(inference.ContinuationHistory); ok {
+			encoded, _ := json.Marshal(body)
+			if err := history.RecordContinuationHistory(encoded, inference.Chat); err != nil {
+				return nil, "", err
+			}
+		}
 		// The last pass must answer from gathered results. It cannot request another
 		// paid helper, even when the initial request forced a particular hosted tool.
 		if round+1 == a.config.MaxRounds || t.exhausted(active) {
@@ -271,7 +381,14 @@ func readUsage(m object) inference.Usage {
 		n := int64(f)
 		return &n
 	}
-	return inference.Usage{InputTokens: number("prompt_tokens"), OutputTokens: number("completion_tokens"), CacheReadTokens: number("cache_read_input_tokens"), CacheWriteTokens: number("cache_creation_input_tokens")}
+	u := inference.Usage{InputTokens: number("prompt_tokens"), OutputTokens: number("completion_tokens"), CacheReadTokens: number("cache_read_input_tokens"), CacheWriteTokens: number("cache_creation_input_tokens")}
+	if u.CacheReadTokens == nil {
+		if f, ok := obj(m["prompt_tokens_details"])["cached_tokens"].(float64); ok && f >= 0 {
+			n := int64(f)
+			u.CacheReadTokens = &n
+		}
+	}
+	return u
 }
 func finalResponse(raw []byte, result object, stream bool) *http.Response {
 	content := "application/json"
@@ -357,7 +474,8 @@ func (t *turn) execute(ctx context.Context, tool tool, id string, args object) (
 		return OperationResult{}, fault(502, "hosted_result_limit")
 	}
 	for _, a := range result.Artifacts {
-		if a.ID == "" || !strings.HasPrefix(a.URL, "https://") {
+		u, parseErr := url.Parse(a.URL)
+		if a.ID == "" || parseErr != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
 			return OperationResult{}, fault(502, "hosted_invalid_artifact")
 		}
 	}
@@ -401,9 +519,28 @@ func (t *turn) run(ctx context.Context, tool tool, id string, args object) (any,
 	if strings.TrimSpace(str(args["prompt"])) == "" {
 		return nil, fault(502, "hosted_missing_prompt")
 	}
+	if tool.kind == Image {
+		if n, ok := args["n"]; ok {
+			f, valid := n.(float64)
+			if !valid || f < 1 || f > 4 || f != float64(int(f)) {
+				return nil, fault(502, "hosted_invalid_image_count")
+			}
+		}
+	}
+	if tool.kind == Video {
+		if n, ok := args["duration"]; ok {
+			f, valid := n.(float64)
+			if !valid || f < 1 || f > 15 || f != float64(int(f)) {
+				return nil, fault(502, "hosted_invalid_video_duration")
+			}
+		}
+	}
 	result, err := t.execute(ctx, tool, id, args)
 	if err != nil {
 		return nil, err
+	}
+	if !result.Failed && len(result.Artifacts) == 0 {
+		return nil, fault(502, "hosted_missing_media_artifact")
 	}
 	status := "completed"
 	if result.Failed {
@@ -448,3 +585,10 @@ func (t *turn) describe(ctx context.Context, body object) error {
 var _ inference.Adapter = (*Adapter)(nil)
 var _ inference.ExecutingAdapter = (*Adapter)(nil)
 var _ inference.StatefulAdapter = (*Adapter)(nil)
+
+type cancelBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelBody) Close() error { defer b.cancel(); return b.ReadCloser.Close() }

@@ -72,17 +72,17 @@ func synthetic(k Kind, wire inference.Wire) object {
 
 // catalog only intercepts explicitly declared hosted capabilities. Function names
 // alone never authorize remote execution. Ambiguous function collisions fail closed.
-func catalog(body object, wire inference.Wire, video bool) (map[string]tool, error) {
+func catalog(body object, wire inference.Wire, video bool, native map[Kind]bool, enabled map[Kind]bool) (map[string]tool, error) {
 	active := map[string]tool{}
 	tools := arr(body["tools"])
 	for _, v := range tools {
 		d := obj(v)
-		if k := kind(str(d["type"])); k != "" {
+		if k := kind(str(d["type"])); k != "" && !native[k] && (enabled == nil || enabled[k]) {
 			raw, _ := json.Marshal(d)
 			active[name(k)] = tool{k, raw}
 		}
 	}
-	if video {
+	if video && !native[Video] && (enabled == nil || enabled[Video]) {
 		active[name(Video)] = tool{Video, json.RawMessage(`{"type":"video_generation"}`)}
 	}
 	if len(active) == 0 {
@@ -92,7 +92,7 @@ func catalog(body object, wire inference.Wire, video bool) (map[string]tool, err
 	added := map[string]bool{}
 	for _, v := range tools {
 		d := obj(v)
-		if k := kind(str(d["type"])); k != "" {
+		if k := kind(str(d["type"])); k != "" && !native[k] && (enabled == nil || enabled[k]) {
 			n := name(k)
 			if !added[n] {
 				out = append(out, synthetic(k, wire))
@@ -109,7 +109,7 @@ func catalog(body object, wire inference.Wire, video bool) (map[string]tool, err
 		}
 		out = append(out, v)
 	}
-	if video {
+	if video && !native[Video] && (enabled == nil || enabled[Video]) {
 		out = append(out, synthetic(Video, wire))
 	}
 	body["tools"] = out

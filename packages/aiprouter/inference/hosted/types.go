@@ -75,6 +75,16 @@ type Codec interface {
 }
 
 type Config struct {
+	// RecoveryPolicy supplies separately registered provider classifiers. It only
+	// inspects successful headers; the core still owns refresh/rotation/retry.
+	RecoveryPolicy inference.HTTPRecoveryPolicy
+	// NativeTools is resolved by trusted provider/model policy. These declarations
+	// stay native, even when another helper capability activates this wrapper.
+	NativeTools map[Kind]bool
+	// EnabledTools nil permits declared helpers. A non-nil map restricts helpers
+	// to configured kinds; an empty map preserves every native declaration.
+	EnabledTools map[Kind]bool
+
 	Resolver        Resolver
 	Codec           Codec
 	MaxRounds       int
@@ -97,7 +107,7 @@ func defaults(c Config) Config {
 	c.MaxSearches = bound(c.MaxSearches, 3, 32)
 	c.MaxImages = bound(c.MaxImages, 10, 10)
 	c.MaxVideos = bound(c.MaxVideos, 3, 3)
-	c.MaxDescriptions = bound(c.MaxDescriptions, 4, 16)
+	c.MaxDescriptions = bound(c.MaxDescriptions, 8, 16)
 	if c.MaxBytes <= 0 || c.MaxBytes > 32<<20 {
 		c.MaxBytes = 32 << 20
 	}
