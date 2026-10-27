@@ -30,6 +30,8 @@ RPC paths use `/aiprouter.v1.<Service>/<Method>`. Personal requests select an or
 
 Provider configuration carries typed custom wires, model overrides, endpoint paths, and presence-aware policy overrides. An absent boolean inherits its default; explicit `false` overrides it. Custom header values are write-only, with explicit replacement/reset semantics. Operator destination rules preserve stable identifiers and canonical origins. Empty CIDR lists approve the exact origin under the service policy; nonempty lists restrict all resolved addresses for that origin and cannot fall back to default public-HTTPS approval.
 
+`ProviderPolicyOverrides.responses_item_id_repair` is an optional object, not a boolean. Its `message` and `reasoning` arrays contain exact identifiers; `repair_invalid_ids` and `repair_missing_terminal_ids` retain optional boolean presence. Omitting the object inherits the preset. A present empty object overrides the preset with no repair. Preserve this distinction through generated clients, settings persistence, UI editing, and request-policy resolution.
+
 ## Storage
 
 Schemas describe lifecycle and ownership; bindings do not own persisted state.
