@@ -298,3 +298,28 @@ test("provider config preserves explicit false, replacement, and write-only head
     false,
   );
 });
+
+test("JEV configuration preserves absence, defaults, and target hints", async () => {
+  const { UpdateRouteRequestSchema, RoutingStrategy, ProviderWire } =
+    await import("../src/index.js");
+  assert.equal(create(UpdateRouteRequestSchema).jevDecision, undefined);
+  const route = create(UpdateRouteRequestSchema, {
+    strategy: RoutingStrategy.JEV,
+    jevDecision: { decisionConnectionId: "private", decisionModel: "alias" },
+    targets: [
+      {
+        modelId: "candidate",
+        reasoningEfforts: ["ultra"],
+        modelProfile: "profile",
+      },
+    ],
+  });
+  const decoded = fromBinary(
+    UpdateRouteRequestSchema,
+    toBinary(UpdateRouteRequestSchema, route),
+  );
+  assert.deepEqual(decoded, route);
+  assert.equal(decoded.jevDecision?.decisionTimeoutMs, 0);
+  assert.equal(decoded.jevDecision?.sessionPinTtlSeconds, 0);
+  assert.equal(ProviderWire.JEV_DECISION, 5);
+});

@@ -306,3 +306,25 @@ func TestProviderPolicyPresenceAndWriteOnlyHeaders(t *testing.T) {
 		}
 	}
 }
+
+func TestJevDecisionPresenceAndTargetHints(t *testing.T) {
+	for _, value := range []*v1.UpdateRouteRequest{
+		{}, {JevDecision: &v1.JevDecisionConfig{}},
+		{Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_JEV, JevDecision: &v1.JevDecisionConfig{DecisionConnectionId: "private-connection", DecisionModel: "decision-alias", DecisionTimeoutMs: 4000, SessionPinTtlSeconds: 60}, Targets: []*v1.RouteTarget{{ModelId: "candidate", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, ModelProfile: "candidate profile"}}},
+	} {
+		wire, err := proto.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := &v1.UpdateRouteRequest{}
+		if err = proto.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(value, decoded) {
+			t.Fatal("JEV config presence or target hints lost")
+		}
+	}
+	if v1.ProviderWire_PROVIDER_WIRE_JEV_DECISION.Number() != 5 {
+		t.Fatal("JEV custom wire changed")
+	}
+}

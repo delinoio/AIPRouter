@@ -7,13 +7,15 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/delinoio/AIPRouter/protos/aiprouter/v1;aiprouterv1";
 
-// User-configurable generic wires only. Specialized preset adapters remain server-owned.
+// User-configurable wires, including the compatible JEV decision service.
+// Other specialized preset adapters remain server-owned.
 enum ProviderWire {
   PROVIDER_WIRE_UNSPECIFIED = 0;
   PROVIDER_WIRE_CHAT = 1;
   PROVIDER_WIRE_RESPONSES = 2;
   PROVIDER_WIRE_ANTHROPIC = 3;
   PROVIDER_WIRE_GOOGLE = 4;
+  PROVIDER_WIRE_JEV_DECISION = 5;
 }
 
 // Each absent field inherits the destination-matched preset policy. Explicit false
@@ -115,6 +117,21 @@ message Pool {
   // Does not enable or change Codex or Anthropic provider-specific affinity.
   bool affinity_enabled = 6;
 }
+
+// JEV decision settings are private to the authenticated user in the selected organization.
+// Resolve an independent current credential; never borrow another target's credential.
+message JevDecisionConfig {
+  // Explicitly selected personal decision connection, including for the canonical JEV service.
+  // No implicit operator/global credential fallback.
+  string decision_connection_id = 1;
+  // Ordinary owner-scoped route alias; takes precedence over decision_connection_id.
+  // Reject aliases that resolve to JEV decision chains or cycles.
+  string decision_model = 2;
+  // Zero uses 4000 ms; otherwise 1000..120000 ms.
+  uint32 decision_timeout_ms = 3;
+  // Zero disables session pinning; otherwise 60..86400 seconds.
+  uint32 session_pin_ttl_seconds = 4;
+}
 message RouteTarget {
   oneof target {
     string connection_id = 1;
@@ -123,6 +140,10 @@ message RouteTarget {
   string model_id = 3;
   uint32 priority = 4;
   uint32 weight = 5;
+  // Allowed JEV target hints: low, medium, high, xhigh, max, ultra.
+  repeated string reasoning_efforts = 6;
+  // Bounded to 512 characters; safe model description, never credentials or request content.
+  string model_profile = 7;
 }
 message Route {
   string id = 1;
@@ -131,6 +152,8 @@ message Route {
   RoutingStrategy strategy = 4;
   repeated RouteTarget targets = 5;
   bool enabled = 6;
+  // Present only for JEV strategy. An absent message means no JEV configuration.
+  JevDecisionConfig jev_decision = 7;
 }
 service ProviderService {
   rpc ListProviderCatalog(ListProviderCatalogRequest) returns (ListProviderCatalogResponse) {
@@ -346,6 +369,8 @@ message CreateRouteRequest {
   RoutingStrategy strategy = 3;
   repeated RouteTarget targets = 4;
   bool enabled = 5;
+  // Present only for JEV strategy. An absent message means no JEV configuration.
+  JevDecisionConfig jev_decision = 6;
 }
 message CreateRouteResponse {
   Route route = 1;
@@ -357,6 +382,9 @@ message UpdateRouteRequest {
   RoutingStrategy strategy = 4;
   repeated RouteTarget targets = 5;
   bool enabled = 6;
+  // Present only for JEV strategy. An absent message means no JEV configuration.
+  // Route updates replace the complete route; omission clears previous JEV settings.
+  JevDecisionConfig jev_decision = 7;
 }
 message UpdateRouteResponse {
   Route route = 1;

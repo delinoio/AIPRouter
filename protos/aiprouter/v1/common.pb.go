@@ -945,6 +945,7 @@ const (
 	RoutingStrategy_ROUTING_STRATEGY_FALLBACK    RoutingStrategy = 2
 	RoutingStrategy_ROUTING_STRATEGY_WEIGHTED    RoutingStrategy = 3
 	RoutingStrategy_ROUTING_STRATEGY_ROUND_ROBIN RoutingStrategy = 4
+	RoutingStrategy_ROUTING_STRATEGY_JEV         RoutingStrategy = 5
 )
 
 // Enum value maps for RoutingStrategy.
@@ -955,6 +956,7 @@ var (
 		2: "ROUTING_STRATEGY_FALLBACK",
 		3: "ROUTING_STRATEGY_WEIGHTED",
 		4: "ROUTING_STRATEGY_ROUND_ROBIN",
+		5: "ROUTING_STRATEGY_JEV",
 	}
 	RoutingStrategy_value = map[string]int32{
 		"ROUTING_STRATEGY_UNSPECIFIED": 0,
@@ -962,6 +964,7 @@ var (
 		"ROUTING_STRATEGY_FALLBACK":    2,
 		"ROUTING_STRATEGY_WEIGHTED":    3,
 		"ROUTING_STRATEGY_ROUND_ROBIN": 4,
+		"ROUTING_STRATEGY_JEV":         5,
 	}
 )
 
@@ -2017,13 +2020,14 @@ const file_aiprouter_v1_common_proto_rawDesc = "" +
 	"\x19POOL_STRATEGY_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16POOL_STRATEGY_PRIORITY\x10\x01\x12\x1d\n" +
 	"\x19POOL_STRATEGY_ROUND_ROBIN\x10\x02\x12%\n" +
-	"!POOL_STRATEGY_LEAST_RECENTLY_USED\x10\x03*\xb0\x01\n" +
+	"!POOL_STRATEGY_LEAST_RECENTLY_USED\x10\x03*\xca\x01\n" +
 	"\x0fRoutingStrategy\x12 \n" +
 	"\x1cROUTING_STRATEGY_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ROUTING_STRATEGY_DIRECT\x10\x01\x12\x1d\n" +
 	"\x19ROUTING_STRATEGY_FALLBACK\x10\x02\x12\x1d\n" +
 	"\x19ROUTING_STRATEGY_WEIGHTED\x10\x03\x12 \n" +
-	"\x1cROUTING_STRATEGY_ROUND_ROBIN\x10\x04*\xd7\x01\n" +
+	"\x1cROUTING_STRATEGY_ROUND_ROBIN\x10\x04\x12\x18\n" +
+	"\x14ROUTING_STRATEGY_JEV\x10\x05*\xd7\x01\n" +
 	"\x0eRequestOutcome\x12\x1f\n" +
 	"\x1bREQUEST_OUTCOME_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19REQUEST_OUTCOME_SUCCEEDED\x10\x01\x12\"\n" +
