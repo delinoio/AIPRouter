@@ -112,7 +112,10 @@ func (s *streamReader) Read(p []byte) (int, error) {
 		if !found {
 			return 0, io.EOF
 		}
-		payload := strings.Join(data, "\n")
+		payload := strings.TrimSpace(strings.Join(data, "\n"))
+		if payload == "" {
+			continue
+		}
 		if payload == "[DONE]" {
 			s.terminal = true
 			for key, name := range s.names {
@@ -219,14 +222,19 @@ func ErrorCode(status int, payload []byte) string {
 }
 
 // RecoverHTTP preserves central OAuth refresh/rotation policy. Known business
-// refusals stop with fixed public codes and never expose private provider text.
+// refusals use fixed public codes and never expose private provider text.
+// Retryable statuses retain the central refresh, rotation, and fallback policy.
 func (*Adapter) RecoverHTTP(ctx context.Context, in inference.AdapterInput, f inference.HTTPFailure) (inference.RecoveryDecision, error) {
 	if e := ctx.Err(); e != nil {
 		return inference.RecoveryDecision{}, e
 	}
 	code := ErrorCode(f.Status, f.Body)
 	if code != "workbuddy_upstream_error" {
-		return inference.RecoveryDecision{Action: inference.RecoveryStop, Error: &inference.Error{Status: f.Status, Code: code}}, nil
+		action := inference.RecoveryStop
+		if f.Status == 401 || f.Status == 429 || f.Status >= 500 {
+			action = inference.RecoveryDefault
+		}
+		return inference.RecoveryDecision{Action: action, Error: &inference.Error{Status: f.Status, Code: code}}, nil
 	}
 	return inference.RecoveryDecision{Action: inference.RecoveryDefault}, nil
 }

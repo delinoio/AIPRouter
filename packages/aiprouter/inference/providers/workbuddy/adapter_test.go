@@ -234,3 +234,24 @@ func TestSessionPrecedenceAndPersonalIdentity(t *testing.T) {
 		t.Fatal("own thread ignored")
 	}
 }
+
+func TestKnownDiagnosticsPreserveRecovery(t *testing.T) {
+	for _, status := range []int{401, 429, 500, 503} {
+		d, e := New().RecoverHTTP(context.Background(), fixture(), inference.HTTPFailure{Status: status, Body: []byte(`{"code":11140,"msg":"private"}`)})
+		if e != nil || d.Action != inference.RecoveryDefault || d.Error.Code != "workbuddy_account_restricted" {
+			t.Fatal(status, d, e)
+		}
+	}
+}
+
+func TestSSEHeartbeatAndTerminalBoundary(t *testing.T) {
+	r, e := New().Decode(context.Background(), sse(": heartbeat\n\ndata:   \n\ndata:   [DONE]  \n\ndata: invalid-after-terminal\n\n"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer r.Body.Close()
+	out, e := io.ReadAll(r.Body)
+	if e != nil || string(out) != "data: [DONE]\n\n" {
+		t.Fatal(string(out), e)
+	}
+}
