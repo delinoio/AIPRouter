@@ -275,6 +275,7 @@ func TestModelCapsEffortsAndDefaults(t *testing.T) {
 		{"gemini-3.7-flash", "", "gemini-3.7-flash-tiered", "medium", true},
 		{"claude-opus-5-5-low", "high", "claude-opus-5-5-low", "", true},
 		{"claude-sonnet-4-6", "max", "claude-sonnet-4-6", "high", true},
+		{"claude-custom-unknown", "high", "claude-custom-unknown", "", true},
 		{"gemini-3.6-flash", "max", "gemini-3.6-flash-tiered", "high", false},
 	} {
 		wire, level := ResolveModel(tc.model, tc.effort, tc.cca)

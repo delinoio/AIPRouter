@@ -90,7 +90,7 @@ func ResolveModel(model, effort string, cca bool) (string, string) {
 			return model, ""
 		}
 	}
-	if strings.HasPrefix(model, "claude-") {
+	if model == "claude-sonnet-4-6" || model == "claude-opus-4-6-thinking" {
 		if e == "minimal" {
 			e = ""
 		}
