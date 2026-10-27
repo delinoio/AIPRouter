@@ -22,7 +22,7 @@ The console implements account and organization workflows, provider/pool/routing
 
 The Compose packaging includes the console and API together, PostgreSQL, optional monitoring, proxy examples, and offline maintenance. Automated fixture evidence exists for parts of these workflows. It does not establish production image execution, live identity/provider accounts, native credential stores, or real application compatibility. A final source-revision acceptance assessment remains separate.
 
-Provider OAuth and refresh, advanced pool/routing scheduling, and usage filtering/aggregation are still being completed. Keep unavailable errors visible until the corresponding service implementation and tests establish support. Optional [native TLS compatibility](native-compatibility.md) has separate build gates, consent, and cleanup requirements; ordinary gateway tests do not establish optional runtime readiness.
+Provider OAuth and refresh, advanced pool/routing scheduling, and usage filtering/aggregation are still being completed. Keep unavailable errors visible until the corresponding service implementation and tests establish support. Optional [native TLS compatibility](native-compatibility.md) has separate build gates, consent, and cleanup requirements; the native command/runtime tests do not establish real OS trust or installed-application acceptance. Account-UI trial activation remains unavailable pending production account-attestation confirmation.
 
 ## Explicit differences
 

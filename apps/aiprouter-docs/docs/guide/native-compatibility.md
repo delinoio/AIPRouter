@@ -4,7 +4,16 @@
 
 Optional Claude first-party Desktop/model-picker compatibility and experimental Codex Desktop compatibility are included product modes. They are separate from ordinary [gateway configuration](clients.md), and are not local executable provider backends.
 
-The runtime and CLI activation integration are still being validated. Exact supported mode/build identifiers and a verified activation procedure are not finalized in this guide. Do not treat the presence of a `native` command in a development build as successful activation. Continue to use gateway configuration until your release documents its supported native build and procedure.
+The CLI commands below are implemented and covered by automated runtime/CLI tests. They do not establish real OS trust or installed-application acceptance. The installed build must pass the runtime's own checks; supplying a build number does not bypass attestation.
+
+| Mode                     | Build gate      | Platform gate  | Application workflow                                                          |
+| ------------------------ | --------------- | -------------- | ----------------------------------------------------------------------------- |
+| `claude-firstparty`      | `1.18286.0`     | macOS, Windows | Configure `claude` after runtime readiness                                    |
+| `claude-picker`          | `1.18286.0`     | macOS, Windows | Configure `claude-desktop` after runtime readiness                            |
+| `codex-observe`          | `26.924.2738.0` | Windows        | Launch through the ready native runtime                                       |
+| `codex-account-ui-trial` | `26.924.2738.0` | Windows        | Activation unavailable pending confirmation of production account attestation |
+
+The account-UI trial is not an available activation procedure in this guide. Its command name and policy gate do not establish usable production account attestation. Use observe mode without assuming it changes account quotas.
 
 ## Review before activation
 
@@ -14,13 +23,68 @@ Review and confirm certificate trust separately from application mutation. Ordin
 
 The runtime must restrict interception to the pinned client routes and destinations, preserve upstream TLS verification, and avoid forwarding native account credentials to AIPRouter. It is not a general-purpose traffic interceptor. The server retains provider selection and usage authority.
 
+## Plan and enable
+
+First create the named connection profile using [the ordinary connection flow](clients.md). The examples use the existing `work` profile. Select one mode for that profile and review the complete plan before enabling it.
+
+For Claude first-party mode:
+
+```sh
+aiprouter native --action plan --profile work --mode claude-firstparty --build 1.18286.0 --native-port 17844
+aiprouter native --action enable --profile work --mode claude-firstparty --build 1.18286.0 --native-port 17844
+```
+
+Planning can prepare protected certificate material, but does not enroll trust or mutate the application. Enabling requests separate trust and application consent. Do not continue if trust remains pending or an error is reported. Start the listener in a terminal that remains running:
+
+```sh
+aiprouter native --action serve --profile work
+```
+
+From another terminal, check readiness and then preview the application changes:
+
+```sh
+aiprouter native --action status --profile work
+aiprouter configure --profile work --client claude --mode claude-firstparty
+```
+
+`configure --mode` requires the live runtime's matching readiness. For the Desktop picker workflow, use `claude-picker` in both plan and enable, then `aiprouter configure --profile work --client claude-desktop --mode claude-picker`. Close Claude Desktop before confirming its settings changes. Omitting `--mode` selects ordinary gateway configuration; restore existing native settings before switching back.
+
+## Codex observe and launch
+
+On the gated Windows build, use observe mode:
+
+```sh
+aiprouter native --action plan --profile work --mode codex-observe --build 26.924.2738.0 --native-port 17844
+aiprouter native --action enable --profile work --mode codex-observe --build 26.924.2738.0 --native-port 17844
+aiprouter native --action serve --profile work
+```
+
+Keep the listener running. In another terminal, check readiness and launch the attested application after reviewing the launch confirmation:
+
+```sh
+aiprouter native --action status --profile work
+aiprouter native --action launch --profile work
+```
+
+Optional Codex modes use `native --action launch`, not `configure --mode` or a Codex settings mutation. Ordinary `configure --client codex` remains a separate gateway/catalog workflow. Observe mode does not authorize the bounded account-UI trial.
+
 ## Trust and local access
 
-Listeners bind only to loopback and use fixed ports; conflicts must fail without choosing another port. Keep the runtime's CA private material in protected user storage. Never copy it into a ticket, commit it, log it, or transmit it. Trust changes must be limited to the exact owned certificate in the current user's trust scope. Missing trust is pending activation, not success.
+The native listener defaults to port 17844, distinct from the ordinary relay default of 17843. Use a distinct explicit `--native-port` for each additional native listener. Listeners bind only to loopback and use fixed ports; conflicts must fail without choosing another port. Keep the runtime's CA private material in protected user storage. Never copy it into a ticket, commit it, log it, or transmit it. Trust changes must be limited to the exact owned certificate in the current user's trust scope. Missing trust is pending activation, not success.
 
-Status must distinguish enabled, trusted, and ready. Application settings must not be applied using a listener that has not passed readiness and consent checks. Ordinary gateway behavior must remain available without enrolling optional trust.
+Status distinguishes enabled, trusted, and ready and redacts proxy authentication. Application settings must not be applied using a listener that has not passed readiness and consent checks. Ordinary gateway behavior must remain available without enrolling optional trust.
 
 ## Stop, disable, and restore
+
+Use these actions for the existing profile:
+
+```sh
+aiprouter native --action status --profile work
+aiprouter native --action stop --profile work
+aiprouter native --action disable --profile work
+```
+
+`status` and `stop` remain available when a settings transaction is interrupted. `disable` requests confirmation, stops the owned listener, restores runtime-owned application settings, and removes owned certificate trust. If an unfinished settings transaction blocks mutation, use `aiprouter recover` to review its recovery before retrying disable. Keep conflict backups until recovery is complete.
 
 Stopping a listener is not the same as removing certificate trust or restoring application settings. Disable/disconnect must identify owned resources, stop owned listeners, offer protected settings restoration, and remove only the owned trust certificate after the required confirmation. Preserve unrelated certificates, proxies, and user changes.
 
