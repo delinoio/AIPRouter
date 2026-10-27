@@ -18,7 +18,7 @@ func providerStatePolicy(namespace string) (providerStateLimits, bool) {
 	case commandCodeEffortsNamespace:
 		return providerStateLimits{time.Hour, 64, 4096, 256 << 10}, true
 	case "jev-route-pin":
-		return providerStateLimits{24 * time.Hour, 64, 4096, 262144}, true
+		return providerStateLimits{24 * time.Hour, 512, 4096, 2 << 20}, true
 	case "mimo-free":
 		return providerStateLimits{time.Hour, 64, 128 << 10, 256 << 10}, true
 	case "tool-reasoning-replay":
