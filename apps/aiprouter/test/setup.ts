@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { afterEach, vi } from "vitest";
+import { afterEach, rs } from "@rstest/core";
 import { cleanup } from "@testing-library/react";
 afterEach(() => {
   cleanup();
@@ -16,14 +16,14 @@ if (!HTMLDialogElement.prototype.close)
   };
 Object.defineProperty(window, "matchMedia", {
   writable: true,
-  value: vi.fn((query: string) => ({
+  value: rs.fn((query: string) => ({
     matches: false,
     media: query,
     onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
+    addListener: rs.fn(),
+    removeListener: rs.fn(),
+    addEventListener: rs.fn(),
+    removeEventListener: rs.fn(),
+    dispatchEvent: rs.fn(),
   })),
 });

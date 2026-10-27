@@ -49,7 +49,7 @@ Use structured logs and request identifiers. Never log provider secrets, API key
 
 ## Build and Test
 
-Run `pnpm test` from `apps/aiprouter` after frontend changes. Include automated responsive/accessibility, keyboard, focus, Escape, permission, device-approval, and failure-state checks. Follow [release validation](servers-aiprouter-operations-contract.md); visual design and native/live acceptance are separate from these checks.
+Run `pnpm test` from `apps/aiprouter` after frontend changes. Rstest owns the console unit and component suite; `rstest.config.ts` configures jsdom, shared setup, and automatic mock restoration. Include automated responsive/accessibility, keyboard, focus, Escape, permission, device-approval, and failure-state checks. Follow [release validation](servers-aiprouter-operations-contract.md); visual design and native/live acceptance are separate from these checks.
 
 ## Dependencies and Integrations
 

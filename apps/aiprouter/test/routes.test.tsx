@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, rs } from "@rstest/core";
 import { createRouterTransport } from "@connectrpc/connect";
 import { QueryClient } from "@tanstack/react-query";
 import {
@@ -172,7 +172,7 @@ describe("page entry and navigation", () => {
     });
     await userEvent.clear(input);
     await userEvent.type(input, "200");
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const confirm = rs.spyOn(window, "confirm").mockReturnValue(false);
     try {
       act(() => {
         window.history.replaceState(null, "", "/instance/health");

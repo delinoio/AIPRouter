@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, rs, afterEach } from "@rstest/core";
 import {
   createRouterTransport,
   Code,
@@ -66,7 +66,7 @@ afterEach(() => window.history.replaceState(null, "", "/"));
 describe("personal key lifecycle", () => {
   it("issues a scoped key only on submit and removes the one-time secret when Done closes", async () => {
     const user = userEvent.setup();
-    const createKey = vi.fn((_request: unknown) => ({
+    const createKey = rs.fn((_request: unknown) => ({
       rawKey: "one-time-sensitive-key",
     }));
     mount(<KeysPage {...props} />, (r) =>
@@ -99,7 +99,7 @@ describe("personal key lifecycle", () => {
   });
   it("focuses Cancel and never claims failed revocation succeeded", async () => {
     const user = userEvent.setup();
-    const revokeKey = vi.fn(() => {
+    const revokeKey = rs.fn(() => {
       throw new ConnectError("sensitive server detail", Code.Unavailable);
     });
     mount(<KeysPage {...props} />, (r) =>
@@ -132,7 +132,7 @@ describe("personal key lifecycle", () => {
 describe("catalog and provider mutations", () => {
   it("uses the full RPC catalog and selected authentication metadata", async () => {
     const user = userEvent.setup();
-    const createProviderConnection = vi.fn((_request: unknown) => ({}));
+    const createProviderConnection = rs.fn((_request: unknown) => ({}));
     mount(<ProvidersPage {...props} />, (r) => {
       r.service(ProviderService, {
         listProviderConnections: () => ({ connections: [] }),
@@ -301,7 +301,7 @@ describe("routing and pools", () => {
   it("sends ordered personal pool members and rejects duplicate names before submission", async () => {
     const { PoolsPage } = await import("../src/routing");
     const user = userEvent.setup();
-    const createPool = vi.fn((_request: unknown) => ({}));
+    const createPool = rs.fn((_request: unknown) => ({}));
     mount(<PoolsPage {...props} />, (r) => {
       r.service(ProviderService, {
         listProviderConnections: () => ({
@@ -344,7 +344,7 @@ describe("routing and pools", () => {
   it("creates a real route with an explicit model and protobuf connection target", async () => {
     const { RoutingPage } = await import("../src/routing");
     const user = userEvent.setup();
-    const createRoute = vi.fn((_request: unknown) => ({}));
+    const createRoute = rs.fn((_request: unknown) => ({}));
     mount(<RoutingPage {...props} />, (r) => {
       r.service(ProviderService, {
         listProviderConnections: () => ({
@@ -422,9 +422,9 @@ it("clears privileged navigation after a scoped read loses permission without en
 it("sends provider and explicit unknown-outcome filters to records, summary, and daily RPCs", async () => {
   const { UsagePage } = await import("../src/usage");
   const user = userEvent.setup();
-  const listUsage = vi.fn((_request: unknown) => ({ records: [] }));
-  const getUsageSummary = vi.fn((_request: unknown) => ({}));
-  const listDailyUsage = vi.fn((_request: unknown) => ({ days: [] }));
+  const listUsage = rs.fn((_request: unknown) => ({ records: [] }));
+  const getUsageSummary = rs.fn((_request: unknown) => ({}));
+  const listDailyUsage = rs.fn((_request: unknown) => ({ days: [] }));
   mount(<UsagePage {...props} />, (r) =>
     r.service(UsageService, { listUsage, getUsageSummary, listDailyUsage }),
   );
@@ -449,7 +449,7 @@ describe("provider OAuth integration", () => {
     const { ProviderOAuthMethod: Method, OAuthState } =
       await import("@aiprouter/client");
     const user = userEvent.setup();
-    const begin = vi.fn((_request: unknown) => ({
+    const begin = rs.fn((_request: unknown) => ({
       authorization: {
         id: "auth",
         state: OAuthState.PENDING,
@@ -457,7 +457,7 @@ describe("provider OAuth integration", () => {
         callbackState: "safe-state",
       },
     }));
-    const complete = vi.fn((_request: unknown) => ({}));
+    const complete = rs.fn((_request: unknown) => ({}));
     mount(<ProvidersPage {...props} />, (r) => {
       r.service(ProviderService, {
         listProviderConnections: () => ({ connections: [] }),
@@ -556,7 +556,7 @@ describe("provider OAuth integration", () => {
   it("uses server default when methods are absent and shows polled completion without a manual token form", async () => {
     const { OAuthState } = await import("@aiprouter/client");
     const user = userEvent.setup();
-    const begin = vi.fn((_request: unknown) => ({
+    const begin = rs.fn((_request: unknown) => ({
       authorization: {
         id: "device-auth",
         state: OAuthState.PENDING,
@@ -617,7 +617,7 @@ describe("provider OAuth integration", () => {
 it("preserves existing pool affinity and explicitly sends opt-out updates", async () => {
   const { PoolsPage } = await import("../src/routing");
   const user = userEvent.setup();
-  const updatePool = vi.fn((_request: unknown) => ({}));
+  const updatePool = rs.fn((_request: unknown) => ({}));
   mount(<PoolsPage {...props} />, (r) => {
     r.service(ProviderService, {
       listProviderConnections: () => ({

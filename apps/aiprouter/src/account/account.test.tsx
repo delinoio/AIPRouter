@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, rs } from "@rstest/core";
 import {
   createRouterTransport,
   ConnectError,
@@ -63,7 +63,7 @@ describe("browser device authorization", () => {
   it("requires code review and explicit selected-organization approval; no CLI key or storage success is invented", async () => {
     const user = userEvent.setup();
     const authorization = device();
-    const approve = vi.fn((request) => ({
+    const approve = rs.fn((request) => ({
       authorization: {
         ...authorization,
         organizationId: request.organizationId,
@@ -111,8 +111,8 @@ describe("browser device authorization", () => {
 
   it("denies without approval and keeps denial distinct", async () => {
     const user = userEvent.setup();
-    const approve = vi.fn();
-    const deny = vi.fn(() => ({}));
+    const approve = rs.fn();
+    const deny = rs.fn(() => ({}));
     mount(<DevicePage initialCode="CODE" />, (router) => {
       router.service(DeviceApprovalService, {
         getDeviceAuthorization: () => ({ authorization: device() }),
@@ -172,7 +172,7 @@ describe("browser device authorization", () => {
 
   it("reports unavailable approval without displaying success or retrying the mutation", async () => {
     const user = userEvent.setup();
-    const approve = vi.fn(() => {
+    const approve = rs.fn(() => {
       throw new ConnectError("private diagnostic", Code.Unavailable);
     });
     mount(<DevicePage initialCode="CODE" />, (router) => {
@@ -200,7 +200,7 @@ describe("browser device authorization", () => {
 
 describe("account and onboarding", () => {
   it("blocks self-deletion when any owned organization exists", async () => {
-    const deletion = vi.fn();
+    const deletion = rs.fn();
     mount(<AccountPage />, (router) => {
       router.service(AccountService, {
         getSession: () => session,
@@ -225,7 +225,7 @@ describe("account and onboarding", () => {
 
   it("returns focus after Escape and does not delete merely by opening the dialog", async () => {
     const user = userEvent.setup();
-    const deletion = vi.fn(() => ({}));
+    const deletion = rs.fn(() => ({}));
     mount(<AccountPage />, (router) => {
       router.service(AccountService, {
         getSession: () => session,
@@ -259,7 +259,7 @@ describe("account and onboarding", () => {
 
   it("does not create an organization until explicitly submitted and uses generated Connect input", async () => {
     const user = userEvent.setup();
-    const createOrg = vi.fn((request) => ({
+    const createOrg = rs.fn((request) => ({
       organization: { ...org, name: request.name },
     }));
     mount(<OnboardingPage />, (router) => {
@@ -306,7 +306,7 @@ describe("public acceptance", () => {
     [LifecycleState.CANCELED, "This invitation was canceled."],
     [LifecycleState.ACCEPTED, "This invitation has already been used."],
   ])("does not accept terminal invitation state %s", async (state, message) => {
-    const accept = vi.fn();
+    const accept = rs.fn();
     mount(<InvitationPage token="invitation-token" />, (router) => {
       router.service(AccountService, { getSession: () => session });
       router.service(InvitationService, {
@@ -368,7 +368,7 @@ describe("public acceptance", () => {
 
   it("requires explicit acceptance by the nominated owner", async () => {
     const user = userEvent.setup();
-    const accept = vi.fn(
+    const accept = rs.fn(
       (_request: { organizationId: string; transferId: string }) => ({
         organization: { ...org, role: Role.OWNER },
       }),
@@ -444,7 +444,7 @@ describe("account lifecycle races", () => {
   it("keeps failed logout visible and clears private cache only after server confirmation", async () => {
     const user = userEvent.setup();
     let fail = true;
-    const logout = vi.fn(() => {
+    const logout = rs.fn(() => {
       if (fail) throw new ConnectError("outage", Code.Unavailable);
       return {};
     });
@@ -472,7 +472,7 @@ describe("account lifecycle races", () => {
   it("allows dismissal during deletion and reports the final result on the page", async () => {
     const user = userEvent.setup();
     let finish!: () => void;
-    const deletion = vi.fn(
+    const deletion = rs.fn(
       () =>
         new Promise<Record<string, never>>((resolve) => {
           finish = () => resolve({});
@@ -539,7 +539,7 @@ describe("onboarding navigation guards", () => {
 
   it("removes the discard guard before the success callback can navigate", async () => {
     const user = userEvent.setup();
-    const navigation = vi.fn(() => unloadIsBlocked());
+    const navigation = rs.fn(() => unloadIsBlocked());
     mount(<DraftGuard onCreated={navigation} />, (router) => {
       router.service(OrganizationService, {
         createOrganization: () => ({ organization: org }),
@@ -563,7 +563,7 @@ describe("onboarding navigation guards", () => {
 
   it("keeps the draft and discard guard when creation fails", async () => {
     const user = userEvent.setup();
-    const navigation = vi.fn();
+    const navigation = rs.fn();
     mount(<DraftGuard onCreated={navigation} />, (router) => {
       router.service(OrganizationService, {
         createOrganization: () => {

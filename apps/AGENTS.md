@@ -7,6 +7,7 @@
 ## Development and validation
 
 - Follow root `AGENTS.md` and project-specific docs before adding or changing app code.
+- Use Rstest for the AIPRouter console test suite and keep its configuration in `apps/aiprouter/rstest.config.ts`; follow the [console test contract](../docs/apps-aiprouter-console-contract.md#build-and-test).
 
 - Keep repository and domain rules in the appropriate `AGENTS.md` files.
 
