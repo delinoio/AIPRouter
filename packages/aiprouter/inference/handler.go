@@ -321,6 +321,9 @@ type BoundCredentials interface {
 
 func (h *Handler) save(ctx context.Context, p Principal, b, out object, rec *UsageRecord) error {
 	rec.ResponseID = str(out["id"])
+	if e := h.CaptureReplayReceipts(ctx, out); e != nil {
+		return e
+	}
 	if b["store"] == false {
 		return nil
 	}
@@ -434,9 +437,13 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			if rec.Sends >= route.MaxSends {
 				return &Error{429, "request_send_budget_exhausted", 0}
 			}
-			attemptCtx := ctx
+			scope := scopedAdapterState{h: h, p: p, t: t, c: cred}
+			if e = h.validateReplay(ctx, b, scope); e != nil {
+				return e
+			}
+			attemptCtx := context.WithValue(ctx, replayScopeKey{}, scope)
 			if prepare, ok := adapter.(ContextPreparer); ok {
-				attemptCtx = prepare.PrepareContext(ctx)
+				attemptCtx = prepare.PrepareContext(attemptCtx)
 			}
 			attemptTimeout := t.AttemptTimeout
 			if attemptTimeout == 0 && t.Wire == Wire("kiro") {
@@ -961,6 +968,11 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 	}
 	if op == ImageGeneration || op == ImageEdit {
 		if e = h.images(ctx, p, out); e != nil {
+			return e
+		}
+	}
+	if op == Generate {
+		if e := h.CaptureReplayReceipts(ctx, out); e != nil {
 			return e
 		}
 	}

@@ -157,3 +157,39 @@ func TestSupportTransportBudgetAtWrite(t *testing.T) {
 		t.Fatal("revoked request reached upstream")
 	}
 }
+
+type receiptMemory map[string]ProviderState
+
+func (s receiptMemory) LoadProviderState(_ context.Context, _ Principal, ns, key string) (ProviderState, error) {
+	return s[ns+key], nil
+}
+func (s receiptMemory) SaveProviderState(_ context.Context, _ Principal, ns, key string, v ProviderState) error {
+	s[ns+key] = v
+	return nil
+}
+func TestDirectHistoryRequiresScopedReceipt(t *testing.T) {
+	h := &Handler{c: Config{Authorizer: &testAuth{}, ProviderStates: receiptMemory{}}}
+	scope := scopedAdapterState{h: h, p: Principal{OrganizationID: "o", UserID: "u", KeyID: "k", MembershipGeneration: 1}, t: Target{Provider: "google", Wire: "google", Model: "m"}, c: Credential{AccountID: "a", Secret: "token"}}
+	history := object{"messages": []any{object{"role": "assistant", "content": []any{object{"type": "thinking", "thinking": "reason", "signature": "opaque"}}}}}
+	ctx := context.WithValue(context.Background(), replayScopeKey{}, scope)
+	if h.validateReplay(ctx, history, scope) == nil {
+		t.Fatal("unissued signature accepted")
+	}
+	if e := h.CaptureReplayReceipts(ctx, history); e != nil {
+		t.Fatal(e)
+	}
+	if e := h.validateReplay(ctx, history, scope); e != nil {
+		t.Fatal(e)
+	}
+	for _, mutate := range []func(*scopedAdapterState){func(s *scopedAdapterState) { s.p.MembershipGeneration++ }, func(s *scopedAdapterState) { s.p.UserID = "other" }, func(s *scopedAdapterState) { s.c.AccountID = "b" }, func(s *scopedAdapterState) { s.t.Model = "other" }, func(s *scopedAdapterState) { s.t.Provider = "other" }} {
+		other := scope
+		mutate(&other)
+		if h.validateReplay(ctx, history, other) == nil {
+			t.Fatal("scope mismatch accepted")
+		}
+	}
+	envelope := encodeReasoning(reasoningEnvelope{Signature: "opaque"})
+	if e := h.validateReplay(ctx, object{"input": []any{object{"type": "reasoning", "encrypted_content": envelope}}}, scope); e != nil {
+		t.Fatal("translated envelope lost valid binding", e)
+	}
+}
