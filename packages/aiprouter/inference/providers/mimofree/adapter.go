@@ -8,8 +8,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/policy"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
 )
 
 const (
@@ -20,7 +23,10 @@ const (
 	userAgent                   = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
-type Adapter struct{}
+type Adapter struct {
+	mu      sync.Mutex
+	flights map[string]*flight
+}
 
 func New() *Adapter { return &Adapter{} }
 
@@ -50,6 +56,42 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	var body map[string]any
 	if json.Unmarshal(raw, &body) != nil || body == nil {
 		return inference.AdapterRequest{}, invalid("invalid_mimo_request")
+	}
+	if in.Wire == inference.Chat {
+		tools, _ := body["tools"].([]any)
+		additional, _ := body["additional_tools"].([]any)
+		tools = append(tools, additional...)
+		if len(tools) > 0 {
+			catalog, _ := json.Marshal(tools)
+			catalog, err = inference.TranslateToolsJSON(catalog, inference.Chat, inference.Chat)
+			if err != nil {
+				return inference.AdapterRequest{}, err
+			}
+			if err = json.Unmarshal(catalog, &tools); err != nil {
+				return inference.AdapterRequest{}, err
+			}
+			body["tools"] = tools
+			delete(body, "additional_tools")
+		}
+	}
+	preset, ok := providers.Lookup("mimo-free")
+	if !ok {
+		return inference.AdapterRequest{}, inference.ErrUnsupported
+	}
+	inbound := providers.InboundResponses
+	switch in.Wire {
+	case inference.Chat:
+		inbound = providers.InboundChat
+	case inference.Anthropic:
+		inbound = providers.InboundAnthropic
+	}
+	resolved, err := policy.Resolve(policy.Config{ProviderID: "mimo-free", Model: in.Target.Model, BaseURL: ChatURL, Wire: providers.Wire(Wire), Inbound: inbound, Registry: preset.Metadata})
+	if err != nil {
+		return inference.AdapterRequest{}, err
+	}
+	body, err = resolved.TransformChatRequest(body)
+	if err != nil {
+		return inference.AdapterRequest{}, err
 	}
 	messages, ok := body["messages"].([]any)
 	if !ok {

@@ -99,6 +99,10 @@ func saveToken(ctx context.Context, store inference.AdapterStateStore, s session
 		if current.Client != s.Client || current.Affinity != s.Affinity {
 			return nil, inference.ErrContinuation
 		}
+		if token == "" && current.JWT != s.JWT {
+			s = current
+			return json.Marshal(current)
+		}
 		current.JWT = token
 		current.Expires = expiry
 		s = current

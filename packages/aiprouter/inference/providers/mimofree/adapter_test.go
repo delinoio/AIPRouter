@@ -69,6 +69,8 @@ type executor struct {
 	denied        bool
 	first         *http.Response
 	bootstrapBody string
+	chatBody      string
+	chatSSE       bool
 }
 
 func (x *executor) Do(ctx context.Context, r inference.AdapterRequest) (*http.Response, error) {
@@ -95,7 +97,14 @@ func (x *executor) Do(ctx context.Context, r inference.AdapterRequest) (*http.Re
 		status = x.statuses[0]
 		x.statuses = x.statuses[1:]
 	}
-	out := response(status, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+	chat := x.chatBody
+	if chat == "" {
+		chat = `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`
+	}
+	out := response(status, chat)
+	if x.chatSSE {
+		out.Header.Set("Content-Type", "text/event-stream")
+	}
 	if x.first == nil {
 		x.first = out
 	}
@@ -254,5 +263,141 @@ func TestJWTExpiryAndConcurrentIdentity(t *testing.T) {
 			t.Fatal("identity race")
 		}
 		first = id
+	}
+}
+
+func TestConcurrentBootstrapAndCanceledWaiter(t *testing.T) {
+	a := New()
+	s := &memoryState{}
+	var wg sync.WaitGroup
+	bootstraps := make(chan int, 24)
+	for i := 0; i < 24; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			x := &executor{budget: 2}
+			r, _, err := a.Execute(context.Background(), input(), x, s)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			r.Body.Close()
+			n := 0
+			for _, req := range x.requests {
+				if req.URL == BootstrapURL {
+					n++
+				}
+			}
+			bootstraps <- n
+		}()
+	}
+	wg.Wait()
+	close(bootstraps)
+	count := 0
+	for n := range bootstraps {
+		count += n
+	}
+	if count != 1 {
+		t.Fatalf("bootstraps=%d", count)
+	}
+	release, err := a.acquire(context.Background(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := a.acquire(ctx, "test"); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	release()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.flights) != 0 {
+		t.Fatal("flight handles leaked")
+	}
+}
+
+func TestOlderRecoveryCannotEraseNewerToken(t *testing.T) {
+	ctx := context.Background()
+	s := &memoryState{}
+	v, err := loadSession(ctx, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err = saveToken(ctx, s, v, "old", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = saveToken(ctx, s, v, "new", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := saveToken(ctx, s, v, "", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.JWT != "new" {
+		t.Fatal("stale recovery erased fresh token")
+	}
+}
+
+func TestFreeformDeclarationBoundary(t *testing.T) {
+	raw := json.RawMessage(`{"tools":[{"type":"function","function":{"name":"ordinary","parameters":{"properties":{"input":{"type":"string"}}}}},{"type":"custom","custom":{"name":"exec"}},{"type":"namespace","name":"shell","tools":[{"type":"custom","name":"run"}]}],"additional_tools":[{"type":"custom","name":"patch"}]}`)
+	got := freeformTools(raw)
+	if len(got) != 3 || got["exec"] != "exec" || got["shell__run"] != "run" || got["patch"] != "patch" {
+		t.Fatal(got)
+	}
+}
+
+func TestBareToolPolicyIntegrated(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		for _, model := range []string{"mimo-v2.6-pro", "mimo-auto"} {
+			t.Run(model+map[bool]string{true: " SSE", false: " JSON"}[stream], func(t *testing.T) {
+				in := input()
+				in.Target.Model = model
+				in.Wire = inference.Responses
+				in.Body = json.RawMessage(`{"input":"run tool","tools":[{"type":"custom","name":"exec"}]}`)
+				block := "<tool_call><function=exec>text(1);</parameter></function></tool_call>"
+				raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"index": 0, "message": map[string]any{"role": "assistant", "content": block}, "finish_reason": "stop"}}})
+				if stream {
+					chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": block}}}})
+					raw = []byte("data: " + string(chunk) + "\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+				}
+				x := &executor{budget: 2, chatBody: string(raw), chatSSE: stream}
+				r, _, err := New().Execute(context.Background(), in, x, &memoryState{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer r.Body.Close()
+				out, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if model == "mimo-v2.6-pro" && !strings.Contains(string(out), "tool_calls") {
+					t.Fatalf("repair missing: %s", out)
+				}
+				if model == "mimo-auto" && strings.Contains(string(out), "tool_calls") {
+					t.Fatal("ineligible model repaired")
+				}
+			})
+		}
+	}
+}
+
+func TestChatCustomLoweringAndEffortMap(t *testing.T) {
+	in := input()
+	in.Body = json.RawMessage(`{"messages":[{"role":"user","content":"hello"}],"reasoning_effort":"xhigh","custom_extension":"retained","tools":[{"type":"custom","custom":{"name":"exec"}}]}`)
+	req, err := New().Build(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b map[string]any
+	json.Unmarshal(req.Body, &b)
+	if b["reasoning_effort"] != "high" || b["custom_extension"] != "retained" {
+		t.Fatal(string(req.Body))
+	}
+	tool := b["tools"].([]any)[0].(map[string]any)
+	if tool["type"] != "function" || tool["function"].(map[string]any)["name"] != "exec" {
+		t.Fatal(string(req.Body))
 	}
 }

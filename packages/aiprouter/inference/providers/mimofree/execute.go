@@ -5,12 +5,17 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/policy"
 )
 
-func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, exec inference.AdapterExecutor, store inference.AdapterStateStore) (*http.Response, inference.Wire, error) {
+func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, exec inference.AdapterExecutor, store inference.AdapterStateStore) (out *http.Response, wire inference.Wire, resultErr error) {
+	defer func() {
+		if resultErr == nil && out != nil && out.StatusCode >= 200 && out.StatusCode < 300 {
+			out = policy.WrapChatResponse(out, in.Target.Model, freeformTools(in.Body))
+		}
+	}()
 	req, err := a.Build(ctx, in)
 	if err != nil {
 		return nil, inference.Chat, err
@@ -19,11 +24,9 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, exec i
 	if err != nil {
 		return nil, inference.Chat, err
 	}
-	if s.JWT == "" || !time.Now().Before(s.Expires.Add(-5*time.Minute)) {
-		s, err = bootstrap(ctx, exec, store, s)
-		if err != nil {
-			return nil, inference.Chat, err
-		}
+	s, err = a.token(ctx, exec, store, s, "")
+	if err != nil {
+		return nil, inference.Chat, err
 	}
 	req.Headers.Set("Authorization", "Bearer "+s.JWT)
 	req.Headers.Set("X-Session-Affinity", s.Affinity)
@@ -45,11 +48,7 @@ func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, exec i
 		// Only admitted recovery may invalidate a token. A denied replay leaves the
 		// original response and state intact, as required by the pinned adapter.
 		var e error
-		s, e = saveToken(ctx, store, s, "", time.Time{})
-		if e != nil {
-			return nil, e
-		}
-		s, e = bootstrap(ctx, admitted, store, s)
+		s, e = a.token(ctx, admitted, store, s, s.JWT)
 		if e != nil {
 			return nil, e
 		}
