@@ -223,3 +223,22 @@ jobs:
           echo "Affected: ${AFFECTED:-false}; result: $RESULT" >> "$GITHUB_STEP_SUMMARY"
           echo 'Commands: pnpm install; generate:check; client typecheck/test; available apps test/build; go test -race ./...; validate.sh; promtool test rules; compose-smoke.py; build-release.py; router-load.py' >> "$GITHUB_STEP_SUMMARY"
           echo 'Linux fixture/build checks only. No npm publication, deployment, real provider/account or native macOS/Windows acceptance. Router load uses seeded authentication and synthetic upstream responses; no live-provider capacity or SLO claim.' >> "$GITHUB_STEP_SUMMARY"
+  ci-result:
+    name: CI Result
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [quality, validate]
+    steps:
+      - name: Check required job results
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+        run: |
+          echo "Validation revision: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "quality: $QUALITY_RESULT; validate: $VALIDATE_RESULT" | tee -a "$GITHUB_STEP_SUMMARY"
+          for result in "$QUALITY_RESULT" "$VALIDATE_RESULT"; do
+            if [[ "$result" != 'success' ]]; then
+              echo 'Every required CI job must succeed.'
+              exit 1
+            fi
+          done
