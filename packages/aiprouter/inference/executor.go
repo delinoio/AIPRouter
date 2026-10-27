@@ -12,24 +12,18 @@ import (
 )
 
 type requestExecutor struct {
-	h        *Handler
-	p        Principal
-	target   Target
-	record   *UsageRecord
-	maxSends int
-	mu       sync.Mutex
-	reserved int
+	h          *Handler
+	p          Principal
+	target     Target
+	credential Credential
+	record     *UsageRecord
+	maxSends   int
 }
 
 func (x *requestExecutor) Do(ctx context.Context, r AdapterRequest) (*http.Response, error) {
 	return x.do(ctx, r, false)
 }
 func (x *requestExecutor) do(ctx context.Context, r AdapterRequest, reserved bool) (*http.Response, error) {
-	var policyErr error
-	r, policyErr = ApplyRequestPolicy(x.target, r)
-	if policyErr != nil {
-		return nil, policyErr
-	}
 	cancel := func() {}
 	if r.AttemptTimeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, r.AttemptTimeout)
@@ -40,23 +34,28 @@ func (x *requestExecutor) do(ctx context.Context, r AdapterRequest, reserved boo
 			cancel()
 		}
 	}()
-	x.mu.Lock()
-	if !reserved && x.record.Sends+x.reserved >= x.maxSends {
-		x.mu.Unlock()
+	budgetFor(x.record).mu.Lock()
+	if !reserved && x.record.Sends+budgetFor(x.record).reserved >= x.maxSends {
+		budgetFor(x.record).mu.Unlock()
 		return nil, &Error{429, "request_send_budget_exhausted", 0}
 	}
 	if !reserved {
-		x.reserved++
+		budgetFor(x.record).reserved++
 	}
-	x.mu.Unlock()
+	budgetFor(x.record).mu.Unlock()
 	claimed := false
 	defer func() {
 		if !claimed {
-			x.mu.Lock()
-			x.reserved--
-			x.mu.Unlock()
+			budgetFor(x.record).mu.Lock()
+			budgetFor(x.record).reserved--
+			budgetFor(x.record).mu.Unlock()
 		}
 	}()
+	var policyErr error
+	r, policyErr = ApplyRequestPolicy(x.target, r)
+	if policyErr != nil {
+		return nil, policyErr
+	}
 	u, e := url.Parse(r.URL)
 	base, _ := url.Parse(x.target.BaseURL)
 	if e != nil || u.User != nil || u.Fragment != "" || origin(u) != origin(base) {
@@ -79,11 +78,11 @@ func (x *requestExecutor) do(ctx context.Context, r AdapterRequest, reserved boo
 	}
 	req.Header = r.Headers.Clone()
 	sent := gateClient(client, ctx, x.p, x.h.c.Authorizer, func() {
-		x.mu.Lock()
-		x.reserved--
+		budgetFor(x.record).mu.Lock()
+		budgetFor(x.record).reserved--
 		x.record.Sends++
 		claimed = true
-		x.mu.Unlock()
+		budgetFor(x.record).mu.Unlock()
 		x.h.event(ctx, "upstream_send")
 	})
 	resp, e := client.Do(req)
@@ -92,12 +91,21 @@ func (x *requestExecutor) do(ctx context.Context, r AdapterRequest, reserved boo
 			return nil, ctx.Err()
 		}
 		if sent.Load() {
-			x.mu.Lock()
+			budgetFor(x.record).mu.Lock()
 			x.record.UnmeasuredAttempts++
-			x.mu.Unlock()
+			budgetFor(x.record).mu.Unlock()
 			return nil, ErrAmbiguous
 		}
 		return nil, e
+	}
+	if r.ResponseWire != "" {
+		if e = x.h.observeResponse(ctx, x.p, x.target, x.credential, resp); e != nil {
+			resp.Body.Close()
+			budgetFor(x.record).mu.Lock()
+			x.record.UnmeasuredAttempts++
+			budgetFor(x.record).mu.Unlock()
+			return nil, e
+		}
 	}
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 && resp.StatusCode != 304 {
 		resp.Body.Close()
@@ -117,8 +125,8 @@ type executorBody struct {
 func (b *executorBody) Close() error { defer b.cancel(); return b.ReadCloser.Close() }
 
 func (x *requestExecutor) RecordUnmeasuredAttempt() {
-	x.mu.Lock()
-	defer x.mu.Unlock()
+	budgetFor(x.record).mu.Lock()
+	defer budgetFor(x.record).mu.Unlock()
 	// A helper may only mark an already sent physical exchange.
 	if x.record.UnmeasuredAttempts < x.record.Sends {
 		x.record.UnmeasuredAttempts++
@@ -126,8 +134,8 @@ func (x *requestExecutor) RecordUnmeasuredAttempt() {
 }
 
 func (x *requestExecutor) RecordUsage(u Usage) {
-	x.mu.Lock()
-	defer x.mu.Unlock()
+	budgetFor(x.record).mu.Lock()
+	defer budgetFor(x.record).mu.Unlock()
 	if len(x.record.IntermediateUsage) >= x.record.Sends {
 		return
 	}
@@ -181,8 +189,8 @@ func (x *requestExecutor) RecordContinuationHistory(raw json.RawMessage, wire Wi
 	if len(encoded) > 32<<20 {
 		return &Error{502, "continuation_too_large", 0}
 	}
-	x.mu.Lock()
-	defer x.mu.Unlock()
+	budgetFor(x.record).mu.Lock()
+	defer budgetFor(x.record).mu.Unlock()
 	x.record.continuationInput = body["input"]
 	return nil
 }
@@ -197,12 +205,12 @@ func (x *requestExecutor) Recover(ctx context.Context, n int, run func(AdapterEx
 		if e := gated.Err(); e != nil {
 			return e
 		}
-		x.mu.Lock()
-		defer x.mu.Unlock()
-		if x.record.Sends+x.reserved+n > x.maxSends {
+		budgetFor(x.record).mu.Lock()
+		defer budgetFor(x.record).mu.Unlock()
+		if x.record.Sends+budgetFor(x.record).reserved+n > x.maxSends {
 			return &Error{429, "request_send_budget_exhausted", 0}
 		}
-		x.reserved += n
+		budgetFor(x.record).reserved += n
 		lease.remaining = n
 		return nil
 	})
@@ -232,9 +240,9 @@ func (x *recoveryExecutor) Do(ctx context.Context, r AdapterRequest) (*http.Resp
 func (x *recoveryExecutor) release() {
 	x.leaseMu.Lock()
 	defer x.leaseMu.Unlock()
-	x.mu.Lock()
-	defer x.mu.Unlock()
-	x.reserved -= x.remaining
+	budgetFor(x.record).mu.Lock()
+	defer budgetFor(x.record).mu.Unlock()
+	budgetFor(x.record).reserved -= x.remaining
 	x.remaining = 0
 }
 
@@ -247,9 +255,9 @@ func (x *requestExecutor) AuthorizeRecovery(ctx context.Context, reason AdapterR
 	if e := x.h.guard(ctx, x.p); e != nil {
 		return e
 	}
-	x.mu.Lock()
-	defer x.mu.Unlock()
-	if x.record.Sends+x.reserved >= x.maxSends {
+	budgetFor(x.record).mu.Lock()
+	defer budgetFor(x.record).mu.Unlock()
+	if x.record.Sends+budgetFor(x.record).reserved >= x.maxSends {
 		return &Error{429, "request_send_budget_exhausted", 0}
 	}
 	return nil

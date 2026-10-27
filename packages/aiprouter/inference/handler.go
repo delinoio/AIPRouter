@@ -473,6 +473,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 		}
 		logicalTarget := t
 		selectedCredential := cred
+		negotiationRefreshed := map[string]bool{}
 		refreshed := false
 		rateRetries, transientSends := 0, 0
 		endpointHops := 0
@@ -489,7 +490,52 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				var expires time.Time
 				t, cred, expires, e = h.c.Negotiator.Negotiate(ctx, p, logicalTarget, selectedCredential, original, h.c.Destinations)
 				if e != nil {
-					return e
+					refusal := e
+					typed, providerRefusal := e.(*Error)
+					// Only explicit support-provider refusals permit recovery. An
+					// admission/storage401 must never be mistaken for token expiry.
+					providerRefusal = providerRefusal && typed.Code == "copilot_auto_negotiation_failed"
+					if providerRefusal && typed.Status == 401 && logicalTarget.Auth == OAuth && !negotiationRefreshed[selectedCredential.AccountID] {
+						if e = h.guard(ctx, p); e != nil {
+							return e
+						}
+						account := selectedCredential.AccountID
+						updated, err := h.c.Credentials.Refresh(ctx, p, logicalTarget, selectedCredential)
+						if err != nil {
+							return err
+						}
+						if updated.AccountID != account {
+							return ErrContinuation
+						}
+						selectedCredential = updated
+						negotiationRefreshed[account] = true
+						continue
+					}
+					_, continued := ctx.Value(continuationKey{}).(Continuation)
+					if providerRefusal && typed.Status == 429 && logicalTarget.Retry.RotateOn429 && !continued && !issuerBoundHistory(b) {
+						if e = h.guard(ctx, p); e != nil {
+							return e
+						}
+						if reporter, ok := h.c.Credentials.(FailureReporter); ok {
+							if e = reporter.Failed(ctx, p, logicalTarget, selectedCredential, 429, typed.RetryAfter); e != nil {
+								return e
+							}
+						}
+						next, err := h.c.Credentials.Select(ctx, p, logicalTarget, selectedCredential.AccountID)
+						if err == ErrNoCredential {
+							return refusal
+						}
+						if err != nil {
+							return err
+						}
+						if visited[next.AccountID] {
+							return refusal
+						}
+						selectedCredential = next
+						visited[next.AccountID] = true
+						continue
+					}
+					return refusal
 				}
 				if cred.AccountID != selectedCredential.AccountID {
 					return ErrContinuation
@@ -509,7 +555,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			}
 			attemptCtx := context.WithValue(attemptBase, replayScopeKey{}, scope)
 			if t.Policy != nil {
-				attemptCtx = context.WithValue(attemptCtx, responseRewriterKey{}, t.Policy.NewResponseRewriter())
+				attemptCtx = context.WithValue(attemptCtx, responseRewriterKey{}, t.Policy.NewResponseRewriterForRequest(rawBody))
 			}
 			if prepare, ok := adapter.(ContextPreparer); ok {
 				attemptCtx = prepare.PrepareContext(attemptCtx)
@@ -561,6 +607,11 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					}
 				}
 			}
+			if op == Generate {
+				if e = applyFastBody(t, payload); e != nil {
+					return e
+				}
+			}
 			path := wirePath(t.Wire)
 			switch op {
 			case Compact:
@@ -609,7 +660,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					attemptCtx = restored
 				}
 				if pre, ok := adapter.(PreparingAdapter); ok {
-					prepared, err := pre.Prepare(attemptCtx, adapterInput, &requestExecutor{h: h, p: p, target: t, record: rec, maxSends: route.MaxSends})
+					prepared, err := pre.Prepare(attemptCtx, adapterInput, &requestExecutor{h: h, p: p, target: t, credential: cred, record: rec, maxSends: route.MaxSends})
 					if err != nil {
 						return err
 					}
@@ -620,7 +671,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					rec.Model = str(payload["model"])
 					rec.AccountID = cred.AccountID
 					executionCtx, stop := context.WithCancel(attemptCtx)
-					response, responseWire, err := executing.Execute(executionCtx, adapterInput, &requestExecutor{h: h, p: p, target: t, record: rec, maxSends: route.MaxSends}, scopedAdapterState{h: h, p: p, t: t, c: cred})
+					response, responseWire, err := executing.Execute(executionCtx, adapterInput, &requestExecutor{h: h, p: p, target: t, credential: cred, record: rec, maxSends: route.MaxSends}, scopedAdapterState{h: h, p: p, t: t, c: cred})
 					if err != nil {
 						stop()
 						return err
@@ -711,6 +762,10 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 						req.Header.Add(k, v)
 					}
 				}
+				if e = applyFastHeaders(t, req.Header); e != nil {
+					cancel()
+					return e
+				}
 				if rec.Sends >= route.MaxSends {
 					cancel()
 					return &Error{429, "request_send_budget_exhausted", 0}
@@ -755,7 +810,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 						transport.ResponseHeaderTimeout = *t.StallTimeout
 					}
 				}
-				sent := gateClient(client, sendCtx, p, h.c.Authorizer, func() { rec.Sends++; h.event(ctx, "upstream_send") })
+				sent := gateClient(client, sendCtx, p, modelBudgetAuthorizer{Authorizer: h.c.Authorizer, record: rec, max: route.MaxSends}, func() { rec.Sends++; h.event(ctx, "upstream_send") })
 				resp, e = client.Do(req)
 				if e != nil {
 					cancel()
@@ -767,6 +822,14 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					}
 					rec.UnmeasuredAttempts++
 					return ErrAmbiguous
+				}
+			}
+			if executedResponse == nil {
+				if e = h.observeResponse(sendCtx, p, t, cred, resp); e != nil {
+					resp.Body.Close()
+					cancel()
+					rec.UnmeasuredAttempts++
+					return e
 				}
 			}
 			if inspector, ok := adapter.(ResponseInspector); ok && executedResponse == nil {
@@ -1142,6 +1205,7 @@ func (h *Handler) deliver(ctx context.Context, w http.ResponseWriter, p Principa
 	}
 	stream := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 	if stream {
+		resp.Body = wrapTerminalPolicy(ctx, resp.Body, t)
 		return h.deliverStream(ctx, w, p, in, op, b, t, resp, rec, cancel, stall)
 	}
 	total := 180 * time.Second

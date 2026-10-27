@@ -4,7 +4,6 @@ package inference
 import (
 	"context"
 	"net/http"
-	"sync"
 )
 
 // SendGate holds the authoritative revocation fence only around start's bounded write.
@@ -26,6 +25,14 @@ func (p DestinationPolicy) Do(ctx context.Context, req *http.Request, gate SendG
 	if req == nil || req.URL == nil || gate == nil || req.Host != "" && req.Host != req.URL.Host {
 		return nil, ErrDestination
 	}
+	ctx, stopFirstByte, cancel := supportFirstByteContext(ctx)
+	defer stopFirstByte()
+	keepContext := false
+	defer func() {
+		if !keepContext {
+			cancel()
+		}
+	}()
 	u := *req.URL
 	u.RawQuery = ""
 	u.ForceQuery = false
@@ -51,6 +58,8 @@ func (p DestinationPolicy) Do(ctx context.Context, req *http.Request, gate SendG
 		resp.Body.Close()
 		return nil, ErrDestination
 	}
+	resp.Body = &executorBody{ReadCloser: resp.Body, cancel: cancel}
+	keepContext = true
 	return resp, nil
 }
 
@@ -74,11 +83,11 @@ func PhysicalSend(ctx context.Context, start func(context.Context) error) error 
 	return physicalSend(ctx, start)
 }
 func requestSupportBudget(ctx context.Context, rec *UsageRecord, max int) context.Context {
-	var mu sync.Mutex
+	state := budgetFor(rec)
 	return WithPhysicalSendBudget(ctx, func(c context.Context, start func(context.Context) error) error {
-		mu.Lock()
-		defer mu.Unlock()
-		if rec.Sends >= max {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		if rec.Sends+state.reserved >= max {
 			return &Error{429, "request_send_budget_exhausted", 0}
 		}
 		rec.Sends++

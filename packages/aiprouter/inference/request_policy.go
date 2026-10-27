@@ -4,26 +4,39 @@ package inference
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 )
 
 // ApplyRequestPolicy transforms an already translated model body. Preflight GETs
 // and non-model requests with no declared ResponseWire are left untouched. It
 // never changes credentials, destination, method or physical-send accounting.
 func ApplyRequestPolicy(t Target, r AdapterRequest) (AdapterRequest, error) {
-	if t.Policy == nil || r.Method == "GET" || r.ResponseWire == "" {
+	if r.Method == "GET" || r.ResponseWire == "" || t.Wire != Chat && t.Wire != Responses && t.Wire != Anthropic {
 		return r, nil
 	}
 	body, e := decode(r.Body)
 	if e != nil {
 		return r, e
 	}
-	if r.ResponseWire == Chat {
-		body, e = t.Policy.TransformChatRequest(body)
-	} else {
-		body, e = t.Policy.TransformRequest(body)
+	if t.Policy != nil {
+		if r.ResponseWire == Chat {
+			body, e = t.Policy.TransformChatRequest(body)
+		} else {
+			body, e = t.Policy.TransformRequest(body)
+		}
 	}
 	if e != nil {
 		return r, &Error{400, "invalid_provider_policy_request", 0}
+	}
+	if e = applyFastBody(t, body); e != nil {
+		return r, e
+	}
+	r.Headers = r.Headers.Clone()
+	if r.Headers == nil {
+		r.Headers = make(http.Header)
+	}
+	if e = applyFastHeaders(t, r.Headers); e != nil {
+		return r, e
 	}
 	r.Body, e = json.Marshal(body)
 	return r, e

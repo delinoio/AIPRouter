@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 type routingRequestKey struct{}
@@ -70,7 +71,33 @@ func InvokeRoutingModel(ctx context.Context, alias string, raw json.RawMessage) 
 	buffer := &compactBuffer{header: make(map[string][]string)}
 	ctx = context.WithValue(ctx, routingDecisionKey{}, true)
 	e = r.h.execute(ctx, buffer, r.p, Responses, Generate, body, r.record)
-	usage := r.record.Usage
+	decisionRecord := *r.record
+	decisionRecord.RequestID = newID()
+	decisionRecord.Sends -= saved.Sends
+	decisionRecord.UnmeasuredAttempts -= saved.UnmeasuredAttempts
+	decisionRecord.IntermediateUsage = append([]Usage(nil), r.record.IntermediateUsage[len(saved.IntermediateUsage):]...)
+	r.record.IntermediateUsage = saved.IntermediateUsage
+	if e == nil {
+		decisionRecord.Outcome = OutcomeSuccess
+	} else {
+		decisionRecord.Outcome = OutcomeGatewayError
+		decisionRecord.Status = publicError(e).Status
+	}
+	decisionRecord.Canceled = ctx.Err() != nil
+	if decisionRecord.Canceled {
+		decisionRecord.Outcome = OutcomeCanceled
+	}
+	aggregateIntermediateUsage(&decisionRecord)
+	// A decision model can have a different price/model/account than the final
+	// target. Persist its measured counters separately instead of repricing them
+	// at the selected model's rate. The shared parent send counter is retained.
+	if decisionRecord.Sends > 0 {
+		accountingCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		if err := r.h.c.Usage.Record(accountingCtx, r.p, decisionRecord); err != nil {
+			r.h.event(ctx, "routing_usage_write_failed")
+		}
+		stop()
+	}
 	r.record.Provider = saved.Provider
 	r.record.Model = saved.Model
 	r.record.AccountID = saved.AccountID
@@ -82,7 +109,6 @@ func InvokeRoutingModel(ctx context.Context, alias string, raw json.RawMessage) 
 	if e != nil {
 		return "", e
 	}
-	r.record.IntermediateUsage = append(r.record.IntermediateUsage, usage)
 	response, e := decode(buffer.body.Bytes())
 	if e != nil {
 		return "", e

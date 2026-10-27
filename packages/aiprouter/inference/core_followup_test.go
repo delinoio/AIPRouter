@@ -429,8 +429,8 @@ func TestRecoveryBatchReservesBeforeCallback(t *testing.T) {
 		}
 		return nil, e
 	})
-	if e != nil || !called || rec.Sends != 2 || x.reserved != 0 {
-		t.Fatalf("%v %v %+v reserved%d", e, called, rec, x.reserved)
+	if e != nil || !called || rec.Sends != 2 || budgetFor(x.record).reserved != 0 {
+		t.Fatalf("%v %v %+v reserved%d", e, called, rec, budgetFor(x.record).reserved)
 	}
 	a.denied.Store(true)
 	called = false
@@ -447,5 +447,122 @@ func TestDestinationRulesNarrowPublicAndApprovedOrigins(t *testing.T) {
 	_, e := policy.Do(context.Background(), req, func(ctx context.Context, start func(context.Context) error) error { return start(ctx) }, nil)
 	if e == nil || dials != 0 {
 		t.Fatal("mixed DNS escaped CIDR restriction")
+	}
+}
+
+type negotiationFixture struct {
+	calls      int
+	initial401 bool
+	ttl        time.Duration
+}
+
+func (n *negotiationFixture) Negotiate(_ context.Context, _ Principal, t Target, c Credential, _ json.RawMessage, _ DestinationPolicy) (Target, Credential, time.Time, error) {
+	n.calls++
+	if n.initial401 && n.calls == 1 {
+		return t, c, time.Time{}, &Error{401, "copilot_auto_negotiation_failed", 0}
+	}
+	return t, c, time.Now().Add(n.ttl), nil
+}
+func TestNegotiationRefreshIsIndependentOfInferenceRefresh(t *testing.T) {
+	calls := 0
+	h, _, _, creds, u := harness(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(401)
+			io.WriteString(w, `{}`)
+			return
+		}
+		io.WriteString(w, fixture(Chat))
+	}, Chat)
+	router := h.c.Router.(testRouter)
+	router.route.Targets[0].Auth = OAuth
+	router.route.Targets[0].Retry.RefreshOn401 = true
+	h.c.Router = router
+	n := &negotiationFixture{initial401: true, ttl: time.Minute}
+	h.c.Negotiator = n
+	w := call(h, "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
+	if w.Code != 200 || calls != 2 || creds.refreshes.Load() != 2 || n.calls != 3 || u.records[0].Sends != 2 {
+		t.Fatalf("%d %s sends=%d refresh=%d negotiation=%d", w.Code, w.Body, calls, creds.refreshes.Load(), n.calls)
+	}
+}
+func TestNegotiatedExpiryRecheckedAfterDialBeforeWrite(t *testing.T) {
+	calls := 0
+	h, _, _, _, u := harness(t, func(w http.ResponseWriter, r *http.Request) { calls++; io.WriteString(w, fixture(Chat)) }, Chat)
+	h.c.Negotiator = &negotiationFixture{ttl: 1100 * time.Millisecond}
+	h.c.Destinations.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if e := wait(ctx, 150*time.Millisecond); e != nil {
+			return nil, e
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, address)
+	}
+	w := call(h, "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
+	if w.Code != 503 || calls != 0 || u.records[0].Sends != 0 {
+		t.Fatalf("%d %s calls=%d usage=%+v", w.Code, w.Body, calls, u.records)
+	}
+}
+
+type responseObserverFixture struct {
+	statuses []int
+	versions []string
+	fail     bool
+}
+
+func (o *responseObserverFixture) ObserveResponse(_ context.Context, _ Principal, _ Target, c Credential, status int, _ http.Header) error {
+	o.statuses = append(o.statuses, status)
+	o.versions = append(o.versions, c.CredentialVersion)
+	if o.fail {
+		return ErrUnavailable
+	}
+	return nil
+}
+func TestPhysicalResponseObservationAndSupportExclusion(t *testing.T) {
+	h, s, _, _, _ := harness(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-quota", "1")
+		io.WriteString(w, fixture(Chat))
+	}, Chat)
+	observer := &responseObserverFixture{}
+	h.c.ResponseObserver = observer
+	x := &requestExecutor{h: h, target: Target{BaseURL: s.URL}, credential: Credential{AccountID: "a", CredentialVersion: "generation"}, record: &UsageRecord{}, maxSends: 4}
+	for _, wire := range []Wire{"", Chat, Chat} {
+		r, e := x.Do(context.Background(), AdapterRequest{URL: s.URL, ResponseWire: wire})
+		if e != nil {
+			t.Fatal(e)
+		}
+		r.Body.Close()
+	}
+	if len(observer.statuses) != 2 || observer.versions[0] != "generation" {
+		t.Fatalf("support or version mismatch %+v", observer)
+	}
+	observer.fail = true
+	r, e := x.Do(context.Background(), AdapterRequest{URL: s.URL, ResponseWire: Chat})
+	if r != nil {
+		r.Body.Close()
+	}
+	if e == nil || x.record.Sends != 4 || x.record.UnmeasuredAttempts != 1 {
+		t.Fatalf("observer failure replayed or escaped %v %+v", e, x.record)
+	}
+}
+
+func TestSupportSendCannotSpendReservedRecoverySlots(t *testing.T) {
+	calls := 0
+	h, s, a, _, _ := harness(t, func(w http.ResponseWriter, r *http.Request) { calls++ }, Chat)
+	rec := &UsageRecord{Sends: 1}
+	x := &requestExecutor{h: h, target: Target{BaseURL: s.URL}, record: rec, maxSends: 3}
+	ctx := requestSupportBudget(context.Background(), rec, 3)
+	_, e := x.Recover(ctx, 2, func(AdapterExecutor) (*http.Response, error) {
+		req, _ := http.NewRequest("GET", s.URL, nil)
+		response, err := h.c.Destinations.Do(ctx, req, func(ctx context.Context, start func(context.Context) error) error {
+			return a.Dispatch(ctx, Principal{}, start)
+		}, nil)
+		if response != nil {
+			response.Body.Close()
+		}
+		if err == nil {
+			t.Error("support send stole reserved slot")
+		}
+		return nil, nil
+	})
+	if e != nil || calls != 0 || rec.Sends != 1 || budgetFor(rec).reserved != 0 {
+		t.Fatalf("%v calls=%d record=%+v", e, calls, rec)
 	}
 }

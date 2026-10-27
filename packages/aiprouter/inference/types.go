@@ -65,6 +65,8 @@ type Route struct {
 	MaxSends int
 }
 type Target struct {
+	Fast                     bool
+	FastPolicy               *FastPolicy
 	ReasoningEffort          string
 	Policy                   *policy.Resolved
 	Endpoint                 string
@@ -135,6 +137,7 @@ const (
 )
 
 type UsageRecord struct {
+	budget            *physicalBudgetState
 	continuationInput any
 	Outcome           RequestOutcome
 	// ServiceTier is confirmed by the provider response, never copied from request.
@@ -172,6 +175,7 @@ type ArtifactStore interface {
 	URL(context.Context, Principal, string) (string, error)
 }
 type Config struct {
+	ResponseObserver     PhysicalResponseObserver
 	Negotiator           Negotiator
 	ProviderStates       ProviderStates
 	RecoveryPolicies     map[Wire]HTTPRecoveryPolicy

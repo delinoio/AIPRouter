@@ -177,9 +177,13 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 				return replayError(e)
 			}
 		}
+		oldEventType := str(m["type"])
 		m, e = h.RewriteProviderResponse(ctx, m)
 		if e != nil {
 			return e
+		}
+		if event == oldEventType && oldEventType != "" {
+			event = str(m["type"])
 		}
 		data, e = json.Marshal(m)
 		if e != nil {
