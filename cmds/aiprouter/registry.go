@@ -41,6 +41,9 @@ type Resolver struct {
 func (r Resolver) envHome(key, fallback string) (string, error) {
 	v := strings.TrimSpace(r.Env[key])
 	if v == "" {
+		if filepath.IsAbs(fallback) {
+			return filepath.Clean(fallback), nil
+		}
 		return filepath.Join(r.Home, fallback), nil
 	}
 	if v == "~" {
@@ -221,7 +224,10 @@ func (r Resolver) Resolve(id string) (string, error) {
 			file = join("v2", "provider_config.json")
 		}
 	case "aside":
-		root = join(home, ".aside")
+		root, err = asideRoot(home)
+		if err != nil {
+			return "", err
+		}
 		b, ok, e := readConfig(join(root, "accounts.json"))
 		if e != nil || !ok {
 			return "", errors.New("launch and sign into Aside before configuring")

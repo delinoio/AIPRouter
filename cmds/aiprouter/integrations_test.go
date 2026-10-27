@@ -29,13 +29,20 @@ func TestEveryFileBuilderProducesParseableSettings(t *testing.T) {
 				t.Fatal("no settings")
 			}
 			for _, change := range changes {
-				if _, e = parseDocument(change.After, spec.Format); e != nil {
+				format := spec.Format
+				if spec.ID == "codex" || spec.ID == "claude" || spec.ID == "claude-desktop" {
+					format = "json"
+					if filepath.Ext(change.Path) == ".toml" {
+						format = "toml"
+					}
+				}
+				if _, e = parseDocument(change.After, format); e != nil {
 					t.Fatal(e)
 				}
 				if spec.Loopback && bytes.Contains(change.After, []byte("REMOTE_SECRET")) {
 					t.Fatal("remote key placed in loopback client")
 				}
-				if !spec.Loopback && !change.RemoteKey {
+				if !spec.Loopback && bytes.Contains(change.After, []byte("REMOTE_SECRET")) && !change.RemoteKey {
 					t.Fatal("missing separate remote-key consent")
 				}
 			}
@@ -321,7 +328,7 @@ func TestCodexExistingNativeSelectionRestoresExactly(t *testing.T) {
 		t.Fatal(e)
 	}
 	doc, e := parseDocument(changes[0].After, TOML)
-	if e != nil || doc["model_provider"] != "aiprouter" || doc["model"] != "native-model" {
+	if e != nil || doc["model_provider"] != "openai" || doc["model"] != "native-model" {
 		t.Fatalf("wrong native settings: %v %v", doc, e)
 	}
 	if e = d.Apply(&s, "codex", "test", changes, answer(true)); e != nil {

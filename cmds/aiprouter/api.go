@@ -13,6 +13,8 @@ import (
 )
 
 type ConnectAPI struct {
+	Server string
+	HTTP   *http.Client
 	Device rpc.DeviceAuthorizationServiceClient
 	Client rpc.ClientServiceClient
 }
@@ -22,7 +24,7 @@ func NewConnectAPI(server string) (*ConnectAPI, error) {
 		return nil, e
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("RPC redirects are refused") }}
-	return &ConnectAPI{rpc.NewDeviceAuthorizationServiceClient(httpClient, server), rpc.NewClientServiceClient(httpClient, server)}, nil
+	return &ConnectAPI{Server: server, HTTP: httpClient, Device: rpc.NewDeviceAuthorizationServiceClient(httpClient, server), Client: rpc.NewClientServiceClient(httpClient, server)}, nil
 }
 func (a *ConnectAPI) Begin(ctx context.Context, name string) (Device, error) {
 	r, e := a.Device.BeginDeviceAuthorization(ctx, connect.NewRequest(&v1.BeginDeviceAuthorizationRequest{DeviceName: name}))

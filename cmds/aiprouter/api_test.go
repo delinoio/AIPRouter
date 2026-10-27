@@ -63,7 +63,7 @@ func TestGeneratedConnectTransport(t *testing.T) {
 	mux.Handle(p, h)
 	server := httptest.NewTLSServer(mux)
 	defer server.Close()
-	a := &ConnectAPI{rpc.NewDeviceAuthorizationServiceClient(server.Client(), server.URL), rpc.NewClientServiceClient(server.Client(), server.URL)}
+	a := &ConnectAPI{Device: rpc.NewDeviceAuthorizationServiceClient(server.Client(), server.URL), Client: rpc.NewClientServiceClient(server.Client(), server.URL)}
 	ctx := context.Background()
 	d, e := a.Begin(ctx, "laptop")
 	if e != nil {

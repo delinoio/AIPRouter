@@ -31,6 +31,7 @@ type Fragment struct {
 type jsonSpan struct {
 	start, end int
 	members    map[string]*jsonSpan
+	entries    map[string]int
 	items      []*jsonSpan
 }
 type scanner struct {
@@ -91,6 +92,7 @@ func (s *scanner) value() (*jsonSpan, error) {
 	switch c {
 	case '{':
 		n.members = map[string]*jsonSpan{}
+		n.entries = map[string]int{}
 		s.i++
 		s.space()
 		for s.i < len(s.b) && s.b[s.i] != '}' {
@@ -126,6 +128,7 @@ func (s *scanner) value() (*jsonSpan, error) {
 				return nil, e
 			}
 			n.members[key] = child
+			n.entries[key] = start
 			s.space()
 			if s.i < len(s.b) && s.b[s.i] == ',' {
 				s.i++

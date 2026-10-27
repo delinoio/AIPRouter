@@ -27,6 +27,7 @@ type State struct {
 type Record struct {
 	Profile, Client string
 	Files           []Backup
+	Originals       map[string]Backup `json:"originals,omitempty"`
 }
 type Backup struct {
 	Path          string
@@ -223,22 +224,41 @@ func copyState(s State) State {
 	_ = json.Unmarshal(data, &out)
 	return out
 }
-func updatedRecord(s State, client, profile string, changes []Change) Record {
-	record := Record{Profile: profile, Client: client}
+func updatedRecord(s State, client, profile string, changes []Change) (Record, error) {
+	record := Record{Profile: profile, Client: client, Originals: map[string]Backup{}}
+	if prior, ok := s.Records[client]; ok {
+		for path, original := range prior.Originals {
+			record.Originals[path] = original
+		}
+		if len(prior.Originals) == 0 {
+			for _, old := range prior.Files {
+				record.Originals[old.Path] = old
+			}
+		}
+	}
 	for _, c := range changes {
 		b := Backup{c.Path, c.Before, c.After, c.Existed}
+		if _, ok := record.Originals[c.Path]; !ok {
+			record.Originals[c.Path] = b
+		}
 		if prior, ok := s.Records[client]; ok {
 			for _, old := range prior.Files {
-				if old.Path == b.Path {
-					b.Before = old.Before
-					b.Existed = old.Existed
+				if old.Path == c.Path {
+					restored, remove, e := restoreOwned(client, old, c.Before)
+					if e != nil {
+						return Record{}, e
+					}
+					b.Before = restored
+					b.Existed = !remove
+					break
 				}
 			}
 		}
 		record.Files = append(record.Files, b)
 	}
-	return record
+	return record, nil
 }
+
 func (d Disk) Apply(s *State, client, profile string, changes []Change, prompt Prompter) error {
 	if len(changes) == 0 {
 		return errors.New("no configuration changes")
@@ -254,7 +274,11 @@ func (d Disk) Apply(s *State, client, profile string, changes []Change, prompt P
 		return errors.New("settings changes declined")
 	}
 	desired := copyState(*s)
-	desired.Records[client] = updatedRecord(*s, client, profile, changes)
+	record, e := updatedRecord(*s, client, profile, changes)
+	if e != nil {
+		return e
+	}
+	desired.Records[client] = record
 	desired.Active[client] = profile
 	return d.transaction(s, desired, changes, client, profile)
 }
@@ -263,7 +287,11 @@ func (d Disk) ChangePort(s *State, next Profile, plans map[string][]Change) erro
 	desired.Profiles[next.Name] = next
 	var all []Change
 	for client, changes := range plans {
-		desired.Records[client] = updatedRecord(*s, client, next.Name, changes)
+		record, e := updatedRecord(*s, client, next.Name, changes)
+		if e != nil {
+			return e
+		}
+		desired.Records[client] = record
 		all = append(all, changes...)
 	}
 	if len(all) == 0 {
@@ -395,14 +423,11 @@ func (d Disk) Restore(s *State, client string) error {
 		if !exists {
 			return ErrConflict
 		}
-		result, e := restoreBytes(b, current)
+		result, remove, e := restoreOwned(client, b, current)
 		if e != nil {
 			return e
 		}
-		if !b.Existed && !bytes.Equal(current, b.After) {
-			return ErrConflict
-		}
-		changes = append(changes, Change{Path: b.Path, Before: current, After: result, Existed: true, Remove: !b.Existed, Locks: nativeLockPaths(r.Client, b.Path)})
+		changes = append(changes, Change{Path: b.Path, Before: current, After: result, Existed: true, Remove: remove, Locks: nativeLockPaths(r.Client, b.Path)})
 	}
 	desired := copyState(*s)
 	delete(desired.Records, client)

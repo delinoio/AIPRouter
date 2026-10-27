@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -12,17 +13,46 @@ import (
 // PlanSettings reads only the resolved client's files. A prior record must bind
 // to those exact files and still match its owned source before any replacement.
 func PlanSettings(resolver Resolver, s State, id string, p Profile, key string, models []ClientModel) ([]Change, error) {
+	switch id {
+	case "codex":
+		return PlanCodexNative(resolver, s, p, key, models)
+	case "claude", "claude-desktop":
+		return PlanClaudeNative(resolver, s, id, p, key, models)
+	}
+	targets, e := resolvedTargets(resolver, s, id)
+	if e != nil {
+		return nil, e
+	}
+	expected, _ := json.Marshal(targets)
+	checkTargets := func() error {
+		current, e := resolvedTargets(resolver, s, id)
+		if e != nil {
+			return e
+		}
+		actual, _ := json.Marshal(current)
+		if !bytes.Equal(actual, expected) {
+			return errors.New("client profile selectors changed after preview")
+		}
+		return nil
+	}
+	var changes []Change
+	for _, target := range targets {
+		part, e := planSettingsTarget(resolver, s, id, target.Path, p, key, models, checkTargets)
+		if e != nil {
+			return nil, e
+		}
+		changes = append(changes, part...)
+	}
+	return changes, nil
+}
+func planSettingsTarget(resolver Resolver, s State, id, path string, p Profile, key string, models []ClientModel, checkTargets func() error) ([]Change, error) {
 	spec, e := clientSpec(id)
 	if e != nil {
 		return nil, e
 	}
-	path, e := resolver.Resolve(id)
-	if e != nil {
-		return nil, e
-	}
-	if previous, ok := s.Records[id]; ok {
+	if previous, ok := s.Records[id]; ok && id != "aside" && id != "hermes" {
 		if len(previous.Files) > 0 && previous.Files[0].Path != path {
-			return nil, errors.New("client active path changed; restore the recorded target before switching")
+			return nil, errors.New("client active path changed; restore recorded settings before switching")
 		}
 	}
 	base := strings.TrimRight(p.Server, "/") + "/v1"
@@ -58,7 +88,7 @@ func PlanSettings(resolver Resolver, s State, id string, p Profile, key string, 
 			matched := false
 			for _, b := range record.Files {
 				if b.Path == file {
-					source, e = restoreBytes(b, before)
+					source, _, e = restoreOwned(id, b, before)
 					if e != nil {
 						return nil, e
 					}
@@ -66,7 +96,7 @@ func PlanSettings(resolver Resolver, s State, id string, p Profile, key string, 
 					break
 				}
 			}
-			if !matched {
+			if !matched && id != "aside" && id != "hermes" {
 				return nil, errors.New("client file has no matching ownership record")
 			}
 		}
@@ -113,6 +143,9 @@ func PlanSettings(resolver Resolver, s State, id string, p Profile, key string, 
 			if index == 0 {
 				settings := object{"provider": providerID, "baseUrl": base, "protocol": "openai-responses", "client": "openai", "apiKey": key}
 				fragments = providerFragment("providers", object{"settings": settings, "updatedAt": "1970-01-01T00:00:00.000Z", "tokenSource": "manual"})
+				if _, owned := s.Records[id]; owned {
+					preserveClineSelection(before, &fragments[0], models)
+				}
 			} else {
 				catalog := object{}
 				for _, m := range models {
@@ -160,12 +193,8 @@ func PlanSettings(resolver Resolver, s State, id string, p Profile, key string, 
 			fields = append(fields, "appliedId")
 		}
 		check := func() error {
-			resolved, e := resolver.Resolve(id)
-			if e != nil {
+			if e := checkTargets(); e != nil {
 				return e
-			}
-			if resolved != path {
-				return errors.New("client selector changed after preview")
 			}
 			return clientPreflight(id, path, doc, base, models)
 		}

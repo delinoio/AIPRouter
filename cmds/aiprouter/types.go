@@ -65,8 +65,19 @@ type Grant struct {
 	Status                   DeviceStatus
 	KeyID, Key, Organization string
 }
+type ClaudeDesktopModel struct {
+	Name                string `json:"name"`
+	LabelOverride       string `json:"labelOverride,omitempty"`
+	AnthropicFamilyTier string `json:"anthropicFamilyTier,omitempty"`
+	IsFamilyDefault     *bool  `json:"isFamilyDefault,omitempty"`
+	Supports1M          *bool  `json:"supports1m,omitempty"`
+	Prefer1M            *bool  `json:"prefer1m,omitempty"`
+}
 type ClientModel struct {
+	Desktop         *ClaudeDesktopModel
+	CodexCatalog    map[string]any
 	ID, Name        string
+	Description     string
 	Context, Output int
 	Tools, Vision   bool
 	Efforts         []string

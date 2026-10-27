@@ -101,7 +101,7 @@ func openBrowser(url string) error {
 }
 func (a *Application) Run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		fmt.Fprintln(a.Out, "aiprouter connect|profiles|configure|disconnect|restore|port|service|relay|clients|recover\nFlags: --profile NAME --server HTTPS_ORIGIN --client CLIENT --port PORT --state-dir ABSOLUTE_PATH\nservice: --action install|status|stop|remove\nDisconnect: offers settings restoration; preserves conflicts and reports incomplete revocation.\nConfiguration previews always require interactive confirmation; remote-key storage requires separate consent.\nSet NO_COLOR=1 to disable ANSI log colors.")
+		fmt.Fprintln(a.Out, "aiprouter connect|profiles|configure|disconnect|restore|port|service|relay|clients|client-profiles|recover\nFlags: --profile NAME --server HTTPS_ORIGIN --client CLIENT --port PORT --state-dir ABSOLUTE_PATH\nservice: --action install|status|stop|remove\nDisconnect: offers settings restoration; preserves conflicts and reports incomplete revocation.\nConfiguration previews always require interactive confirmation; remote-key storage requires separate consent.\nSet NO_COLOR=1 to disable ANSI log colors.")
 		return nil
 	}
 	command := args[0]
@@ -129,6 +129,16 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 				mode = "loopback relay"
 			}
 			fmt.Fprintf(a.Out, "%s: %s; %s; %s\n", c.ID, c.Format, mode, c.Platforms)
+		}
+		return nil
+	}
+	if command == "client-profiles" {
+		profiles, e := a.Resolver.DiscoverProfiles(*client)
+		if e != nil {
+			return e
+		}
+		for _, p := range profiles {
+			fmt.Fprintf(a.Out, "%s current=%t path=%q\n", p.ID, p.Current, p.Path)
 		}
 		return nil
 	}
@@ -273,7 +283,7 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		if e != nil {
 			return e
 		}
-		models, e := api.Models(ctx, key)
+		models, e := modelsForClient(ctx, api, key, *client)
 		if e != nil {
 			return e
 		}
