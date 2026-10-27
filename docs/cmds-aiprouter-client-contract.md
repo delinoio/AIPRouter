@@ -58,6 +58,17 @@ JSON, JSON5, YAML, TOML, active profile stores, source-preserving merges, and cl
 - Do not require separate local authentication: other processes on the same computer can call it under the explicitly selected policy.
 - Do not turn this relay into a local provider execution agent.
 
+#### Optional native TLS compatibility
+
+Claude first-party Desktop mode and its model picker, plus the pinned experimental Codex Desktop compatibility runtime, are included as explicitly selected client modes. They are separate from ordinary gateway configuration and do not introduce rollout feature flags or local executable provider backends.
+
+- Before activation, preview the exact application mode, supported build, intercepted destinations/routes, loopback listeners, certificate fingerprint, trust-store changes, and settings changes. Require separate explicit runtime consent for certificate trust and application mutation; ordinary connection consent does not authorize these changes.
+- Bind listeners to loopback only. Restrict interception to the pinned client destinations and protocol paths. Preserve upstream TLS verification; never install a general-purpose traffic interceptor or forward native account credentials to the router. Provider selection and usage authority remain on the server.
+- Keep CA private material in user-scoped protected storage with the platform protection required by the pinned runtime. Never commit, log, or transmit it. Trust only the specific owned certificate in the current user's trust scope; unsupported platforms or builds must refuse clearly. Missing trust is pending, not successful activation.
+- Keep a recoverable ownership record and protected original settings before mutation. Preserve user changes and unrelated certificates/proxies. Status, stop, disable, and disconnect must identify owned resources, stop owned listeners, and offer restoration and owned trust removal. Conflicts preserve backups and give explicit recovery instructions; failures must not report successful cleanup.
+- Keep Codex observe behavior separate from an explicitly confirmed bounded account-UI trial. Do not claim that native quota UI changes establish provider isolation, billing credit, or server authorization. Assess only the exact pinned supported builds; unknown builds require explicit refusal rather than speculative mutation.
+- Test with temporary homes, certificates, mock trust adapters and loopback fixtures. Cross-build and fixture evidence does not establish real OS trust, native application, or live-account acceptance. Development tests must not enroll trust or change the developer's installed applications.
+
 #### Disconnect
 
 - Attempt to revoke the dedicated key on the server as well as cleaning up locally.
