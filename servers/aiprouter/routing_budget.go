@@ -25,11 +25,19 @@ func (a *inferenceAdapter) hostedExchangeAllowance(ctx context.Context, p infere
 			n = int(s.GetMaxSearchesPerTurn())
 		}
 		// One operation, plus at most one credential refresh and discovery.
-		extra += n * 3
+		refresh, err := a.helperRefreshAllowance(ctx, p, s.Target)
+		if err != nil {
+			return 0, err
+		}
+		extra += n * (1 + refresh)
 	}
 	if s := settings.Images; s != nil && s.Target != nil {
+		refresh, err := a.helperRefreshAllowance(ctx, p, s.Target)
+		if err != nil {
+			return 0, err
+		}
 		if s.BridgeEnabled {
-			extra += 10 * (1 + 4 + 2)
+			extra += 10 * (1 + 4 + refresh)
 		} // submit, four downloads, refresh/discovery
 		if s.VideoBridgeEnabled {
 			timeout := 300 * time.Second
@@ -45,7 +53,7 @@ func (a *inferenceAdapter) hostedExchangeAllowance(ctx context.Context, p infere
 					delay = 15 * time.Second
 				}
 			}
-			extra += 3 * (1 + polls + 1 + 2)
+			extra += 3 * (1 + polls + 1 + refresh)
 		}
 	}
 	if s := settings.Vision; s != nil && (s.GetTarget() != nil || s.GetRouteModel() != "") && (s.Enabled == nil || s.GetEnabled()) {
@@ -53,14 +61,19 @@ func (a *inferenceAdapter) hostedExchangeAllowance(ctx context.Context, p infere
 		if s.MaxDescriptionsPerTurn != nil {
 			n = int(s.GetMaxDescriptionsPerTurn())
 		}
+		refresh, err := a.helperRefreshAllowance(ctx, p, s.GetTarget())
+		if err != nil {
+			return 0, err
+		}
 		sends := 1
 		if s.GetRouteModel() != "" {
+			refresh = 0
 			sends, err = a.routedHelperBudget(ctx, p, s.GetRouteModel())
 			if err != nil {
 				return 0, err
 			}
 		}
-		extra += n * (sends + 2)
+		extra += n * (sends + refresh)
 	}
 	if extra > 0 {
 		extra += 3 * mainBudget
@@ -105,19 +118,81 @@ func (a *inferenceAdapter) routedHelperBudget(ctx context.Context, p inference.P
 			if err != nil {
 				return 0, inferenceError(err)
 			}
-			sends := 4
-			if d.Metadata.ProviderId == "cursor" {
-				sends = cursorPhysicalExchangeBudget
-			} else if d.Metadata.AuthKind == v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH {
-				sends = n * 3
-				if d.Metadata.ProviderId == "github-copilot" {
-					sends = n * 9
-				}
+			auth := inference.APIKey
+			if d.Metadata.AuthKind == v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH {
+				auth = inference.OAuth
 			}
+			sends := baseLaneBudget(d.Metadata.ProviderId, auth, n)
 			if sends > maxSends {
 				maxSends = sends
 			}
 		}
 	}
 	return maxSends, nil
+}
+
+// Bounds audited against refreshProviderCredential and its discovery branches.
+func providerRefreshAllowance(provider string) int {
+	switch provider {
+	case "google-antigravity", "zed":
+		return 8
+	case "github-copilot", "google-vertex":
+		return 4
+	case "xai":
+		return 3
+	default:
+		return 2
+	}
+}
+func baseLaneBudget(provider string, auth inference.AuthMode, accounts int) int {
+	if provider == "cursor" {
+		return cursorPhysicalExchangeBudget
+	}
+	if auth != inference.OAuth {
+		return 4
+	}
+	limit := 6
+	if provider == "openai" {
+		limit = 2
+	}
+	if provider == "anthropic" || provider == "anthropic2" {
+		limit = 4
+	}
+	if accounts > limit {
+		accounts = limit
+	}
+	attempts := 2
+	if provider == "github-copilot" {
+		attempts = 8
+	}
+	budget := accounts * (attempts + providerRefreshAllowance(provider))
+	if budget < 4 {
+		return 4
+	}
+	return budget
+}
+func (a *inferenceAdapter) helperRefreshAllowance(ctx context.Context, p inference.Principal, target *v1.HostedHelperTarget) (int, error) {
+	if target == nil {
+		return 0, nil
+	}
+	members, _, err := hostedMembers(ctx, a.s, scopeOf(p), target)
+	if err != nil {
+		return 0, inferenceError(err)
+	}
+	max := 0
+	for _, member := range members {
+		d, err := a.provider(ctx, scopeOf(p), member.ConnectionId)
+		if errors.Is(err, inference.ErrNoCredential) || errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return 0, inferenceError(err)
+		}
+		if d.Metadata.AuthKind == v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH {
+			if n := providerRefreshAllowance(d.Metadata.ProviderId); n > max {
+				max = n
+			}
+		}
+	}
+	return max, nil
 }

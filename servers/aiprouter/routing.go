@@ -207,26 +207,13 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 		if len(req.Candidates) == 0 {
 			continue
 		}
-		if provider == "cursor" {
-			out.MaxSends = cursorPhysicalExchangeBudget
-		}
 		target.Retry.RotateOn429 = len(req.Candidates) > 1
 		if chosen.Strategy == v1.RoutingStrategy_ROUTING_STRATEGY_FALLBACK {
 			target.Retry.FallbackOn429 = true
 			target.Retry.FallbackOn5xx = true
 		}
-		if target.Auth == inference.OAuth && provider != "openai" && provider != "anthropic" && provider != "anthropic2" {
-			n := len(req.Candidates)
-			if n > 6 {
-				n = 6
-			}
-			exchanges := n * 3
-			if provider == "github-copilot" {
-				exchanges = n * 9
-			} // Two negotiated attempts (4 each), plus one credential refresh.
-			if exchanges > out.MaxSends {
-				out.MaxSends = exchanges
-			}
+		if budget := baseLaneBudget(provider, target.Auth, len(req.Candidates)); budget > out.MaxSends {
+			out.MaxSends = budget
 		}
 		if genericAffinityEnabled(pool, target.Auth, provider) {
 			if session := inference.AffinitySession(ctx); session != "" {
