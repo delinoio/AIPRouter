@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useState } from "react";
+import { create } from "@bufbuild/protobuf";
 import { useQuery } from "@connectrpc/connect-query";
 import {
   PoolService,
@@ -7,6 +8,8 @@ import {
   ProviderService,
   PoolStrategy,
   RoutingStrategy,
+  JevDecisionConfigSchema,
+  type JevDecisionConfig,
   ConnectionState,
   type Pool,
   type Route,
@@ -404,7 +407,11 @@ export function RoutingPage({ organization }: PageProps) {
               <div>
                 <h2>{route.modelId}</h2>
                 <Badge>{route.enabled ? "Enabled" : "Disabled"}</Badge>
-                <p>{enumLabel(RoutingStrategy[route.strategy])}</p>
+                <p>
+                  {route.strategy === RoutingStrategy.JEV
+                    ? "JEV"
+                    : enumLabel(RoutingStrategy[route.strategy])}
+                </p>
                 <ol>
                   {route.targets
                     .toSorted((a, b) => a.priority - b.priority)
@@ -438,6 +445,7 @@ export function RoutingPage({ organization }: PageProps) {
       />
       {edit && (
         <RouteEditor
+          decisionRoutes={routes.data ?? []}
           route={edit === true ? undefined : edit}
           existingNames={(routes.data ?? [])
             .filter((r) => edit === true || r.id !== edit.id)
@@ -492,20 +500,32 @@ export function RoutingPage({ organization }: PageProps) {
     </>
   );
 }
+enum JevEffort {
+  Low = "low",
+  Medium = "medium",
+  High = "high",
+  ExtraHigh = "xhigh",
+  Max = "max",
+  Ultra = "ultra",
+}
 type TargetValue = {
   target:
     { case: "connectionId"; value: string } | { case: "poolId"; value: string };
   modelId: string;
+  reasoningEfforts: string[];
+  modelProfile: string;
   priority: number;
   weight: number;
 };
 type RouteValues = {
+  jevDecision?: JevDecisionConfig;
   modelId: string;
   strategy: RoutingStrategy;
   targets: TargetValue[];
   enabled: boolean;
 };
 function RouteEditor({
+  decisionRoutes,
   existingNames,
   route,
   accounts,
@@ -525,8 +545,25 @@ function RouteEditor({
   error: unknown;
   onClose: () => void;
   onSave: (v: RouteValues) => void;
+  decisionRoutes: Route[];
 }) {
   const [name, setName] = useState(route?.modelId ?? "");
+  const [jev, setJev] = useState(() =>
+    create(JevDecisionConfigSchema, route?.jevDecision),
+  );
+  const [decisionSource, setDecisionSource] = useState(
+    route?.jevDecision?.decisionModel ? "route" : "connection",
+  );
+  const validJev =
+    (jev.decisionTimeoutMs === 0 ||
+      (jev.decisionTimeoutMs >= 1000 && jev.decisionTimeoutMs <= 120000)) &&
+    Number.isInteger(jev.decisionTimeoutMs) &&
+    (jev.sessionPinTtlSeconds === 0 ||
+      (jev.sessionPinTtlSeconds >= 60 && jev.sessionPinTtlSeconds <= 86400)) &&
+    Number.isInteger(jev.sessionPinTtlSeconds) &&
+    (decisionSource === "route"
+      ? !!jev.decisionModel
+      : !!jev.decisionConnectionId);
   const [strategy, setStrategy] = useState(
     route?.strategy ?? RoutingStrategy.FALLBACK,
   );
@@ -540,6 +577,8 @@ function RouteEditor({
       .map((t) => ({
         target: t.target,
         modelId: t.modelId,
+        reasoningEfforts: [...t.reasoningEfforts],
+        modelProfile: t.modelProfile,
         priority: t.priority,
         weight: t.weight,
       }))
@@ -556,6 +595,7 @@ function RouteEditor({
           e.preventDefault();
           onSave({
             modelId: name.trim(),
+            jevDecision: strategy === RoutingStrategy.JEV ? jev : undefined,
             strategy,
             enabled,
             targets: targets.map((t, i) => ({ ...t, priority: i })),
@@ -573,16 +613,26 @@ function RouteEditor({
         <Field label="Routing strategy">
           <select
             value={strategy}
-            onChange={(e) => setStrategy(Number(e.target.value))}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              setStrategy(next);
+              if (next !== RoutingStrategy.JEV) {
+                setJev(create(JevDecisionConfigSchema));
+                setDecisionSource("connection");
+              }
+            }}
           >
             {[
               RoutingStrategy.DIRECT,
               RoutingStrategy.FALLBACK,
               RoutingStrategy.WEIGHTED,
               RoutingStrategy.ROUND_ROBIN,
+              RoutingStrategy.JEV,
             ].map((s) => (
               <option key={s} value={s}>
-                {enumLabel(RoutingStrategy[s])}
+                {s === RoutingStrategy.JEV
+                  ? "JEV"
+                  : enumLabel(RoutingStrategy[s])}
               </option>
             ))}
           </select>
@@ -595,6 +645,156 @@ function RouteEditor({
           />
           Enabled
         </label>
+        {strategy === RoutingStrategy.JEV && (
+          <fieldset>
+            <legend>JEV decision settings</legend>
+            <p>
+              Choose an independent personal decision service or an ordinary
+              routing model. Decision routes cannot use JEV chains or cycles.
+            </p>
+            <Field label="Decision source">
+              <select
+                value={decisionSource}
+                onChange={(e) => {
+                  setDecisionSource(e.target.value);
+                  setJev({
+                    ...jev,
+                    decisionConnectionId: "",
+                    decisionModel: "",
+                    decisionServiceModel: "",
+                  });
+                }}
+              >
+                <option value="connection">Connection</option>
+                <option value="route">Route alias</option>
+              </select>
+            </Field>
+            {decisionSource === "connection" ? (
+              <>
+                <Field
+                  label="Decision connection"
+                  hint="Choose a JEV or custom decision-service connection. The server checks eligibility."
+                >
+                  <select
+                    required
+                    value={jev.decisionConnectionId}
+                    onChange={(e) =>
+                      setJev({ ...jev, decisionConnectionId: e.target.value })
+                    }
+                  >
+                    <option value="">Choose a connection</option>
+                    {jev.decisionConnectionId &&
+                      !accounts.some(
+                        (a) => a.id === jev.decisionConnectionId,
+                      ) && (
+                        <option value={jev.decisionConnectionId}>
+                          Saved decision connection unavailable
+                        </option>
+                      )}
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                        {a.state !== ConnectionState.READY
+                          ? " (unavailable)"
+                          : ""}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field
+                  label="Decision service model"
+                  hint="Custom SystemOne backend model. The canonical JEV service uses jev-latest."
+                >
+                  <input
+                    maxLength={512}
+                    value={jev.decisionServiceModel}
+                    onChange={(e) =>
+                      setJev({ ...jev, decisionServiceModel: e.target.value })
+                    }
+                  />
+                </Field>
+              </>
+            ) : (
+              <Field label="Decision route alias">
+                <select
+                  required
+                  value={jev.decisionModel}
+                  onChange={(e) =>
+                    setJev({ ...jev, decisionModel: e.target.value })
+                  }
+                >
+                  <option value="">Choose an ordinary personal route</option>
+                  {jev.decisionModel &&
+                    !decisionRoutes.some(
+                      (r) =>
+                        r.modelId === jev.decisionModel &&
+                        r.id !== route?.id &&
+                        r.strategy !== RoutingStrategy.JEV,
+                    ) && (
+                      <option value={jev.decisionModel}>
+                        Saved route unavailable ({jev.decisionModel})
+                      </option>
+                    )}
+                  {decisionRoutes
+                    .filter(
+                      (r) =>
+                        r.id !== route?.id &&
+                        r.strategy !== RoutingStrategy.JEV,
+                    )
+                    .map((r) => (
+                      <option key={r.id} value={r.modelId}>
+                        {r.modelId}
+                        {!r.enabled ? " (disabled)" : ""}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+            )}
+            <Field
+              label="Decision timeout (ms)"
+              hint="Zero uses 4000 ms. Otherwise 1000–120000 ms."
+            >
+              <input
+                type="number"
+                min={0}
+                max={120000}
+                step={1}
+                value={jev.decisionTimeoutMs}
+                onChange={(e) =>
+                  setJev({ ...jev, decisionTimeoutMs: Number(e.target.value) })
+                }
+              />
+            </Field>
+            <Field
+              label="Session pin duration (seconds)"
+              hint="Zero disables pinning. Otherwise 60–86400 seconds."
+            >
+              <input
+                type="number"
+                min={0}
+                max={86400}
+                step={1}
+                value={jev.sessionPinTtlSeconds}
+                onChange={(e) =>
+                  setJev({
+                    ...jev,
+                    sessionPinTtlSeconds: Number(e.target.value),
+                  })
+                }
+              />
+            </Field>
+            {!validJev && (
+              <Notice tone="warning">
+                Select a decision source and use the allowed timeout and pin
+                duration.
+              </Notice>
+            )}
+          </fieldset>
+        )}
+        <p>
+          Saving replaces the complete route. Changing away from JEV removes its
+          decision configuration.
+        </p>
         <h3>Ordered targets</h3>
         {targets.map((t, i) => (
           <fieldset key={i}>
@@ -683,6 +883,53 @@ function RouteEditor({
                 }
               />
             </Field>
+            <details>
+              <summary>Target reasoning and model profile</summary>
+              <fieldset>
+                <legend>Allowed reasoning efforts</legend>
+                {Object.values(JevEffort).map((effort) => (
+                  <label className="check" key={effort}>
+                    <input
+                      type="checkbox"
+                      checked={t.reasoningEfforts.includes(effort)}
+                      onChange={(e) =>
+                        setTargets((old) =>
+                          old.map((x, j) =>
+                            j === i
+                              ? {
+                                  ...x,
+                                  reasoningEfforts: e.target.checked
+                                    ? [...x.reasoningEfforts, effort]
+                                    : x.reasoningEfforts.filter(
+                                        (v) => v !== effort,
+                                      ),
+                                }
+                              : x,
+                          ),
+                        )
+                      }
+                    />
+                    {effort}
+                  </label>
+                ))}
+              </fieldset>
+              <Field
+                label="Model profile"
+                hint="Optional model description for JEV decisions, up to 512 characters. Do not include credentials or request content."
+              >
+                <textarea
+                  maxLength={512}
+                  value={t.modelProfile}
+                  onChange={(e) =>
+                    setTargets((old) =>
+                      old.map((x, j) =>
+                        j === i ? { ...x, modelProfile: e.target.value } : x,
+                      ),
+                    )
+                  }
+                />
+              </Field>
+            </details>
             <div className="actions">
               <Button
                 disabled={i === 0}
@@ -713,6 +960,8 @@ function RouteEditor({
               {
                 target: { case: "connectionId", value: "" },
                 modelId: "",
+                reasoningEfforts: [],
+                modelProfile: "",
                 priority: old.length,
                 weight: 1,
               },
@@ -747,6 +996,8 @@ function RouteEditor({
               !name.trim() ||
               existingNames.includes(name.trim()) ||
               !targets.length ||
+              (strategy === RoutingStrategy.JEV &&
+                (!validJev || targets.length > 64)) ||
               targets.some((t) =>
                 t.target.case === "connectionId"
                   ? !accounts.some((a) => a.id === t.target.value)

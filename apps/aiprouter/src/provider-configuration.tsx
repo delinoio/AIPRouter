@@ -108,6 +108,7 @@ const wires = [
   [ProviderWire.RESPONSES, "Responses"],
   [ProviderWire.ANTHROPIC, "Anthropic"],
   [ProviderWire.GOOGLE, "Google"],
+  [ProviderWire.JEV_DECISION, "JEV decision service"],
 ] as const;
 const policies = [
   ["foldDeveloperRoleToSystem", "Fold developer role into system"],
