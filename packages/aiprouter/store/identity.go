@@ -204,7 +204,10 @@ func (s *Store) CancelTransfer(ctx context.Context, sc core.Scope) error {
 			return ErrForbidden
 		}
 		_, e = tx.ExecContext(ctx, "DELETE FROM transfers WHERE org_id=$1", sc.OrganizationID)
-		return e
+		if e != nil {
+			return e
+		}
+		return s.audit(ctx, tx, sc.OrganizationID, sc.UserID, "ownership.canceled", sc.OrganizationID)
 	})
 }
 func (s *Store) AcceptTransfer(ctx context.Context, sc core.Scope) error {

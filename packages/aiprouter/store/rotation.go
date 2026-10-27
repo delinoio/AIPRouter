@@ -61,6 +61,21 @@ func (s *Store) RotateEncryption(ctx context.Context) error {
 				}
 			}
 		}
+
+		// Envelope version names can change ciphertext size. Recompute retained
+		// bytes and apply the same oldest-first quotas before completing rotation.
+		if _, e := tx.ExecContext(ctx, "UPDATE "+s.temp+".states SET size=octet_length(value)"); e != nil {
+			return e
+		}
+		for _, kind := range []core.StateKind{core.Responses, core.Reasoning, core.Search} {
+			_, count, max, e := kind.Limits()
+			if e != nil {
+				return e
+			}
+			if _, e = tx.ExecContext(ctx, "DELETE FROM "+s.temp+".states WHERE (org_id,user_id,kind,id) IN (SELECT org_id,user_id,kind,id FROM (SELECT org_id,user_id,kind,id,row_number() OVER(PARTITION BY org_id,user_id ORDER BY created_at DESC,id DESC) n,sum(size) OVER(PARTITION BY org_id,user_id ORDER BY created_at DESC,id DESC) bytes FROM "+s.temp+".states WHERE kind=$1) ranked WHERE n>$2 OR bytes>$3)", kind, count, max); e != nil {
+				return e
+			}
+		}
 		for _, spec := range []struct{ table, column, prefix string }{{s.temp + ".devices", "id", "device/"}, {s.temp + ".mail_tokens", "invitation_id", "invitation/"}, {s.temp + ".login_states", "encode(hash,'hex')", "loginhash/"}} {
 			rs, e := tx.QueryContext(ctx, "SELECT "+spec.column+",value FROM "+spec.table+" WHERE value IS NOT NULL")
 			if e != nil {

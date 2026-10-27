@@ -787,3 +787,78 @@ func TestExpiredOwnershipTransferAndReplacedID(t *testing.T) {
 		t.Fatal("expired transfer", e)
 	}
 }
+
+func TestRotationCoversAllTemporarySecrets(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, sc := tenant(t, s)
+	login := LoginState{State: core.Token(), Binding: core.Token(), Nonce: core.Token(), Verifier: core.Token()}
+	if e := s.SaveLoginState(ctx, login); e != nil {
+		t.Fatal(e)
+	}
+	d, e := s.StartDevice(ctx, "rotation", "https://router.example")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.ApproveDevice(ctx, sc, d.Code, nil); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.Invite(ctx, sc, "rotation@example.com"); e != nil {
+		t.Fatal(e)
+	}
+	key := make([]byte, 32)
+	key[0] = 7
+	s.keys, e = core.NewEnvelope("much-longer-key-version", map[string][]byte{"v1": make([]byte, 32), "much-longer-key-version": key})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.RotateEncryption(ctx); e != nil {
+		t.Fatal(e)
+	}
+	s.keys, _ = core.NewEnvelope("much-longer-key-version", map[string][]byte{"much-longer-key-version": key})
+	if got, e := s.ConsumeLoginState(ctx, login.State, login.Binding); e != nil || got.Verifier != login.Verifier {
+		t.Fatal(got, e)
+	}
+	if got, e := s.PollDevice(ctx, d.ID, d.Secret); e != nil || got.RawKey == "" {
+		t.Fatal("device rotation", e)
+	}
+	m, e := s.ClaimMail(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.WithMailAttempt(ctx, m, func(_ context.Context, m Mail) MailOutcome {
+		if m.Token == "" {
+			t.Fatal("missing invitation token")
+		}
+		return MailSuccess
+	}); e != nil {
+		t.Fatal(e)
+	}
+}
+func TestDatabaseFailureClosesAdmissionAndDispatch(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, sc := tenant(t, s)
+	_, raw, e := s.IssueKey(ctx, sc, "db", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	l, e := s.Admit(ctx, raw)
+	if e != nil {
+		t.Fatal(e)
+	} // A separate pool remains available to drop the isolated schemas after failure.
+	cleanup, e := sql.Open("pgx", os.Getenv("AIPROUTER_TEST_DATABASE_URL"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer cleanup.Close()
+	defer cleanup.Exec("DROP SCHEMA " + s.schema + " CASCADE")
+	defer cleanup.Exec("DROP SCHEMA " + s.temp + " CASCADE")
+	s.Close()
+	if _, e = s.Admit(ctx, raw); e == nil {
+		t.Fatal("cached admission during DB outage")
+	}
+	if e = s.WithDispatch(ctx, l, func(context.Context) error { t.Fatal("dispatch during DB outage"); return nil }); e == nil {
+		t.Fatal("missing DB failure")
+	}
+}
