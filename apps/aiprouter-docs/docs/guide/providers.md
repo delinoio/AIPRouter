@@ -125,6 +125,26 @@ Expand **Advisory quota signals** in JEV decision settings and select **Enable a
 
 Require Moderate (if set) < Limited < Nearly exhausted. Values must be finite. Overrides alone do not enable signals, and configured thresholds must remain valid even when signals are off. These tiers are separate from native pool switching thresholds: sharing a quota tier with a decision service does not change a pool's switching policy.
 
+## Retain readable reasoning during compaction
+
+Reasoning retention is an optional per-route setting and is **off by default**. It applies to supported portable compaction; canonical ChatGPT compaction continues through its native forwarding behavior without this retention feature.
+
+1. Open **Create route** or **Edit routing** and expand **Reasoning retention**.
+2. Select **Configure reasoning retention** to show its settings. This alone does not enable retention.
+3. Select **Retain readable reasoning during compaction** to opt in.
+4. Set **Context limit (%)** and **Token limit**, or leave them empty for the defaults below.
+5. Review the route and select **Save routing**.
+
+An empty or zero context percentage uses **20%**. A nonzero percentage must be finite, greater than zero, and at most 100. An empty or zero token limit uses **100,000 tokens**; a nonzero value must be a whole number from 1 to 4,294,967,295. Configured limits must remain valid even when retention is disabled.
+
+The inline retention budget is the smaller of the percentage of the selected compacting model's context window and the token limit. The context window comes from trusted, authenticated model metadata; there is no user-supplied context-window field. If that window is unknown, only the token limit applies. Setting either limit to zero selects its default, not unlimited retention and not disabled retention.
+
+When enabled, readable reasoning is kept out of the summarizer and preserved as historical context in portable continuation. Overflow uses an encrypted temporary reference with a **24-hour lifetime**. It is not permanent history or an R2 media artifact, and it does not expose a server-local path. Temporary retention remains bounded: up to 256 entries and 512 MiB total per user within an organization, with at most 32 MiB per entry. A high token setting does not remove these storage bounds.
+
+If required retained state is missing, expired, evicted, unavailable, or invalidated by credential replacement/deletion, continuation fails explicitly with `continuation_unavailable`; the failed continuation does not send upstream or silently omit the required context. If a required overflow write fails or exceeds its bounds, compaction stops before the upstream send. Start a new conversation explicitly when the required context cannot be recovered. Recovery from backup does not restore this temporary state.
+
+To disable retention while keeping the numeric settings, clear **Retain readable reasoning during compaction** and save. To remove all retention settings, clear **Configure reasoning retention** and select **Save routing**. Saving replaces the complete route configuration; removing it clears the opt-in. Mocked console payload checks and separate controlled runtime tests do not establish live provider/account acceptance.
+
 ## Limits and continuation
 
 Required default admission limits are 120 requests per minute and 10 concurrent requests per user per organization. Operators can choose 1–6,000 requests per minute and 1–100 concurrent requests; unlimited admission is not supported. Exhaustion returns HTTP 429 with `Retry-After` without an admission queue.
