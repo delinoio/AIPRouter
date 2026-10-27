@@ -30,6 +30,8 @@ RPC paths use `/aiprouter.v1.<Service>/<Method>`. Personal requests select an or
 
 Provider configuration carries typed custom wires, model overrides, endpoint paths, and presence-aware policy overrides. An absent boolean inherits its default; explicit `false` overrides it. Custom header values are write-only, with explicit replacement/reset semantics. Operator destination rules preserve stable identifiers and canonical origins. Empty CIDR lists approve the exact origin under the service policy; nonempty lists restrict all resolved addresses for that origin and cannot fall back to default public-HTTPS approval.
 
+Vertex configuration preserves optional `vertex_project` and `vertex_location` strings through generated clients, editing, and persistence. Apply these fields only to the selected personal Vertex connection. An explicit `auto` project is supported only for API-key project discovery under the compatibility contract; service-account credentials must reject it. Never use an omitted project or location to import the service host's identity. Project discovery must retain the original send budget and current credential authorization.
+
 `ProviderPolicyOverrides.responses_item_id_repair` is an optional object, not a boolean. Its `message` and `reasoning` arrays contain exact identifiers; `repair_invalid_ids` and `repair_missing_terminal_ids` retain optional boolean presence. Omitting the object inherits the preset. A present empty object overrides the preset with no repair. Preserve this distinction through generated clients, settings persistence, UI editing, and request-policy resolution.
 
 ### Routing and native pool option presence
