@@ -181,13 +181,21 @@ func validURL(raw string) bool {
 func supportedCustom(w Wire) bool {
 	return w == Chat || w == Responses || w == Anthropic || w == Google || w == JEVDecision
 }
-func ValidateConnection(c Connection) error {
+
+// ValidateConnection validates new enrollment, including the deprecation policy.
+func ValidateConnection(c Connection) error { return validateConnection(c, true) }
+
+// ValidateSavedConnection retains every security check but permits a deprecated
+// saved preset to reach its own adapter. Deprecation is not evidence of live availability.
+func ValidateSavedConnection(c Connection) error { return validateConnection(c, false) }
+
+func validateConnection(c Connection, enrollment bool) error {
 	p, ok := Lookup(c.Provider)
 	if c.Provider == "custom" {
 		p = Preset{ID: "custom", Wire: c.Wire, Auth: Key, AllowBaseURLOverride: true, CredentialOnly: c.Wire == JEVDecision}
 		ok = supportedCustom(c.Wire)
 	}
-	if !ok || p.Excluded || p.Deprecated != "" {
+	if !ok || p.Excluded || (enrollment && p.Deprecated != "") {
 		return ErrProvider
 	}
 	if p.ID == "exa" {
@@ -255,7 +263,7 @@ func contains[T comparable](list []T, v T) bool {
 	return false
 }
 func Resolve(c Connection, model string, inbound Inbound) (Route, error) {
-	if err := ValidateConnection(c); err != nil {
+	if err := ValidateSavedConnection(c); err != nil {
 		return Route{}, err
 	}
 	p, _ := Lookup(c.Provider)
@@ -301,9 +309,6 @@ func Resolve(c Connection, model string, inbound Inbound) (Route, error) {
 	for k, v := range p.StaticHeaders {
 		r.Headers.Set(k, v)
 	}
-	for k, v := range c.Headers {
-		r.Headers.Set(k, v)
-	}
 	token := c.APIKey
 	if auth == OAuth || auth == Forward {
 		token = c.Credential.AccessToken
@@ -335,5 +340,8 @@ func Resolve(c Connection, model string, inbound Inbound) (Route, error) {
 	if p.ID == "openai" && c.Credential != nil && c.Credential.AccountID != "" {
 		r.Headers.Set("ChatGPT-Account-Id", c.Credential.AccountID)
 	}
+	// Reserved identity/auth headers were rejected during validation. Allowed
+	// personal headers therefore take precedence over provider protocol defaults.
+	overlayHeaders(r.Headers, c.Headers)
 	return r, nil
 }

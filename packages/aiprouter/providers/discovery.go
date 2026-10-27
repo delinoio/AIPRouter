@@ -37,7 +37,7 @@ func (a *Auth) Discover(ctx context.Context, s core.Scope, c Connection) (ModelC
 	if !validScope(s) || (c.Credential != nil && c.Credential.Scope != s) {
 		return ModelCatalog{}, nil, ErrScope
 	}
-	if err := ValidateConnection(c); err != nil {
+	if err := ValidateSavedConnection(c); err != nil {
 		return ModelCatalog{}, nil, err
 	}
 	cr := c.Credential

@@ -131,3 +131,18 @@ func TestJEVExplicitPresetCredentialLane(t *testing.T) {
 	}
 
 }
+func TestAnthropicCustomHeaderPrecedence(t *testing.T) {
+	c := Connection{Provider: "anthropic", Credential: &Credential{Scope: testScope, Provider: "anthropic", AccessToken: "token"}, Headers: map[string]string{"anthropic-version": "2025-01-01", "ANTHROPIC-BETA": "personal-beta"}}
+	r, e := Resolve(c, "claude-model", InboundAnthropic)
+	if e != nil || r.Headers.Get("Anthropic-Version") != "2025-01-01" || r.Headers.Get("Anthropic-Beta") != "personal-beta" || r.Headers.Get("Authorization") != "Bearer token" {
+		t.Fatal(r, e)
+	}
+	a, _ := newMock(t, responseStep{"GET", "https://api.anthropic.com/v1/models", 200, `{"data":[]}`, func(t *testing.T, r *http.Request, b []byte) {
+		if r.Header.Get("Anthropic-Version") != "2025-01-01" || r.Header.Get("Anthropic-Beta") != "personal-beta" || r.Header.Get("Authorization") != "Bearer token" {
+			t.Fatal("discovery lost allowed custom precedence")
+		}
+	}})
+	if _, e := a.ValidateRemote(context.Background(), testScope, c); e != nil {
+		t.Fatal(e)
+	}
+}
