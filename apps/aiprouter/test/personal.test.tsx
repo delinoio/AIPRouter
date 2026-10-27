@@ -222,6 +222,32 @@ describe("unknown values and dialogs", () => {
   });
 });
 describe("organization boundary", () => {
+  it("retains the first key-name input when the shell becomes dirty", async () => {
+    window.history.replaceState(null, "", "/?page=keys&organization=one");
+    const user = userEvent.setup();
+    mount(<App />, (r) => {
+      r.service(AccountService, { getSession: () => session });
+      r.service(OrganizationService, {
+        listOrganizations: () => ({ organizations: [organization] }),
+        getOrganization: () => ({ organization }),
+      });
+      r.service(KeyService, { listKeys: () => ({ keys: [] }) });
+    });
+    await user.click(
+      await screen.findByRole("button", { name: "Create API key" }),
+    );
+    const input = screen.getByLabelText("Name");
+    await user.type(input, "a");
+    expect((input as HTMLInputElement).value).toBe("a");
+    expect(
+      within(screen.getByRole("dialog"))
+        .getByRole("button", { name: "Create API key" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+    const beforeUnload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(beforeUnload);
+    expect(beforeUnload.defaultPrevented).toBe(true);
+  });
   it("removes previous keys and open dialogs immediately when switching organization", async () => {
     window.history.replaceState(null, "", "/?page=keys&organization=one");
     const user = userEvent.setup();

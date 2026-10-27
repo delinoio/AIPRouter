@@ -376,7 +376,8 @@ function AuthenticatedApp() {
       <main
         id="main"
         className="main"
-        onInputCapture={(e) => {
+        // Let controlled fields update before dirty tracking rerenders the shell.
+        onChange={(e) => {
           if ((e.target as HTMLElement).closest("form")) setDirty(true);
         }}
       >
