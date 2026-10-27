@@ -10,7 +10,7 @@ Use Node.js 24 from `.nvmrc` and pnpm 10.26.2 from `package.json`. Run `pnpm ins
 
 ## Development
 
-Run root `pnpm dev` to start the API, console, and documentation servers. Configure external services first under the [environment contract](repository-environment-contract.md#local-development). Run `pnpm test` for launcher lifecycle fixtures as well as formatter and hook fixtures.
+Run root `pnpm dev` (`turbo run dev`) to start the API, console, and documentation workspace tasks. Root `turbo.json` marks development tasks persistent and disables caching. The API workspace manifest runs Go from its existing root module; it does not create a separate Go module. Configure external services first under the [environment contract](repository-environment-contract.md#local-development). Run `pnpm test` for formatter and hook fixtures. Inspect development task selection with `pnpm exec turbo run dev --dry=json`.
 
 ## Formatting
 

@@ -8,6 +8,8 @@ Owns server deployment integration and the supporting paths `packaging/aiprouter
 
 Go server/CLI artifacts, Docker Compose, PostgreSQL, R2 integration, and Node.js for npm packaging. Official platform targets are defined by the deployment and CLI contracts.
 
+For local source development, `servers/aiprouter/package.json` and `turbo.json` register the API development task in the pnpm workspace. The [environment contract](repository-environment-contract.md#local-development) owns environment loading and the [workflow contract](repository-workflow-contract.md#development) owns root Turborepo orchestration. This does not change the deployment executable or root Go module.
+
 ## Users and Operators
 
 Self-hosting operators, release maintainers, and validation authors.

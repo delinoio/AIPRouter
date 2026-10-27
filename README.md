@@ -44,7 +44,7 @@ Start all application development servers from the repository root:
 pnpm dev
 ```
 
-This starts the Go API on `http://127.0.0.1:8080`, the console on `http://127.0.0.1:4173`, and public docs on `http://127.0.0.1:4174`. Configure the API first as described in the [local development contract](docs/repository-environment-contract.md#local-development). PostgreSQL, OIDC, SMTP, and R2 must already be available. The command does not provision infrastructure or migrate databases. Press `Ctrl+C` to stop all three servers; a server failure also stops the group. Restart the command after Go source changes; the web servers provide their usual development reload.
+Turborepo runs the workspace development tasks together: the Go API on `http://127.0.0.1:8080`, the console on `http://127.0.0.1:4173`, and public docs on `http://127.0.0.1:4174`. Configure the API first as described in the [local development contract](docs/repository-environment-contract.md#local-development). PostgreSQL, OIDC, SMTP, and R2 must already be available. The command does not provision infrastructure or migrate databases. Press `Ctrl+C` to stop all three servers; a server failure also stops the group. Restart the command after Go source changes; the web servers provide their usual development reload.
 
 Run the checks for the affected components:
 

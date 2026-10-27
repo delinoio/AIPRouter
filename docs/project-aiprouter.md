@@ -25,6 +25,8 @@ The following canonical paths define component ownership. Contracts describe req
 | Distribution      | `packaging/aiprouter`                                 | Compose/npm/observability assets; operations contract owns integration        |
 | Validation        | `scripts/aiprouter`                                   | Reproducible fixtures and validation; operations contract owns release gates  |
 
+The service workspace manifest and package-level Turbo configuration expose its Go development command to root `pnpm dev`. The console and documentation workspace commands join the same persistent, uncached Turbo task under the [workflow contract](repository-workflow-contract.md#development).
+
 ## Domain Contract Documents
 
 - [servers-aiprouter-service-contract](servers-aiprouter-service-contract.md)
