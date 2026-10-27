@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useState } from "react";
+import {
+  NativePoolFields,
+  nativePoolError,
+  nativeProvider,
+  type NativeMember,
+} from "./native-pool";
 import { create } from "@bufbuild/protobuf";
 import { useQuery } from "@connectrpc/connect-query";
 import {
@@ -13,6 +19,7 @@ import {
   type JevDecisionConfig,
   ConnectionState,
   type Pool,
+  type NativePoolOptions,
   type Route,
   type ProviderConnection,
   type RouteTarget,
@@ -172,7 +179,8 @@ type PoolValues = {
   name: string;
   strategy: PoolStrategy;
   affinityEnabled: boolean;
-  members: { connectionId: string; priority: number; weight: number }[];
+  members: NativeMember[];
+  nativeOptions?: NativePoolOptions;
 };
 function PoolEditor({
   existingNames,
@@ -194,15 +202,17 @@ function PoolEditor({
   error: unknown;
 }) {
   const [name, setName] = useState(pool?.name ?? "");
+  const [nativeOptions, setNativeOptions] = useState(pool?.nativeOptions);
   const [affinityEnabled, setAffinityEnabled] = useState(
     pool?.affinityEnabled ?? false,
   );
   const [strategy, setStrategy] = useState(
     pool?.strategy ?? PoolStrategy.PRIORITY,
   );
-  const [members, setMembers] = useState(
+  const [members, setMembers] = useState<NativeMember[]>(
     pool?.members.map((m) => ({
       connectionId: m.connectionId,
+      nativeOptions: m.nativeOptions,
       priority: m.priority,
       weight: m.weight,
     })) ?? [],
@@ -216,6 +226,7 @@ function PoolEditor({
             name: name.trim(),
             strategy,
             affinityEnabled,
+            nativeOptions,
             members: members.map((m, i) => ({ ...m, priority: i })),
           });
         }}
@@ -330,6 +341,14 @@ function PoolEditor({
             </select>
           </Field>
         </fieldset>
+        <NativePoolFields
+          options={nativeOptions}
+          onChange={setNativeOptions}
+          members={members}
+          onMembers={setMembers}
+          accounts={accounts}
+          isNew={!pool}
+        />
         {partial && (
           <Notice tone="warning">
             Only the first {pageSize} connections are available in this editor.
@@ -351,6 +370,11 @@ function PoolEditor({
               existingNames.includes(name.trim()) ||
               !name.trim() ||
               !members.length ||
+              !!nativePoolError(
+                nativeOptions,
+                members,
+                nativeProvider(members, accounts),
+              ) ||
               members.some(
                 (m) => !accounts.some((a) => a.id === m.connectionId),
               )
