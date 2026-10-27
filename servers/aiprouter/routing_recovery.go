@@ -46,6 +46,10 @@ func (p serviceRecoveryPolicy) RecoverHTTP(ctx context.Context, in inference.Ada
 	if err := ctx.Err(); err != nil {
 		return inference.RecoveryDecision{}, err
 	}
+	managedQuota, err := p.adapter.failNativeHealth(ctx, in, f)
+	if err != nil {
+		return inference.RecoveryDecision{}, err
+	}
 	if err := p.adapter.failNative(ctx, in, f); err != nil {
 		return inference.RecoveryDecision{}, err
 	}
@@ -99,7 +103,7 @@ func (p serviceRecoveryPolicy) RecoverHTTP(ctx context.Context, in inference.Ada
 			return inference.RecoveryDecision{}, inferenceError(err)
 		}
 	}
-	if hold != nil {
+	if hold != nil && (!managedQuota || hold.reauth) {
 		if err := p.adapter.recordRecoveryHold(ctx, in, *hold); err != nil {
 			return inference.RecoveryDecision{}, err
 		}

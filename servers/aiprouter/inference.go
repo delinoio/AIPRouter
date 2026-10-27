@@ -133,6 +133,12 @@ func (a *inferenceAdapter) Dispatch(ctx context.Context, p inference.Principal, 
 	a.mu.Lock()
 	account, version := a.activeAccount, a.activeVersion
 	a.mu.Unlock()
+	if handled, err := a.dispatchNativeHealth(ctx, p, start); handled {
+		return err
+	}
+	if handled, err := a.dispatchNativeFamily(ctx, p, start); handled {
+		return err
+	}
 	if account != "" {
 		return inferenceError(a.s.WithAccountDispatch(ctx, l, account, version, start))
 	}
@@ -263,6 +269,10 @@ func (a *inferenceAdapter) Record(ctx context.Context, p inference.Principal, r 
 		}
 	}
 	a.telemetry.logger.InfoContext(ctx, "usage processing", "request_id", requestID(ctx), "inference_request_id", r.RequestID, "usage_id", l.ID)
+	healthErr := a.finishNativeHealth(ctx, p, r)
+	if healthErr != nil {
+		a.telemetry.Event(ctx, "native_health_update_failed")
+	}
 	nativeErr := a.finishNative(ctx, p, r)
 	if nativeErr != nil {
 		a.telemetry.Event(ctx, "native_affinity_update_failed")
@@ -272,7 +282,7 @@ func (a *inferenceAdapter) Record(ctx context.Context, p inference.Principal, r 
 		a.telemetry.Event(ctx, "jev_pin_update_failed")
 	}
 	e = a.s.RecordUsage(ctx, l, u)
-	return errors.Join(e, pinErr, nativeErr)
+	return errors.Join(e, pinErr, nativeErr, healthErr)
 }
 
 var _ inference.Dispatcher = (*inferenceAdapter)(nil)

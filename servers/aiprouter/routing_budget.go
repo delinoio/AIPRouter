@@ -11,6 +11,23 @@ import (
 	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
 )
 
+// A native usage read and a due quota recovery probe share one fetch per
+// candidate. The normal collector owns a separate durable cadence claim. These
+// are allowances, never replenishments or promises that a probe will run.
+func routingObservationAllowance(connections map[string]providerData) int {
+	native, normal := 0, 0
+	for _, d := range connections {
+		if d.Metadata == nil {
+			continue
+		}
+		if d.Metadata.AuthKind == v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH && (d.Metadata.ProviderId == "openai" || d.Metadata.ProviderId == "anthropic" || d.Metadata.ProviderId == "anthropic2") {
+			native++
+		}
+		normal += normalQuotaCollectionBudget(d)
+	}
+	return min(native, 512) + normal
+}
+
 // These allowances cover bounded support exchanges, not extra retry attempts.
 // All exchanges still consume the original ledger and current dispatch guard.
 func (a *inferenceAdapter) hostedExchangeAllowance(ctx context.Context, p inference.Principal, mainBudget int) (int, error) {
@@ -101,6 +118,7 @@ func (a *inferenceAdapter) routedHelperBudget(ctx context.Context, p inference.P
 		return 0, inference.ErrUnsupported
 	}
 	maxSends := 4
+	observedConnections := map[string]providerData{}
 	for _, rt := range chosen.Targets {
 		members, _, err := a.targetMembers(ctx, scopeOf(p), rt)
 		if err != nil {
@@ -122,13 +140,14 @@ func (a *inferenceAdapter) routedHelperBudget(ctx context.Context, p inference.P
 			if d.Metadata.AuthKind == v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH {
 				auth = inference.OAuth
 			}
+			observedConnections[member.ConnectionId] = d
 			sends := baseLaneBudget(d.Metadata.ProviderId, auth, n)
 			if sends > maxSends {
 				maxSends = sends
 			}
 		}
 	}
-	return maxSends, nil
+	return maxSends + routingObservationAllowance(observedConnections), nil
 }
 
 // Bounds audited against refreshProviderCredential and its discovery branches.

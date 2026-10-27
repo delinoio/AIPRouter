@@ -243,6 +243,8 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 		return out, err
 	}
 	out.MaxSends += extra
+	// Reserve support exchanges once; every later operation consumes this same ledger.
+	out.MaxSends += routingObservationAllowance(connections)
 	a.mu.Lock()
 	a.selections = selections
 	a.connections = connections
@@ -480,6 +482,11 @@ func (a *inferenceAdapter) Failed(ctx context.Context, p inference.Principal, t 
 	if status != http.StatusTooManyRequests {
 		return nil
 	}
+	if managed, err := a.nativeHealthOwnsQuota(ctx, p, t, c, status); err != nil {
+		return err
+	} else if managed {
+		return nil
+	}
 	if delay <= 0 {
 		delay = time.Minute
 	}
@@ -562,7 +569,6 @@ func (a *inferenceAdapter) captureCredential(ctx context.Context, p inference.Pr
 		return c, e
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	if a.versions == nil {
 		a.versions = map[string]string{}
 	}
@@ -576,6 +582,10 @@ func (a *inferenceAdapter) captureCredential(ctx context.Context, p inference.Pr
 	a.activeTarget = t
 	a.activeAccount = id
 	a.activeVersion = version
+	a.mu.Unlock()
+	if err := a.captureNativeHealthDetour(ctx, p, t, c); err != nil {
+		return inference.Credential{}, err
+	}
 	return c, nil
 }
 func (a *inferenceAdapter) SelectBound(ctx context.Context, p inference.Principal, t inference.Target, id string) (inference.Credential, error) {
