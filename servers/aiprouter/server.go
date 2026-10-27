@@ -88,12 +88,13 @@ func (s *server) serveInference(w http.ResponseWriter, r *http.Request) {
 	}
 
 	adapter := &inferenceAdapter{s: s.store, telemetry: s.telemetry, prices: prices}
-	h, e := inference.New(inference.Config{Adapters: providerAdapters(), Authorizer: adapter, Router: adapter, Credentials: adapter, Continuations: adapter, LiveBindings: adapter, SocketDialer: outboundSocketDialer{}, Usage: adapter, Artifacts: artifactAdapter{service: s.artifacts, auth: adapter}, Observer: s.telemetry, Logger: s.telemetry.logger, Destinations: inference.DestinationPolicy{ApprovedOrigins: settings.Destinations}, MaxRequestBytes: 100 << 20})
+	adapters := providerAdapters()
+	h, e := inference.New(inference.Config{Adapters: adapters, RecoveryPolicies: providerRecoveryPolicies(adapters), Authorizer: adapter, Router: adapter, Credentials: adapter, Continuations: adapter, LiveBindings: adapter, SocketDialer: outboundSocketDialer{}, Usage: adapter, Artifacts: artifactAdapter{service: s.artifacts, auth: adapter}, Observer: s.telemetry, Logger: s.telemetry.logger, Destinations: inference.DestinationPolicy{ApprovedOrigins: settings.Destinations}, MaxRequestBytes: 100 << 20})
 	if e != nil {
 		http.Error(w, "inference unavailable", 503)
 		return
 	}
-	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") && (r.URL.Path == "/v1/responses" || r.URL.Path == "/v1/realtime" || strings.HasPrefix(r.URL.Path, "/v1/live/") || strings.HasPrefix(r.URL.Path, "/v1/realtime/calls/")) {
+	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") && (r.URL.Path == "/v1/responses" || r.URL.Path == "/v1/realtime" || r.URL.Path == "/v1/live" || r.URL.Path == "/v1/audio/transcriptions/stream" || strings.HasPrefix(r.URL.Path, "/v1/live/") || strings.HasPrefix(r.URL.Path, "/v1/realtime/calls/")) {
 		if r.Method != "GET" {
 			http.Error(w, "method not allowed", 405)
 			return

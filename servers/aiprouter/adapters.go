@@ -20,3 +20,14 @@ func providerAdapters() map[inference.Wire]inference.Adapter {
 	}
 	return out
 }
+
+// Reuse the same adapter instance so request recovery and decoding share policy.
+func providerRecoveryPolicies(adapters map[inference.Wire]inference.Adapter) map[inference.Wire]inference.HTTPRecoveryPolicy {
+	out := map[inference.Wire]inference.HTTPRecoveryPolicy{devin.Wire: devin.RecoveryPolicy{}}
+	for wire, adapter := range adapters {
+		if policy, ok := adapter.(inference.HTTPRecoveryPolicy); ok {
+			out[wire] = policy
+		}
+	}
+	return out
+}

@@ -24,7 +24,7 @@ func TestConsoleServingBoundaries(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, route := range []string{"/", "/device?code=fixture", "/invitations/accept?token=fixture", "/sign-in?error=missing_email"} {
+	for _, route := range []string{"/", "/device?code=fixture", "/invitations/accept?token=fixture", "/invitation?token=fixture", "/sign-in?error=missing_email"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", route, nil))
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "fixture console") || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Content-Security-Policy") == "" {
