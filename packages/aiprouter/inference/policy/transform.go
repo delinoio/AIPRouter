@@ -3,6 +3,7 @@ package policy
 
 import (
 	"encoding/json"
+	"math"
 	"net/url"
 	"regexp"
 	"strings"
@@ -151,7 +152,9 @@ func (p Resolved) sampling(b map[string]any) {
 func (p Resolved) thinking(b map[string]any) {
 	cap := p.capabilities()
 	toggle := p.in("thinkingToggleModels", false) || cap["supportsThinkingToggle"] == true
-	if p.in("noReasoningModels", false) || cap["supportsReasoning"] == false {
+	efforts := first(p.modelValue("modelReasoningEfforts"), p.fields["reasoningEfforts"])
+	_, hasEfforts := efforts.([]any)
+	if p.in("noReasoningModels", false) || cap["supportsReasoning"] == false || (!toggle && hasEfforts && len(list(efforts)) == 0) {
 		delete(b, "reasoning_effort")
 		delete(b, "reasoning")
 		delete(b, "thinking")
@@ -216,6 +219,24 @@ func (p Resolved) thinking(b map[string]any) {
 	if cap["supportsReasoningEffort"] == false {
 		delete(b, "reasoning_effort")
 		delete(b, "reasoning")
+		return
+	}
+
+	if p.Wire == providers.Chat && p.Inbound != providers.InboundChat && p.in("thinkingBudgetModels", false) && mapped != "" {
+		budget := 32768.0
+		for _, k := range []string{"max_completion_tokens", "max_tokens"} {
+			if n, ok := number(b[k]); ok && n > 0 {
+				budget = n
+				break
+			}
+		}
+		fraction, ok := map[string]float64{"low": 0.2, "medium": 0.5, "high": 0.75, "xhigh": 0.9, "max": 1}[mapped]
+		if effort == "minimal" {
+			b["thinking_budget"] = 0
+		} else if ok {
+			b["thinking_budget"] = math.Max(1, math.Floor(budget*fraction))
+		}
+		delete(b, "reasoning_effort")
 		return
 	}
 	if p.fields["reasoningWireFormat"] == "gateway-object" && effort != "" {

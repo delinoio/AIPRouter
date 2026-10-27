@@ -482,3 +482,34 @@ func TestCustomToolCollisionFails(t *testing.T) {
 		t.Fatal("ambiguous custom name accepted")
 	}
 }
+
+func TestTranslatedThinkingBudgetAndEmptyLadder(t *testing.T) {
+	p := preset(t, "neuralwatt", "qwen3.5-plus", "", "")
+	p.Wire = providers.Chat
+	p.Inbound = providers.InboundResponses
+	out := apply(t, p, `{"reasoning_effort":"high","max_completion_tokens":1000}`)
+	if n, _ := number(out["thinking_budget"]); n != 750 || out["reasoning_effort"] != nil {
+		t.Fatal(out)
+	}
+	p = preset(t, "chutes", "any", "", "")
+	p.Wire = providers.Chat
+	out = apply(t, p, `{"reasoning_effort":"high"}`)
+	if out["reasoning_effort"] != nil {
+		t.Fatal(out)
+	}
+}
+
+func TestTransportPolicyProjection(t *testing.T) {
+	p := preset(t, "deepseek", "deepseek-v4-flash", "", "")
+	if policy := p.ResponsesTerminalRepair(); policy == nil || policy.GraceMS != 5000 {
+		t.Fatal(policy)
+	}
+	goPolicy := preset(t, "opencode-go", "gpt-6-luna", "", "")
+	if v := goPolicy.ChatEOFTolerance(); v == nil || !*v {
+		t.Fatal(v)
+	}
+	unknown, e := Resolve(Config{BaseURL: "https://example.test"})
+	if e != nil || unknown.ResponsesTerminalRepair() != nil || unknown.ChatEOFTolerance() != nil {
+		t.Fatal(unknown, e)
+	}
+}

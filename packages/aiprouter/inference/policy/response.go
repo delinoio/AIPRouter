@@ -198,3 +198,25 @@ func escapeAnthropicNames(b map[string]any) {
 		}
 	}
 }
+
+// ChatEOFTolerance exposes the pinned adapter EOF policy; it never authorizes
+// completing a structurally incomplete stream.
+func (p Resolved) ChatEOFTolerance() *bool { return boolPtr(p.fields["openaiChatEofTolerance"]) }
+
+// TerminalRepairPolicy applies only after the stream has a structurally complete
+// output graph. A quiet interval alone never authorizes synthetic success.
+type TerminalRepairPolicy struct {
+	GraceMS int64 `json:"graceMs"`
+}
+
+func (p Resolved) ResponsesTerminalRepair() *TerminalRepairPolicy {
+	raw := p.modelValue("modelResponsesTerminalRepair")
+	if raw == nil {
+		return nil
+	}
+	n, ok := number(obj(raw)["graceMs"])
+	if !ok || n <= 0 || n != float64(int64(n)) {
+		return nil
+	}
+	return &TerminalRepairPolicy{GraceMS: int64(n)}
+}
