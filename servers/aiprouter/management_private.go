@@ -320,6 +320,17 @@ func (m *management) validateNativePoolOptions(ctx context.Context, sc core.Scop
 	if codex && (o.NativeMessages != nil || len(o.Routes) != 0) {
 		return invalid("native messages and model routes require Anthropic")
 	}
+	if !codex && (o.UpstreamFailoverThreshold != nil || o.FailureWindow != nil || o.PinnedTransientPolicy != nil) {
+		return invalid("native health options require Codex")
+	}
+	if o.UpstreamFailoverThreshold != nil && *o.UpstreamFailoverThreshold > 20 {
+		return invalid("upstream failover threshold must be 0 to 20")
+	}
+	switch o.GetPinnedTransientPolicy() {
+	case v1.NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_UNSPECIFIED, v1.NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_KEEP, v1.NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_DETOUR_NEW_THREADS:
+	default:
+		return invalid("invalid pinned transient policy")
+	}
 	if len(o.ExcludedPlans) > 100 {
 		return invalid("too many excluded plans")
 	}

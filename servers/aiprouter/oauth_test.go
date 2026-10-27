@@ -877,3 +877,58 @@ func TestProviderRefreshVertexPreservesOnlySelectedLocation(t *testing.T) {
 		})
 	}
 }
+
+func TestProviderPoolNativeHealthPresenceAndBounds(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	d := oauthSavedProvider(t, m, ctx, sc)
+	members := []*v1.PoolMember{{ConnectionId: d.Metadata.Id}}
+	unspecified := v1.NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_UNSPECIFIED
+	for _, options := range []*v1.NativePoolOptions{{UpstreamFailoverThreshold: ptr(uint32(0))}, {FailureWindow: ptr(false)}, {PinnedTransientPolicy: &unspecified}} {
+		_, err := m.CreatePool(ctx, connect.NewRequest(&v1.CreatePoolRequest{OrganizationId: sc.OrganizationID, Name: "anthropic health", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: members, NativeOptions: options}))
+		if connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Fatalf("Anthropic accepted explicit Codex health option: %v", err)
+		}
+	}
+	d.Metadata.ProviderId = "openai"
+	d.Credential.Provider = "openai"
+	if err := m.put(ctx, sc, providerKind, d.Metadata.Id, d); err != nil {
+		t.Fatal(err)
+	}
+	options := &v1.NativePoolOptions{UpstreamFailoverThreshold: ptr(uint32(0)), FailureWindow: ptr(false), PinnedTransientPolicy: &unspecified}
+	created, err := m.CreatePool(ctx, connect.NewRequest(&v1.CreatePoolRequest{OrganizationId: sc.OrganizationID, Name: "codex health", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: members, NativeOptions: options}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved v1.Pool
+	if err = m.get(ctx, sc, poolKind, created.Msg.Pool.Id, &saved); err != nil {
+		t.Fatal(err)
+	}
+	o := saved.NativeOptions
+	if o == nil || o.UpstreamFailoverThreshold == nil || *o.UpstreamFailoverThreshold != 0 || o.FailureWindow == nil || *o.FailureWindow || o.PinnedTransientPolicy == nil || *o.PinnedTransientPolicy != unspecified {
+		t.Fatal("explicit health zero/false/unspecified presence lost")
+	}
+	for _, options := range []*v1.NativePoolOptions{{UpstreamFailoverThreshold: ptr(uint32(21))}, {PinnedTransientPolicy: ptr(v1.NativePinnedTransientPolicy(99))}} {
+		_, err = m.UpdatePool(ctx, connect.NewRequest(&v1.UpdatePoolRequest{OrganizationId: sc.OrganizationID, PoolId: saved.Id, Name: "invalid health", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: members, NativeOptions: options}))
+		if connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Fatalf("invalid health option accepted: %v", err)
+		}
+	}
+	for _, policy := range []v1.NativePinnedTransientPolicy{v1.NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_KEEP, v1.NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_DETOUR_NEW_THREADS} {
+		updated, e := m.UpdatePool(ctx, connect.NewRequest(&v1.UpdatePoolRequest{OrganizationId: sc.OrganizationID, PoolId: saved.Id, Name: "codex health", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: members, NativeOptions: &v1.NativePoolOptions{UpstreamFailoverThreshold: ptr(uint32(20)), FailureWindow: ptr(true), PinnedTransientPolicy: ptr(policy)}}))
+		if e != nil || updated.Msg.Pool.NativeOptions.GetPinnedTransientPolicy() != policy {
+			t.Fatalf("valid policy rejected: %v", e)
+		}
+	}
+	_, err = m.UpdatePool(ctx, connect.NewRequest(&v1.UpdatePoolRequest{OrganizationId: sc.OrganizationID, PoolId: saved.Id, Name: "defaults", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: members, NativeOptions: &v1.NativePoolOptions{}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := saved.Id
+	saved = v1.Pool{}
+	if err = m.get(ctx, sc, poolKind, id, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.NativeOptions.UpstreamFailoverThreshold != nil || saved.NativeOptions.FailureWindow != nil || saved.NativeOptions.PinnedTransientPolicy != nil {
+		t.Fatal("replacement retained old health values")
+	}
+}
