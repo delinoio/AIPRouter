@@ -352,5 +352,9 @@ func resolveCopilotAuto(ctx context.Context, t inference.Target, c inference.Cre
 var _ inference.Negotiator = (*inferenceAdapter)(nil)
 
 func (a *inferenceAdapter) Negotiate(ctx context.Context, p inference.Principal, target inference.Target, credential inference.Credential, body json.RawMessage, policy inference.DestinationPolicy) (inference.Target, inference.Credential, time.Time, error) {
-	return a.negotiateCopilot(ctx, p, target, credential, body, policy)
+	next, selected, err := a.negotiateVertexProject(ctx, p, target, credential, policy)
+	if err != nil {
+		return target, credential, time.Time{}, err
+	}
+	return a.negotiateCopilot(ctx, p, next, selected, body, policy)
 }

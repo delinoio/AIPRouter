@@ -24,6 +24,9 @@ func routingObservationAllowance(connections map[string]providerData) int {
 			native++
 		}
 		normal += normalQuotaCollectionBudget(d)
+		if vertexAutoRequested(d) {
+			normal++
+		}
 	}
 	return min(native, 512) + normal
 }

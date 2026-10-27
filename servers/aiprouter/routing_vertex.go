@@ -21,6 +21,19 @@ func selectedVertexMetadata(d providerData) (project, location, base string, err
 		}
 		location = strings.TrimSpace(d.Credential.Metadata["location"])
 	}
+	if config := d.Metadata.Configuration; config != nil {
+		if config.VertexProject != nil {
+			project = *config.VertexProject
+		}
+		if config.VertexLocation != nil {
+			location = *config.VertexLocation
+		}
+	}
+	if project == "auto" && d.Metadata.AuthKind == v1.ProviderAuthKind_PROVIDER_AUTH_KIND_API_KEY {
+		// A logical auto target stays on the fixed express origin until negotiation
+		// resolves the captured key. The final regional origin is authorized afresh.
+		return "", "", "https://aiplatform.googleapis.com", nil
+	}
 	if strings.EqualFold(project, "auto") || len(project) > 1024 || strings.ContainsAny(project, "\x00\r\n") || project == "." || project == ".." {
 		return "", "", "", inference.ErrUnsupported
 	}
