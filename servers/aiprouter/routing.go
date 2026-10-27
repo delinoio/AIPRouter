@@ -126,7 +126,7 @@ func resolvedProviderRoute(ctx context.Context, d providerData, model string) (p
 	return r, &resolved, nil
 }
 func sameCredentialLane(a, b inference.Target) bool {
-	return a.BaseURL == b.BaseURL && a.Model == b.Model && a.Wire == b.Wire && a.Auth == b.Auth && a.Endpoint == b.Endpoint && policyIdentity(a) == policyIdentity(b) && a.Fast == b.Fast && selectionVersion(a.FastPolicy) == selectionVersion(b.FastPolicy)
+	return a.BaseURL == b.BaseURL && a.Model == b.Model && a.Wire == b.Wire && a.Auth == b.Auth && a.Endpoint == b.Endpoint && policyIdentity(a) == policyIdentity(b) && a.ForceMessagesTranslation == b.ForceMessagesTranslation && a.Fast == b.Fast && selectionVersion(a.FastPolicy) == selectionVersion(b.FastPolicy)
 }
 
 func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, model string, op inference.Operation) (inference.Route, error) {
@@ -200,6 +200,7 @@ func (a *inferenceAdapter) Resolve(ctx context.Context, p inference.Principal, m
 					return out, e
 				}
 			}
+			t.ForceMessagesTranslation = poolForcesMessagesTranslation(pool, d.Metadata.ProviderId, t.Auth)
 			if target.Provider == "" {
 				target = t
 				provider = d.Metadata.ProviderId
@@ -641,7 +642,7 @@ func providerInbound(ctx context.Context) providers.Inbound {
 const cursorPhysicalExchangeBudget = 2 + 256
 
 func selectionKey(t inference.Target) string {
-	return selectionVersion([]string{t.Provider, t.BaseURL, t.Model, string(t.Wire), string(t.Auth), t.Endpoint, policyIdentity(t), selectionVersion(t.Fast), selectionVersion(t.FastPolicy)})
+	return selectionVersion([]string{t.Provider, t.BaseURL, t.Model, string(t.Wire), string(t.Auth), t.Endpoint, policyIdentity(t), selectionVersion(t.Fast), selectionVersion(t.FastPolicy), selectionVersion(t.ForceMessagesTranslation)})
 }
 
 func genericAffinityEnabled(pool *v1.Pool, auth inference.AuthMode, provider string) bool {
@@ -664,8 +665,14 @@ func policyIdentity(t inference.Target) string {
 // Reapply semantic selectors against the current account before comparing its lane.
 func selectedTargetForContext(ctx context.Context, d providerData, t inference.Target) (inference.Target, error) {
 	current, err := targetForContext(ctx, d, t.Model)
+	// This flag belongs to the captured pool policy, not the account credential.
+	current.ForceMessagesTranslation = t.ForceMessagesTranslation
 	if err == nil && fastTargetRequested(t) {
 		err = applyFastTarget(ctx, d, t.Model, &current)
 	}
 	return current, err
+}
+
+func poolForcesMessagesTranslation(pool *v1.Pool, provider string, auth inference.AuthMode) bool {
+	return pool != nil && pool.NativeOptions != nil && pool.NativeOptions.NativeMessages != nil && !*pool.NativeOptions.NativeMessages && auth == inference.OAuth && (provider == "anthropic" || provider == "anthropic2")
 }
