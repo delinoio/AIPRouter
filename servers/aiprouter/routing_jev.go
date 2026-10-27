@@ -371,6 +371,10 @@ func (a *inferenceAdapter) resolveJEV(ctx context.Context, p inference.Principal
 	defer cancel()
 	if o.DecisionModel != "" {
 		if _, err = jevDecisionRoute(ctx, a.s, scopeOf(p), o.DecisionModel, nil); err != nil {
+			var public *inference.Error
+			if errors.As(err, &public) && public.Code == "invalid_jev_configuration" {
+				return fail(jevInvalid)
+			}
 			return jevDecision{}, err
 		}
 		if o.InvokeModel == nil {
@@ -401,6 +405,9 @@ func (a *inferenceAdapter) resolveJEV(ctx context.Context, p inference.Principal
 	}
 	d, version, err := a.providerVersion(ctx, scopeOf(p), o.ConnectionID)
 	if err != nil {
+		if errors.Is(err, inference.ErrNoCredential) || errors.Is(err, store.ErrNotFound) {
+			return fail(jevMissingKey)
+		}
 		return jevDecision{}, inferenceError(err)
 	}
 	endpoint, model, descriptive, err := jevEndpoint(d, o.Model)

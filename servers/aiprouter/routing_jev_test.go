@@ -206,3 +206,33 @@ func TestJEVRouteValidationRejectsSelfAndDecisionCombos(t *testing.T) {
 		t.Fatal("timeout default changed")
 	}
 }
+
+func TestJEVModelBackendRechecksRouteAndUsesBoundedEnvelope(t *testing.T) {
+	a, sc, key := dispatchFixture(t)
+	p := admitRouting(t, a, key)
+	route := &v1.Route{Id: "decision-model", ModelId: "ordinary", Enabled: true, Strategy: v1.RoutingStrategy_ROUTING_STRATEGY_DIRECT, Targets: []*v1.RouteTarget{{ModelId: "model"}}}
+	putRoutingRoute(t, a, sc, route)
+	calls := 0
+	o := jevOptions{DecisionModel: "ordinary", Candidates: jevTestCandidates(), Body: json.RawMessage(`{"input":"user task","instructions":"private system"}`), Eligible: func(context.Context, jevCandidate) (bool, error) { return true, nil }, InvokeModel: func(ctx context.Context, alias string, raw json.RawMessage) (string, error) {
+		calls++
+		var body map[string]any
+		if json.Unmarshal(raw, &body) != nil || alias != "ordinary" || body["store"] != false || body["max_output_tokens"] != float64(1024) || strings.Contains(string(raw), "private system") {
+			t.Fatal("unsafe decision model envelope")
+		}
+		if _, ok := ctx.Deadline(); !ok {
+			t.Fatal("model invocation has no timeout")
+		}
+		return `{"choice":"second:high"}`, nil
+	}}
+	got, err := a.resolveJEV(context.Background(), p, o, inference.DestinationPolicy{})
+	if err != nil || got.TargetKey != "second" || got.Backend != "model" || calls != 1 {
+		t.Fatalf("model decision=%v %v", got, err)
+	}
+	route.Strategy = v1.RoutingStrategy_ROUTING_STRATEGY_JEV
+	route.JevDecision = &v1.JevDecisionConfig{DecisionModel: "ordinary"}
+	putRoutingRoute(t, a, sc, route)
+	got, err = a.resolveJEV(context.Background(), p, o, inference.DestinationPolicy{})
+	if err != nil || got.TargetKey != "first" || got.Gate != jevInvalid || calls != 1 {
+		t.Fatal("nested decision route invoked or did not fail open")
+	}
+}

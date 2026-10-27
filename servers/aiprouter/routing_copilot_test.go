@@ -15,6 +15,8 @@ import (
 	"unicode/utf16"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
+	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
 )
 
 func copilotObject(s string) map[string]any {
@@ -135,5 +137,37 @@ func TestCopilotOrigins(t *testing.T) {
 		if copilotOrigin(raw) {
 			t.Fatal(raw)
 		}
+	}
+}
+
+func TestCopilotStoredAccountVersionFencesNegotiationWrite(t *testing.T) {
+	a, sc, key := dispatchFixture(t)
+	p := admitRouting(t, a, key)
+	d := providerData{Metadata: &v1.ProviderConnection{Id: "copilot", ProviderId: "github-copilot", OrganizationId: sc.OrganizationID, State: v1.ConnectionState_CONNECTION_STATE_READY, AuthKind: v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH}, Credential: &providers.Credential{Scope: sc, Provider: "github-copilot", AccessToken: "initial-token", APIBaseURL: "https://api.githubcopilot.com"}}
+	putRoutingProvider(t, a, sc, d)
+	_, version, err := a.providerVersion(context.Background(), sc, "copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := a.current(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sends atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { sends.Add(1); _, _ = io.WriteString(w, `{"data":[]}`) }))
+	defer server.Close()
+	gate := func(ctx context.Context, start func(context.Context) error) error {
+		return inferenceError(a.s.WithAccountDispatch(ctx, lease, "copilot", version, start))
+	}
+	d.Credential.AccessToken = "replacement-token"
+	putRoutingProvider(t, a, sc, d)
+	_, err = copilotRequest(context.Background(), inference.DestinationPolicy{ApprovedOrigins: []string{server.URL}}, gate, server.URL, inference.Credential{Secret: "initial-token"}, "/models", nil, "")
+	if err == nil || sends.Load() != 0 {
+		t.Fatal("replaced account token physically sent")
+	}
+	target := inference.Target{Provider: "copilot", BaseURL: "https://api.githubcopilot.com", Model: "gpt-4.1", Wire: inference.Chat, Auth: inference.OAuth}
+	_, _, _, err = a.negotiateCopilot(context.Background(), p, target, inference.Credential{AccountID: "copilot", Secret: "initial-token"}, nil, inference.DestinationPolicy{})
+	if !errors.Is(err, inference.ErrNoCredential) {
+		t.Fatalf("stale captured credential not refused: %v", err)
 	}
 }
