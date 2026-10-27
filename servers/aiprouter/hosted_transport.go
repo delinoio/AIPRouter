@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
@@ -20,6 +21,9 @@ import (
 // Each helper owns an immutable account fence. It must never change the parent
 // inference adapter's active account while the parent response is in progress.
 type hostedTransport struct {
+	mu                    sync.Mutex
+	completed             int
+	lastOutcome           store.RequestOutcome
 	policy                inference.DestinationPolicy
 	gate                  inference.SendGate
 	record                func(context.Context, string, store.Usage) error
@@ -60,6 +64,10 @@ func (t *hostedTransport) exchange(ctx context.Context, req *http.Request, limit
 			err = errors.Join(err, inference.ErrUnavailable)
 			return
 		}
+		t.mu.Lock()
+		t.completed++
+		t.lastOutcome = u.Outcome
+		t.mu.Unlock()
 		if t.price != nil {
 			t.price(&u, usage)
 		}
@@ -120,11 +128,15 @@ func (t *hostedTransport) Do(ctx context.Context, r inference.AdapterRequest) (*
 	return &http.Response{StatusCode: 200, Header: h, Body: io.NopCloser(bytes.NewReader(b))}, nil
 }
 func (t *hostedTransport) json(ctx context.Context, method, path, secret string, body any, limit int64) ([]byte, error) {
-	b, e := json.Marshal(body)
-	if e != nil {
-		return nil, e
+	var data io.Reader
+	if body != nil {
+		b, e := json.Marshal(body)
+		if e != nil {
+			return nil, e
+		}
+		data = bytes.NewReader(b)
 	}
-	req, e := http.NewRequestWithContext(ctx, method, t.base+path, bytes.NewReader(b))
+	req, e := http.NewRequestWithContext(ctx, method, t.base+path, data)
 	if e != nil {
 		return nil, e
 	}
@@ -145,13 +157,32 @@ func hostedReportedUsage(data []byte, contentType string) inference.Usage {
 		if nested := obj["response"]; len(nested) > 0 {
 			_ = json.Unmarshal(nested, &obj)
 		}
+		if nested := obj["message"]; len(nested) > 0 {
+			_ = json.Unmarshal(nested, &obj)
+		}
+		var google struct {
+			Input  *int64 `json:"promptTokenCount"`
+			Output *int64 `json:"candidatesTokenCount"`
+			Cache  *int64 `json:"cachedContentTokenCount"`
+		}
+		if json.Unmarshal(obj["usageMetadata"], &google) == nil {
+			result.InputTokens = google.Input
+			result.OutputTokens = google.Output
+			result.CacheReadTokens = google.Cache
+		}
 		var u struct {
-			Input      *int64 `json:"input_tokens"`
-			Output     *int64 `json:"output_tokens"`
-			Prompt     *int64 `json:"prompt_tokens"`
-			Completion *int64 `json:"completion_tokens"`
-			CacheRead  *int64 `json:"cache_read_input_tokens"`
-			CacheWrite *int64 `json:"cache_creation_input_tokens"`
+			Input        *int64 `json:"input_tokens"`
+			Output       *int64 `json:"output_tokens"`
+			Prompt       *int64 `json:"prompt_tokens"`
+			Completion   *int64 `json:"completion_tokens"`
+			CacheRead    *int64 `json:"cache_read_input_tokens"`
+			CacheWrite   *int64 `json:"cache_creation_input_tokens"`
+			InputDetails struct {
+				Cached *int64 `json:"cached_tokens"`
+			} `json:"input_tokens_details"`
+			PromptDetails struct {
+				Cached *int64 `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
 		}
 		if json.Unmarshal(obj["usage"], &u) == nil {
 			if u.Input == nil {
@@ -165,6 +196,12 @@ func hostedReportedUsage(data []byte, contentType string) inference.Usage {
 			}
 			if u.Output != nil {
 				result.OutputTokens = u.Output
+			}
+			if u.CacheRead == nil {
+				u.CacheRead = u.InputDetails.Cached
+			}
+			if u.CacheRead == nil {
+				u.CacheRead = u.PromptDetails.Cached
 			}
 			if u.CacheRead != nil {
 				result.CacheReadTokens = u.CacheRead

@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
 	"net/http"
 	"net/url"
 	"time"
@@ -77,6 +78,28 @@ func (a *hostedConfiguredAdapter) Execute(ctx context.Context, in inference.Adap
 	}
 	resolver := &hostedResolver{auth: a.resolver.auth, artifacts: a.resolver.artifacts, adapters: a.resolver.adapters}
 	cfg := hostedWrapperConfig(c, in, resolver)
+	if cfg.DescribeImages {
+		d, err := a.resolver.auth.provider(ctx, scopeOf(in.Principal), in.Credential.AccountID)
+		if err != nil {
+			return nil, "", inferenceError(err)
+		}
+		view, _ := modelEvidence(d, in.Target.Model, time.Now())
+		accepts := false
+		for _, modality := range view.Modalities {
+			if modality == "image" {
+				accepts = true
+			}
+		}
+		if preset, ok := providers.Lookup(d.Metadata.ProviderId); ok {
+			for _, model := range preset.NoVisionModels {
+				if model == in.Target.Model {
+					accepts = false
+					break
+				}
+			}
+		}
+		cfg.DescribeImages = !accepts
+	}
 	cfg.RecoveryPolicy = a.recovery
 	wrapper, err := hosted.New(a.inner, cfg)
 	if err != nil {
@@ -85,10 +108,15 @@ func (a *hostedConfiguredAdapter) Execute(ctx context.Context, in inference.Adap
 	return wrapper.Execute(ctx, in, e, s)
 }
 
+type hostedVisionDepth struct{}
+
 // hostedVisionPrepare is also suitable for Cursor's no-vision model hook. It
 // changes only active image parts and uses the independent resolver for each one.
 func hostedVisionPrepare(auth *inferenceAdapter, art *artifacts.Service, adapters map[inference.Wire]inference.Adapter) func(context.Context, inference.AdapterInput, inference.AdapterExecutor) (json.RawMessage, error) {
 	return func(ctx context.Context, in inference.AdapterInput, _ inference.AdapterExecutor) (json.RawMessage, error) {
+		if ctx.Value(hostedVisionDepth{}) != nil {
+			return nil, inference.ErrUnsupported
+		}
 		r := &hostedResolver{auth: auth, artifacts: art, adapters: adapters}
 		raw, err := inference.TranslateRequestJSON(in.Body, in.Wire, inference.Chat)
 		if err != nil {

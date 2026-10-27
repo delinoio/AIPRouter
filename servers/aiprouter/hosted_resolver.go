@@ -4,7 +4,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/pricing"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/providers"
+	"github.com/google/uuid"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,7 +124,7 @@ func (r *hostedResolver) Resolve(ctx context.Context, req hosted.OperationReques
 		if e != nil {
 			return nil, inference.ErrNoCredential
 		}
-		if req.Kind != hosted.Image && req.Kind != hosted.Video && selection.ModelId != "" {
+		if selection.ModelId != "" && (req.Kind != hosted.Image && req.Kind != hosted.Video || req.Kind == hosted.Image && c.Images.BridgeModel == nil || req.Kind == hosted.Video && c.Images.VideoBridgeModel == nil) {
 			model = selection.ModelId
 		}
 		choice := store.SelectionRequest{GroupID: "hosted/" + string(req.Kind), Version: selectionVersion(c), Model: model, Strategy: store.SelectionPriority}
@@ -195,6 +198,34 @@ func (r *hostedResolver) Resolve(ctx context.Context, req hosted.OperationReques
 			}
 		}
 	}
+	if d.Credential != nil && !d.Credential.ExpiresAt.IsZero() && !d.Credential.ExpiresAt.After(time.Now().Add(30*time.Second)) {
+		if _, e = refreshProviderCredential(ctx, r.auth.s, lease, cred.AccountID); e != nil {
+			return nil, inferenceError(e)
+		}
+		d, version, e = r.auth.providerVersion(ctx, scopeOf(req.Principal), cred.AccountID)
+		if e != nil {
+			return nil, inferenceError(e)
+		}
+		target, e = targetForContext(ctx, d, target.Model)
+		if e != nil {
+			return nil, e
+		}
+		cred, e = credentialFor(ctx, d, target)
+		if e != nil {
+			return nil, e
+		}
+	}
+	if backend == "xai" {
+		target.BaseURL = "https://api.x.ai/v1"
+		target.Wire = inference.Responses
+	}
+	if backend == "gemini" {
+		preset, ok := providers.Lookup("google-antigravity")
+		if !ok {
+			return nil, inference.ErrUnsupported
+		}
+		target.BaseURL = preset.BaseURL
+	}
 	if strings.TrimSpace(cred.Secret) == "" {
 		return nil, inference.ErrNoCredential
 	}
@@ -202,7 +233,7 @@ func (r *hostedResolver) Resolve(ctx context.Context, req hosted.OperationReques
 	if e != nil {
 		return nil, inferenceError(e)
 	}
-	tr := &hostedTransport{policy: inference.DestinationPolicy{ApprovedOrigins: settings.Destinations}, base: target.BaseURL, provider: d.Metadata.ProviderId, model: target.Model}
+	tr := &hostedTransport{policy: inference.DestinationPolicy{ApprovedOrigins: settings.Destinations, Rules: settings.DestinationRules}, base: target.BaseURL, provider: d.Metadata.ProviderId, model: target.Model}
 	tr.gate = func(c context.Context, start func(context.Context) error) error {
 		var sendErr error
 		err := r.auth.s.WithAccountDispatch(c, lease, cred.AccountID, version, func(locked context.Context) error { sendErr = start(locked); return sendErr })
@@ -243,7 +274,36 @@ func (r *hostedResolver) Resolve(ctx context.Context, req hosted.OperationReques
 	}
 	return &hostedOperation{resolver: r, request: req, transport: tr, target: target, credential: cred, backend: backend, settings: c, wait: hostedDelay}, nil
 }
-func (o *hostedOperation) Execute(ctx context.Context, r hosted.OperationRequest) (hosted.OperationResult, error) {
+func (o *hostedOperation) Execute(ctx context.Context, r hosted.OperationRequest) (result hosted.OperationResult, err error) {
+	// A client can cancel while an accepted asynchronous job waits between polls.
+	// Preserve that terminal cancellation separately from completed HTTP receipts;
+	// no token or cost amount is inferred from the remote job's unknown completion.
+	defer func() {
+		if !errors.Is(ctx.Err(), context.Canceled) || o.transport == nil {
+			return
+		}
+		o.transport.mu.Lock()
+		count, last := o.transport.completed, o.transport.lastOutcome
+		o.transport.mu.Unlock()
+		if count == 0 || last == store.OutcomeCanceled {
+			return
+		}
+		id, e := uuid.NewV7()
+		if e != nil {
+			err = errors.Join(err, e)
+			return
+		}
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if o.transport.record == nil {
+			err = errors.Join(err, inference.ErrUnavailable)
+			return
+		}
+		if e = o.transport.record(cleanup, id.String(), store.Usage{Provider: o.transport.provider, Model: o.transport.model, Outcome: store.OutcomeCanceled, ErrorCode: "canceled"}); e != nil {
+			err = errors.Join(err, inference.ErrUnavailable)
+		}
+	}()
+
 	if r.Principal != o.request.Principal || r.RequestID != o.request.RequestID || r.CallID != o.request.CallID || r.Kind != o.request.Kind || string(r.Arguments) != string(o.request.Arguments) || string(r.Declaration) != string(o.request.Declaration) {
 		return hosted.OperationResult{}, inference.ErrUnauthorized
 	}

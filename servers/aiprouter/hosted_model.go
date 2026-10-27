@@ -11,6 +11,7 @@ import (
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/hosted"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/policy"
 )
 
 // Standard wires use the same lossless translators as core. Specialized provider
@@ -91,6 +92,9 @@ func hostedSources(v any, out *[]hosted.Source, seen map[string]bool) {
 	}
 }
 func (o *hostedOperation) model(ctx context.Context, args map[string]any) (hosted.OperationResult, error) {
+	if o.request.Kind == hosted.Vision {
+		ctx = context.WithValue(ctx, hostedVisionDepth{}, true)
+	}
 	timeout := 60 * time.Second
 	if o.request.Kind == hosted.Vision {
 		timeout = 45 * time.Second
@@ -192,6 +196,13 @@ func (o *hostedOperation) model(ctx context.Context, args map[string]any) (hoste
 	if p, ok := adapter.(inference.ContextPreparer); ok {
 		ctx = p.PrepareContext(ctx)
 	}
+	state := hostedState{auth: o.resolver.auth, input: in}
+	if p, ok := adapter.(inference.StatefulAdapter); ok {
+		ctx, e = p.RestoreState(ctx, in, state)
+		if e != nil {
+			return hosted.OperationResult{}, e
+		}
+	}
 	if p, ok := adapter.(inference.PreparingAdapter); ok {
 		in.Body, e = p.Prepare(ctx, in, o.transport)
 		if e != nil {
@@ -201,7 +212,7 @@ func (o *hostedOperation) model(ctx context.Context, args map[string]any) (hoste
 	var response *http.Response
 	var responseWire inference.Wire
 	if p, ok := adapter.(inference.ExecutingAdapter); ok {
-		response, responseWire, e = p.Execute(ctx, in, o.transport, nil)
+		response, responseWire, e = p.Execute(ctx, in, o.transport, state)
 	} else {
 		var req inference.AdapterRequest
 		req, e = adapter.Build(ctx, in)
@@ -260,7 +271,22 @@ func (o *hostedOperation) model(ctx context.Context, args map[string]any) (hoste
 		if choice, ok := choices[0].(map[string]any); ok {
 			if msg, ok := choice["message"].(map[string]any); ok {
 				result.Output = hostedString(msg, "content")
+				if parts, ok := msg["content"].([]any); ok {
+					for _, part := range parts {
+						if block, ok := part.(map[string]any); ok {
+							if block["type"] == "text" || block["type"] == "output_text" {
+								result.Output += hostedString(block, "text")
+							}
+						}
+					}
+				}
 			}
+		}
+	}
+	if o.request.Kind == hosted.Vision {
+		chars := []rune(result.Output)
+		if len(chars) > 2000 {
+			result.Output = string(chars[:2000])
 		}
 	}
 	if result.Output == "" {
@@ -268,4 +294,11 @@ func (o *hostedOperation) model(ctx context.Context, args map[string]any) (hoste
 		result.Output = "The helper returned no text."
 	}
 	return result, nil
+}
+
+func (hostedStandardAdapter) DecodeWithInput(_ context.Context, in inference.AdapterInput, r *http.Response) (*http.Response, error) {
+	if in.Target.Wire == inference.Chat {
+		return policy.WrapChatResponse(r, in.Target.Model, policy.FreeformTools(in.Body)), nil
+	}
+	return r, nil
 }

@@ -243,3 +243,105 @@ func TestHostedStandardAdapterKeepsNonChatPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestHostedSearchAndVisionConcreteRequests(t *testing.T) {
+	for _, kind := range []hosted.Kind{hosted.Search, hosted.Vision} {
+		t.Run(string(kind), func(t *testing.T) {
+			var received map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer helper-only" {
+					t.Error("wrong helper credential")
+				}
+				if e := json.NewDecoder(r.Body).Decode(&received); e != nil {
+					t.Error(e)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				io.WriteString(w, `{"id":"response-helper","object":"response","status":"completed","output":[{"id":"msg","type":"message","role":"assistant","content":[{"type":"output_text","text":"A fixture answer.","annotations":[{"type":"url_citation","url":"https://source.test/page","title":"Source"}]}]}],"usage":{"input_tokens":2,"output_tokens":4}}`)
+			}))
+			defer srv.Close()
+			var receipt store.Usage
+			tr := &hostedTransport{base: srv.URL, provider: "xai", model: "helper-model", policy: inference.DestinationPolicy{ApprovedOrigins: []string{srv.URL}}, gate: func(c context.Context, f func(context.Context) error) error { return f(c) }, record: func(_ context.Context, _ string, u store.Usage) error { receipt = u; return nil }}
+			args := json.RawMessage(`{"query":"fixture query"}`)
+			if kind == hosted.Vision {
+				args = json.RawMessage(`{"image_url":{"url":"https://image.test/a.png"}}`)
+			}
+			req := hosted.OperationRequest{Kind: kind, Arguments: args, Declaration: json.RawMessage(`{"type":"web_search","search_context_size":"low"}`)}
+			op := &hostedOperation{resolver: &hostedResolver{adapters: map[inference.Wire]inference.Adapter{}}, request: req, transport: tr, target: inference.Target{BaseURL: srv.URL, Model: "helper-model", Wire: inference.Responses, Auth: inference.OAuth}, credential: inference.Credential{Secret: "helper-only"}, backend: "xai", settings: &v1.HostedSettings{Search: &v1.HostedSearchSettings{}, Vision: &v1.HostedVisionSettings{}}}
+			result, e := op.Execute(context.Background(), req)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if result.Output != "A fixture answer." || result.Failed || len(result.Sources) != 1 || receipt.InputTokens == nil || *receipt.InputTokens != 2 {
+				t.Fatalf("result=%+v receipt=%+v", result, receipt)
+			}
+			if kind == hosted.Search {
+				tools, _ := received["tools"].([]any)
+				if len(tools) != 1 {
+					t.Fatalf("hosted tool missing: %+v", received)
+				}
+				tool, _ := tools[0].(map[string]any)
+				if tool["type"] != "web_search" || tool["search_context_size"] != "low" {
+					t.Fatal(tool)
+				}
+			} else {
+				encoded, _ := json.Marshal(received)
+				if !strings.Contains(string(encoded), "https://image.test/a.png") {
+					t.Fatal("vision input lost")
+				}
+			}
+		})
+	}
+}
+
+func TestHostedVideoCancellationBetweenPollsIsDurable(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"request_id":"pending"}`) }))
+	defer srv.Close()
+	var receipts []store.Usage
+	tr := &hostedTransport{base: srv.URL, policy: inference.DestinationPolicy{ApprovedOrigins: []string{srv.URL}}, gate: func(c context.Context, f func(context.Context) error) error { return f(c) }, record: func(_ context.Context, _ string, u store.Usage) error { receipts = append(receipts, u); return nil }}
+	req := hosted.OperationRequest{Kind: hosted.Video, Arguments: json.RawMessage(`{"prompt":"fixture"}`)}
+	op := &hostedOperation{request: req, transport: tr, settings: &v1.HostedSettings{Images: &v1.HostedImageSettings{}}, wait: func(c context.Context, _ time.Duration) error { cancel(); return c.Err() }}
+	if _, e := op.Execute(ctx, req); !errors.Is(e, context.Canceled) {
+		t.Fatal(e)
+	}
+	if len(receipts) != 2 || receipts[1].Outcome != store.OutcomeCanceled || receipts[1].InputTokens != nil || receipts[1].Cost != nil {
+		t.Fatalf("canceled asynchronous job not recorded: %+v", receipts)
+	}
+}
+
+func TestHostedTransportDeniesRedirectAndOversizedBody(t *testing.T) {
+	var destinationWrites atomic.Int64
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { destinationWrites.Add(1) }))
+	defer target.Close()
+	for _, mode := range []string{"redirect", "oversize", "gate"} {
+		t.Run(mode, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if mode == "redirect" {
+					http.Redirect(w, r, target.URL, 302)
+					return
+				}
+				io.WriteString(w, "12345")
+			}))
+			defer srv.Close()
+			records := 0
+			tr := &hostedTransport{policy: inference.DestinationPolicy{ApprovedOrigins: []string{srv.URL, target.URL}}, gate: func(c context.Context, f func(context.Context) error) error {
+				if mode == "gate" {
+					return inference.ErrUnauthorized
+				}
+				return f(c)
+			}, record: func(context.Context, string, store.Usage) error { records++; return nil }}
+			req, _ := http.NewRequest("GET", srv.URL, nil)
+			req.Header.Set("Authorization", "Bearer fixture-secret")
+			if _, _, e := tr.exchange(context.Background(), req, 4); e == nil {
+				t.Fatal("unsafe exchange succeeded")
+			}
+			if mode == "gate" && records != 0 {
+				t.Fatal("unissued send recorded")
+			}
+		})
+	}
+	if destinationWrites.Load() != 0 {
+		t.Fatal("redirect carried helper request")
+	}
+}
