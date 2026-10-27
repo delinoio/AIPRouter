@@ -20,12 +20,15 @@ Define versioned Connect RPC contracts for organization, member, key, provider, 
 
 - `AccountService`, `OrganizationService`, `MembershipService`, `InvitationService`, and `OwnershipService` own identity and organization lifecycle.
 - `KeyService`, `ProviderService`, `PoolService`, and `RoutingService` manage personal resources within a selected organization.
+- `HostedService` owns personal helper selections and loop limits in `hosted.proto`; helper operations retain the original admission and send budget.
 - `UsageService` and `AuditService` expose authorized metadata only.
 - `OperatorService` exposes instance settings and aggregate health without organization inspection parameters.
 - `DeviceAuthorizationService` binds CLI polling, confirmation, and compensation to a device secret. `DeviceApprovalService` requires a browser session and explicit approval.
 - `ClientService` grants only model discovery and self-revocation for the authenticated inference key.
 
 RPC paths use `/aiprouter.v1.<Service>/<Method>`. Personal requests select an organization; the authenticated session determines the user. Optional token and price fields distinguish unknown values from known zero. Decimal costs use strings. Never add prompts, responses, or stored secret values to metadata messages.
+
+Provider configuration carries typed custom wires, model overrides, endpoint paths, and presence-aware policy overrides. An absent boolean inherits its default; explicit `false` overrides it. Custom header values are write-only, with explicit replacement/reset semantics. Operator destination rules preserve stable identifiers and canonical origins. Empty CIDR lists approve the exact origin under the service policy; nonempty lists restrict all resolved addresses for that origin and cannot fall back to default public-HTTPS approval.
 
 ## Storage
 

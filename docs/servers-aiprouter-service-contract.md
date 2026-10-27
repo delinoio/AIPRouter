@@ -155,6 +155,7 @@ Sources: [stall resolution](https://github.com/lidge-jun/opencodex/blob/88aaa754
 
 - Permit public HTTPS provider destinations by default.
 - Permit private-network/local HTTP destinations only when approved by the operator.
+- Match operator destination rules by canonical scheme, hostname, and port. An empty CIDR list keeps the exact-origin approval behavior. A nonempty CIDR list restricts that origin to the listed networks, including when the origin uses public HTTPS; it must not fall back to the public-HTTPS default after an address fails the rule. Reject duplicate canonical origins and invalid prefixes. Validate every resolved address, normalize IPv4-mapped IPv6 consistently, and pin connections to the validated addresses. Redirects must not bypass the rule.
 - Test URL parsing, DNS resolution, and redirects against destination-policy bypass.
 - On client disconnect/cancellation, immediately attempt upstream cancellation and stop additional retries.
 - Record confirmed usage only; distinguish unknown usage from zero.
@@ -165,6 +166,7 @@ Sources: [stall resolution](https://github.com/lidge-jun/opencodex/blob/88aaa754
 - Do not continue admitting requests using cached authorization.
 - Allow only an already-dispatched upstream response to finish; stop additional sends.
 - Report usage-write failures through logs and metrics rather than recording success.
+- Retry idempotent release of known-completed admissions after storage recovers. Bind admissions to a registered server boot and fence dispatch when that boot is drained or terminated. Never reclaim an active admission merely because time elapsed. Recover admissions from a terminated process only through explicit drain/reconciliation after the operator confirms its upstream work has stopped; use a one-use drain proof and reject stale dispatches.
 
 Management uses Connect RPC and generated Protobuf contracts; inference transports preserve the pinned wire interfaces rather than being replaced with Connect RPC. See [protocol ownership](protos-aiprouter-management-contract.md).
 
