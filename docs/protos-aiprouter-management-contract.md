@@ -14,7 +14,7 @@ Server, console, and CLI connection-flow consumers.
 
 ## Interfaces and Contracts
 
-Define versioned Connect RPC contracts for organization, member, key, provider, usage, and operator management, plus the CLI/browser connection flow. `management.proto` owns concrete messages and methods. `authorization.proto` declares method authorization scopes; runtime handlers enforce those scopes. Keep public inference wire protocols under the service compatibility contract. A stable public management API for external automation is excluded from the first release. Inference keys do not imply management permissions. New persisted entities use UUID v7; preserve externally required protocol ID shapes.
+Define versioned Connect RPC contracts for organization, member, key, provider, usage, and operator management, plus the CLI/browser connection flow. `organization.proto`, `provider.proto`, `usage.proto`, `operator.proto`, and `device.proto` own domain messages and methods. `common.proto` declares shared messages and method authorization scopes; runtime handlers enforce those scopes. Keep public inference wire protocols under the service compatibility contract. A stable public management API for external automation is excluded from the first release. Inference keys do not imply management permissions. New persisted entities use UUID v7; preserve externally required protocol ID shapes.
 
 ### Service boundaries
 
