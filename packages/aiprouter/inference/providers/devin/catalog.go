@@ -28,6 +28,7 @@ type Options struct {
 	ModelMaxOutputTokens, ModelContextWindows, ModelMaxInputTokens map[string]int64
 	DefaultMaxOutputTokens, ContextWindow                          int64
 	cascadeID                                                      string
+	trajectoryID                                                   string
 }
 type Caps struct{ Output, Input int64 }
 

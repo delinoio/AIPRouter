@@ -310,6 +310,9 @@ func (RecoveryPolicy) RecoverHTTP(ctx context.Context, in inference.AdapterInput
 	if err := ctx.Err(); err != nil {
 		return inference.RecoveryDecision{}, err
 	}
+	if f.Status >= 200 && f.Status < 300 {
+		return inference.RecoveryDecision{Action: inference.RecoveryDefault}, nil
+	}
 	status := f.Status
 	if status < 400 || status > 599 {
 		status = 502

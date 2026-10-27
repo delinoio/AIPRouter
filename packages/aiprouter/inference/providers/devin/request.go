@@ -517,6 +517,9 @@ func buildChat(input object, in inference.AdapterInput, meta []byte, options ...
 	if opts.cascadeID != "" {
 		cascade = opts.cascadeID
 	}
+	if opts.trajectoryID != "" {
+		trajectory = opts.trajectoryID
+	}
 	b = blob(b, 15, number(number(textField(nil, 1, trajectory), 2, 1), 3, 4))
 	b = textField(b, 16, cascade)
 	return textField(number(b, 20, 1), 21, model), nil
