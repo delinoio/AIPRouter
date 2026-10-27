@@ -253,8 +253,23 @@ func Prepare(ctx context.Context, in inference.AdapterInput, saved *Continuation
 	user := join(ps(1, text), ps(2, messageID), pv(4, 1))
 	action := pb(1, join(pb(1, user), pb(2, s.requestContext)))
 	run := join(pb(1, state), pb(2, action), pb(4, catalog), ps(5, s.conversationID))
-	params, _ := body["cursor_model_parameters"].(map[string]any)
+	effort := str(body["reasoning_effort"])
+	if reasoning := object(body["reasoning"]); str(reasoning["effort"]) != "" {
+		effort = str(reasoning["effort"])
+	}
+	wantFast, _ := body["cursor_fast"].(bool)
+	wireModel, params, inferredMax := selectModel(model, effort, wantFast)
+	model = wireModel
+	if explicit := object(body["cursor_model_parameters"]); len(explicit) > 0 {
+		if params == nil {
+			params = map[string]any{}
+		}
+		for key, value := range explicit {
+			params[key] = value
+		}
+	}
 	maxMode, _ := body["cursor_max_mode"].(bool)
+	maxMode = maxMode || inferredMax
 	if len(params) == 0 {
 		details := join(ps(1, model), ps(3, model), ps(4, model), ps(5, model))
 		if maxMode {
