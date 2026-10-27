@@ -304,3 +304,47 @@ func TestCodexNativeSymlinkAndPreviewDestinationRaces(t *testing.T) {
 		t.Fatal("symlink accepted")
 	}
 }
+
+func TestCodexNativeRefreshPreservesConcurrentUnrelatedEdits(t *testing.T) {
+	r, d, s := codexFixture(t, "[features]\nuser_feature = true\n", `{"models":[{"slug":"native"}],"opaque":"before"}`)
+	changes, err := PlanCodexNative(r, s, testProfile(), "KEY", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = d.Apply(&s, "codex", "test", changes, answer(true)); err != nil {
+		t.Fatal(err)
+	}
+	config := bytes.Replace(changes[0].After, []byte("user_feature = true"), []byte("user_feature = false"), 1)
+	if err = os.WriteFile(changes[0].Path, config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cache, err := Patch(changes[2].After, JSON, []Fragment{frag([]string{"fetched_at"}, "native-update"), frag([]string{"opaque"}, "foreign edit")}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(changes[2].Path, cache, 0600); err != nil {
+		t.Fatal(err)
+	}
+	next, err := PlanCodexNative(r, s, testProfile(), "NEXT_KEY", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = d.Apply(&s, "codex", "test", next, answer(true)); err != nil {
+		t.Fatal(err)
+	}
+	if err = d.Restore(&s, "codex"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(changes[0].Path)
+	if err != nil || !bytes.Contains(data, []byte("user_feature = false")) || bytes.Contains(data, []byte("KEY")) {
+		t.Fatal("foreign TOML edit lost or key retained")
+	}
+	data, err = os.ReadFile(changes[2].Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := parseDocument(data, JSON)
+	if err != nil || doc["opaque"] != "foreign edit" {
+		t.Fatal("foreign cache edit lost")
+	}
+}
