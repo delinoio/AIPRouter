@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/inference/policy"
 )
 
 type memoryState struct {
@@ -343,7 +344,7 @@ func TestOlderRecoveryCannotEraseNewerToken(t *testing.T) {
 
 func TestFreeformDeclarationBoundary(t *testing.T) {
 	raw := json.RawMessage(`{"tools":[{"type":"function","function":{"name":"ordinary","parameters":{"properties":{"input":{"type":"string"}}}}},{"type":"custom","custom":{"name":"exec"}},{"type":"namespace","name":"shell","tools":[{"type":"custom","name":"run"}]}],"additional_tools":[{"type":"custom","name":"patch"}]}`)
-	got := freeformTools(raw)
+	got := policy.FreeformTools(raw)
 	if len(got) != 3 || got["exec"] != "exec" || got["shell__run"] != "run" || got["patch"] != "patch" {
 		t.Fatal(got)
 	}
@@ -398,6 +399,25 @@ func TestChatCustomLoweringAndEffortMap(t *testing.T) {
 	}
 	tool := b["tools"].([]any)[0].(map[string]any)
 	if tool["type"] != "function" || tool["function"].(map[string]any)["name"] != "exec" {
+		t.Fatal(string(req.Body))
+	}
+}
+
+func TestResolvedPolicyOverride(t *testing.T) {
+	in := input()
+	resolved, err := policy.Resolve(policy.Config{ProviderID: "mimo-free", Model: in.Target.Model, BaseURL: ChatURL, Overrides: json.RawMessage(`{"reasoningEffortMap":{"xhigh":"medium"}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Target.Policy = &resolved
+	in.Body = json.RawMessage(`{"messages":[{"role":"user","content":"hello"}],"reasoning_effort":"xhigh"}`)
+	req, err := New().Build(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b map[string]any
+	json.Unmarshal(req.Body, &b)
+	if b["reasoning_effort"] != "medium" {
 		t.Fatal(string(req.Body))
 	}
 }

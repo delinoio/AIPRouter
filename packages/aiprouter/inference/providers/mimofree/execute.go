@@ -13,7 +13,7 @@ import (
 func (a *Adapter) Execute(ctx context.Context, in inference.AdapterInput, exec inference.AdapterExecutor, store inference.AdapterStateStore) (out *http.Response, wire inference.Wire, resultErr error) {
 	defer func() {
 		if resultErr == nil && out != nil && out.StatusCode >= 200 && out.StatusCode < 300 {
-			out = policy.WrapChatResponse(out, in.Target.Model, freeformTools(in.Body))
+			out = policy.WrapChatResponse(out, in.Target.Model, policy.FreeformTools(in.Body))
 		}
 	}()
 	req, err := a.Build(ctx, in)

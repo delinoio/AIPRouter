@@ -89,6 +89,9 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	if err != nil {
 		return inference.AdapterRequest{}, err
 	}
+	if in.Target.Policy != nil {
+		resolved = *in.Target.Policy
+	}
 	body, err = resolved.TransformChatRequest(body)
 	if err != nil {
 		return inference.AdapterRequest{}, err
