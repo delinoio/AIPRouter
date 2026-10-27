@@ -200,6 +200,7 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 		state.aliases = aliases
 		state.custom = custom
 		state.built = true
+		state.showThinking = objectOf(objectOf(request["generationConfig"])["thinkingConfig"])["includeThoughts"] == true
 	}
 	return inference.AdapterRequest{URL: u.String(), Headers: h, Body: data, ResponseWire: a.responseWire()}, nil
 }
@@ -225,13 +226,14 @@ func (a *Adapter) Decode(ctx context.Context, response *http.Response) (*http.Re
 	out.Header.Del("Content-Encoding")
 	out.ContentLength = -1
 	s := newEventStream(ctx, response.Body, a.provider)
+	s.google.showThinking = requestOptions(ctx).ShowThinkingSummaries
 	if state, _ := ctx.Value(stateKey{}).(*requestState); state != nil {
 		state.mu.Lock()
 		s.aliases = state.aliases
 		s.custom = state.custom
+		s.google.showThinking = state.showThinking
 		state.mu.Unlock()
 	}
-	s.google.showThinking = requestOptions(ctx).ShowThinkingSummaries
 	out.Body = s
 	return out, nil
 }

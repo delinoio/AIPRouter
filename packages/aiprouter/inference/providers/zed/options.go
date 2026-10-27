@@ -214,6 +214,15 @@ func applyGooglePolicy(out, b object, model string, options RequestOptions) {
 		gc["responseModalities"] = []any{"TEXT", "IMAGE"}
 	} else if eligible {
 		thinking := object{}
+		if _, mapped := options.ReasoningEffortMap[effort]; !mapped {
+			switch effort {
+			case "minimal":
+				effort = "low"
+			case "low", "medium", "high", "xhigh", "max":
+			default:
+				effort = ""
+			}
+		}
 		if mapped, ok := options.ReasoningEffortMap[effort]; ok {
 			effort = mapped
 		} else if options.ReasoningEfforts != nil && effort != "" {

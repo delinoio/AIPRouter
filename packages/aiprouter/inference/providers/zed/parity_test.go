@@ -95,6 +95,7 @@ func TestGoogleGenerationPolicy(t *testing.T) {
 		cap                 int64
 	}{
 		{"gemini-3.5-flash", "minimal", "low", nil, 65536},
+		{"gemini-3.5-flash", "none", "", nil, 65536},
 		{"gemini-3.1-pro-preview", "max", "high", []string{"low", "high"}, 65535},
 		{"unknown-alias", "high", "", nil, 100000},
 		{"gemini-3.6-flash", "high", "", []string{}, 65536},

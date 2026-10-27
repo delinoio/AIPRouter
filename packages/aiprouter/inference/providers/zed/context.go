@@ -21,10 +21,11 @@ type RequestOptions struct {
 type optionsKey struct{}
 type stateKey struct{}
 type requestState struct {
-	mu      sync.Mutex
-	aliases map[string]string
-	custom  map[string]bool
-	built   bool
+	mu           sync.Mutex
+	aliases      map[string]string
+	custom       map[string]bool
+	built        bool
+	showThinking bool
 }
 
 func WithRequestOptions(ctx context.Context, options RequestOptions) context.Context {
