@@ -50,7 +50,7 @@ export function KeysPage({ organization }: PageProps) {
       />
       <Notice>New keys are shown only once. Store them securely.</Notice>
       {action.feedback}
-      <ErrorNotice error={query.error} />
+      <ErrorNotice error={query.error} retry={() => void query.refetch()} />
       {query.isPending ? (
         <Loading />
       ) : query.data?.keys.length === 0 ? (

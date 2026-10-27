@@ -3,8 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { useQueryClient } from "@tanstack/react-query";
 import { ErrorNotice } from "./ui";
+import { useDirtyForm } from "./api";
 export function useAction() {
   const client = useQueryClient();
+  const reportDirty = useDirtyForm();
   const mounted = useRef(true);
   const busy = useRef(false);
   const [pending, setPending] = useState(false);
@@ -29,6 +31,7 @@ export function useAction() {
     try {
       const result = await operation();
       if (mounted.current) {
+        reportDirty(false);
         setNotice(success);
         done?.(result);
         await client.invalidateQueries();

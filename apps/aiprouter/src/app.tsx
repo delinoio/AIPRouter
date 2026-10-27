@@ -123,11 +123,31 @@ function AuthenticatedApp() {
   const [scope, setScope] = useState(
     () =>
       new URLSearchParams(window.location.search).get("organization") ??
+      new URLSearchParams(window.location.search).get("organization_id") ??
       new URLSearchParams(window.location.search).get("org") ??
       "",
   );
   const page =
-    new URLSearchParams(window.location.search).get("page") ?? "overview";
+    new URLSearchParams(window.location.search).get("page") ??
+    (
+      {
+        "/keys": "keys",
+        "/onboarding": "create",
+        "/providers": "providers",
+        "/pools": "pools",
+        "/routing": "routing",
+        "/usage": "usage",
+        "/connect": "connect",
+        "/connect-client": "connect",
+        "/account": "account",
+        "/instance": "instance",
+        "/members": "members",
+        "/invitations": "invitations",
+        "/settings": "settings",
+        "/audit": "audit",
+      } as Record<string, string>
+    )[window.location.pathname] ??
+    "overview";
   const [switcher, setSwitcher] = useState(false);
   const [menu, setMenu] = useState(false);
   const [search, setSearch] = useState("");
@@ -135,6 +155,7 @@ function AuthenticatedApp() {
   const [pendingScope, setPendingScope] = useState<string>();
   const [authorityVersion, setAuthorityVersion] = useState(0);
   const [authorityMessage, setAuthorityMessage] = useState("");
+  const [scopeBlocked, setScopeBlocked] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
   const [logoutError, setLogoutError] = useState<unknown>();
   const session = useQuery(
@@ -180,6 +201,7 @@ function AuthenticatedApp() {
       setSwitcher(false);
       setMenu(false);
       setDirty(false);
+      setScopeBlocked(true);
       setAuthorityVersion((v) => v + 1);
       setAuthorityMessage(
         "Your permissions changed. This action is no longer available.",
@@ -210,6 +232,7 @@ function AuthenticatedApp() {
     setDirty(false);
     setPendingScope(undefined);
     setAuthorityMessage("");
+    setScopeBlocked(false);
     const url = new URL(window.location.href);
     url.searchParams.set("organization", id);
     url.searchParams.delete("org");
@@ -234,7 +257,11 @@ function AuthenticatedApp() {
     (session.error &&
       ConnectError.from(session.error).code === Code.Unauthenticated)
   )
-    return <SignInPage />;
+    return (
+      <main className="standalone">
+        <SignInPage />
+      </main>
+    );
   if (session.isPending) return <Loading />;
   if (session.error)
     return (
@@ -276,6 +303,7 @@ function AuthenticatedApp() {
         </a>
       ))}
       {organization &&
+        !scopeBlocked &&
         (organization.role === Role.OWNER ||
           organization.role === Role.ADMINISTRATOR) && (
           <>
@@ -375,6 +403,17 @@ function AuthenticatedApp() {
             <p>Your previous organization is no longer available.</p>
             {switchButton}
           </Card>
+        ) : scopeBlocked ? (
+          <Card>
+            <h1>Refresh your permissions</h1>
+            <p>Previously scoped data and editors have been cleared.</p>
+            <a
+              className="button primary"
+              href={`?organization=${selected.id}&page=overview`}
+            >
+              Return to your workspace
+            </a>
+          </Card>
         ) : (
           <DirtyContext value={setDirty}>
             <ApiProvider
@@ -464,6 +503,19 @@ function OrganizationContent({
     { refetchInterval: 15_000 },
   );
   const previousRole = useRef(organization.role);
+  useEffect(
+    () =>
+      cache.getQueryCache().subscribe((event) => {
+        if (event.type !== "updated" || event.action.type !== "error") return;
+        const code = ConnectError.from(event.query.state.error).code;
+        if (code === Code.Unauthenticated || code === Code.PermissionDenied) {
+          window.dispatchEvent(
+            new CustomEvent("authority-changed", { detail: code }),
+          );
+        }
+      }),
+    [cache],
+  );
   useEffect(() => {
     if (
       current.data?.organization &&

@@ -13,7 +13,7 @@ import {
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { ErrorDetailSchema, type Money } from "@aiprouter/client";
 import { ConnectError } from "@connectrpc/connect";
-import { errorMessage } from "./api";
+import { errorMessage, useDirtyForm } from "./api";
 export function Button({
   variant = "secondary",
   className = "",
@@ -113,7 +113,13 @@ export function Notice({
     </div>
   );
 }
-export function ErrorNotice({ error }: { error: unknown }) {
+export function ErrorNotice({
+  error,
+  retry,
+}: {
+  error: unknown;
+  retry?: () => void;
+}) {
   if (!error) return null;
   const detail = ConnectError.from(error).findDetails(ErrorDetailSchema)[0];
   return (
@@ -123,11 +129,17 @@ export function ErrorNotice({ error }: { error: unknown }) {
       {detail?.retryAfterSeconds !== undefined && (
         <p>Try again after {detail.retryAfterSeconds} seconds.</p>
       )}
+      {retry && <Button onClick={retry}>Try again</Button>}
     </Notice>
   );
 }
 export function Loading() {
-  return <p role="status">Loading…</p>;
+  return (
+    <div className="loading-state" role="status" aria-busy="true">
+      <p>Loading…</p>
+      <div className="skeleton" aria-hidden="true" />
+    </div>
+  );
 }
 export function EmptyState({
   title,
@@ -160,6 +172,9 @@ export function Dialog({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const reportDirty = useDirtyForm();
+  const reportDirtyRef = useRef(reportDirty);
+  reportDirtyRef.current = reportDirty;
   const titleId = useId();
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -173,6 +188,7 @@ export function Dialog({
     target?.focus();
     return () => {
       el.close();
+      if (el.querySelector("form")) reportDirtyRef.current(false);
       previous?.focus();
     };
   }, [initialFocus]);
@@ -181,6 +197,23 @@ export function Dialog({
       ref={ref}
       aria-labelledby={titleId}
       className={wide ? "wide" : ""}
+      onKeyDown={(event) => {
+        if (event.key !== "Tab") return;
+        const items = Array.from(
+          event.currentTarget.querySelectorAll<HTMLElement>(
+            'button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]',
+          ),
+        );
+        const first = items[0];
+        const last = items.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }}
       onCancel={(e) => {
         e.preventDefault();
         closeRef.current();

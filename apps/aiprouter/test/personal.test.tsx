@@ -270,3 +270,125 @@ describe("organization boundary", () => {
     expect(screen.queryByRole("link", { name: "Members" })).toBeNull();
   });
 });
+
+describe("routing and pools", () => {
+  it("sends ordered personal pool members and rejects duplicate names before submission", async () => {
+    const { PoolsPage } = await import("../src/routing");
+    const user = userEvent.setup();
+    const createPool = vi.fn((_request: unknown) => ({}));
+    mount(<PoolsPage {...props} />, (r) => {
+      r.service(ProviderService, {
+        listProviderConnections: () => ({
+          connections: [
+            { id: "a", name: "First", state: 1 },
+            { id: "b", name: "Second", state: 1 },
+          ],
+        }),
+      });
+      r.service(PoolService, {
+        listPools: () => ({
+          pools: [{ id: "existing", name: "Taken", strategy: 1, members: [] }],
+        }),
+        createPool,
+      });
+      r.service(RoutingService, { listRoutes: () => ({ routes: [] }) });
+    });
+    await user.click(screen.getByRole("button", { name: "Create pool" }));
+    await user.type(screen.getByLabelText("Pool name"), "Taken");
+    await user.selectOptions(screen.getByLabelText("Add a connection"), "a");
+    await user.selectOptions(screen.getByLabelText("Add a connection"), "b");
+    expect(
+      (screen.getByRole("button", { name: "Save pool" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(createPool).not.toHaveBeenCalled();
+    await user.clear(screen.getByLabelText("Pool name"));
+    await user.type(screen.getByLabelText("Pool name"), "New pool");
+    await user.click(screen.getAllByRole("button", { name: "Move up" })[1]);
+    await user.click(screen.getByRole("button", { name: "Save pool" }));
+    await waitFor(() => expect(createPool).toHaveBeenCalledOnce());
+    expect(createPool.mock.calls[0][0]).toMatchObject({
+      organizationId: "one",
+      members: [
+        { connectionId: "b", priority: 0 },
+        { connectionId: "a", priority: 1 },
+      ],
+    });
+  });
+  it("creates a real route with an explicit model and protobuf connection target", async () => {
+    const { RoutingPage } = await import("../src/routing");
+    const user = userEvent.setup();
+    const createRoute = vi.fn((_request: unknown) => ({}));
+    mount(<RoutingPage {...props} />, (r) => {
+      r.service(ProviderService, {
+        listProviderConnections: () => ({
+          connections: [{ id: "a", name: "First", state: 1 }],
+        }),
+      });
+      r.service(PoolService, { listPools: () => ({ pools: [] }) });
+      r.service(RoutingService, {
+        listRoutes: () => ({ routes: [] }),
+        createRoute,
+      });
+    });
+    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await user.type(screen.getByLabelText("Model alias"), "coding");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Save routing",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Add target" }));
+    await user.selectOptions(
+      screen.getByLabelText("Connection or pool"),
+      "connectionId:a",
+    );
+    await user.type(
+      screen.getByLabelText("Provider model ID"),
+      "model-from-provider",
+    );
+    await user.click(screen.getByRole("button", { name: "Save routing" }));
+    await waitFor(() => expect(createRoute).toHaveBeenCalledOnce());
+    expect(createRoute.mock.calls[0][0]).toMatchObject({
+      organizationId: "one",
+      modelId: "coding",
+      targets: [
+        {
+          target: { case: "connectionId", value: "a" },
+          modelId: "model-from-provider",
+          priority: 0,
+          weight: 1,
+        },
+      ],
+    });
+  });
+});
+
+it("clears privileged navigation after a scoped read loses permission without ending login", async () => {
+  window.history.replaceState(null, "", "/?page=keys&organization=one");
+  mount(<App />, (r) => {
+    r.service(AccountService, { getSession: () => session });
+    r.service(OrganizationService, {
+      listOrganizations: () => ({
+        organizations: [{ ...organization, role: Role.OWNER }],
+      }),
+      getOrganization: () => ({
+        organization: { ...organization, role: Role.OWNER },
+      }),
+    });
+    r.service(KeyService, {
+      listKeys: () => {
+        throw new ConnectError("membership removed", Code.PermissionDenied);
+      },
+    });
+  });
+  await screen.findByRole("heading", { name: "Refresh your permissions" });
+  expect(screen.queryByRole("link", { name: "Members" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Create API key" })).toBeNull();
+  expect(
+    screen.getAllByRole("button", { name: "Sign out" }).length,
+  ).toBeGreaterThan(0);
+  expect(screen.queryByText("Continue with your identity provider")).toBeNull();
+});

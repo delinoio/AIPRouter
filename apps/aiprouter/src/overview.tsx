@@ -164,7 +164,7 @@ export function OverviewPage({ organization, session }: PageProps) {
 }
 export function ConnectPage({ organization }: PageProps) {
   const [profile, setProfile] = useState("default");
-  const safeProfile = /^[a-zA-Z0-9_-]+$/.test(profile);
+  const safeProfile = /^[a-z][a-z0-9-]{0,47}$/.test(profile);
   const origin = window.location.origin;
   const command = `aiprouter connect --server '${origin}' --profile '${safeProfile ? profile : "default"}'`;
   return (
@@ -184,7 +184,7 @@ export function ConnectPage({ organization }: PageProps) {
         </p>
         <Field
           label="Profile name"
-          hint="Use letters, digits, underscores, or hyphens."
+          hint="Start with a lowercase letter. Use lowercase letters, digits, and hyphens; at most 48 characters."
         >
           <input value={profile} onChange={(e) => setProfile(e.target.value)} />
         </Field>

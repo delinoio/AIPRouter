@@ -41,9 +41,11 @@ export function PoolsPage({ organization }: PageProps) {
     organizationId: organization.id,
     page: { pageSize, pageToken: token },
   });
-  const { connections: accounts, pools } = usePersonalResources(
-    organization.id,
-  );
+  const {
+    connections: accounts,
+    pools,
+    routes,
+  } = usePersonalResources(organization.id);
   return (
     <>
       <PageHeader
@@ -60,7 +62,7 @@ export function PoolsPage({ organization }: PageProps) {
         determine which account serves a request.
       </Notice>
       {action.feedback}
-      <ErrorNotice error={query.error} />
+      <ErrorNotice error={query.error} retry={() => void query.refetch()} />
       {query.isPending ? (
         <Loading />
       ) : query.data?.pools.length === 0 ? (
@@ -106,6 +108,9 @@ export function PoolsPage({ organization }: PageProps) {
       {edit && (
         <PoolEditor
           pool={edit === true ? undefined : edit}
+          existingNames={(pools.data ?? [])
+            .filter((p) => edit === true || p.id !== edit.id)
+            .map((p) => p.name)}
           accounts={accounts.data ?? []}
           partial={false}
           error={action.error ?? accounts.error}
@@ -165,6 +170,7 @@ type PoolValues = {
   members: { connectionId: string; priority: number; weight: number }[];
 };
 function PoolEditor({
+  existingNames,
   pool,
   accounts,
   partial,
@@ -173,6 +179,7 @@ function PoolEditor({
   pending,
   error,
 }: {
+  existingNames: string[];
   pool?: Pool;
   accounts: ProviderConnection[];
   partial: boolean;
@@ -308,12 +315,25 @@ function PoolEditor({
           </Notice>
         )}
         <ErrorNotice error={error} />
+        {existingNames.includes(name.trim()) && (
+          <Notice tone="danger">
+            This name is already in use. Choose a different name.
+          </Notice>
+        )}
         <div className="actions">
           <Button onClick={onClose}>Cancel</Button>
           <Button
             type="submit"
             variant="primary"
-            disabled={pending || !name.trim() || !members.length}
+            disabled={
+              pending ||
+              existingNames.includes(name.trim()) ||
+              !name.trim() ||
+              !members.length ||
+              members.some(
+                (m) => !accounts.some((a) => a.id === m.connectionId),
+              )
+            }
           >
             Save pool
           </Button>
@@ -332,9 +352,11 @@ export function RoutingPage({ organization }: PageProps) {
     organizationId: organization.id,
     page: { pageSize, pageToken: token },
   });
-  const { connections: accounts, pools } = usePersonalResources(
-    organization.id,
-  );
+  const {
+    connections: accounts,
+    pools,
+    routes,
+  } = usePersonalResources(organization.id);
   return (
     <>
       <PageHeader
@@ -351,7 +373,7 @@ export function RoutingPage({ organization }: PageProps) {
         behavior follows each provider's policy.
       </Notice>
       {action.feedback}
-      <ErrorNotice error={query.error} />
+      <ErrorNotice error={query.error} retry={() => void query.refetch()} />
       {query.isPending ? (
         <Loading />
       ) : query.data?.routes.length === 0 ? (
@@ -400,6 +422,9 @@ export function RoutingPage({ organization }: PageProps) {
       {edit && (
         <RouteEditor
           route={edit === true ? undefined : edit}
+          existingNames={(routes.data ?? [])
+            .filter((r) => edit === true || r.id !== edit.id)
+            .map((r) => r.modelId)}
           accounts={accounts.data ?? []}
           pools={pools.data ?? []}
           partial={false}
@@ -464,6 +489,7 @@ type RouteValues = {
   enabled: boolean;
 };
 function RouteEditor({
+  existingNames,
   route,
   accounts,
   pools,
@@ -473,6 +499,7 @@ function RouteEditor({
   onClose,
   onSave,
 }: {
+  existingNames: string[];
   route?: Route;
   accounts: ProviderConnection[];
   pools: Pool[];
@@ -688,6 +715,11 @@ function RouteEditor({
           </Notice>
         )}
         <ErrorNotice error={error} />
+        {existingNames.includes(name.trim()) && (
+          <Notice tone="danger">
+            This name is already in use. Choose a different name.
+          </Notice>
+        )}
         <div className="actions">
           <Button onClick={onClose}>Cancel</Button>
           <Button
@@ -696,7 +728,13 @@ function RouteEditor({
             disabled={
               pending ||
               !name.trim() ||
+              existingNames.includes(name.trim()) ||
               !targets.length ||
+              targets.some((t) =>
+                t.target.case === "connectionId"
+                  ? !accounts.some((a) => a.id === t.target.value)
+                  : !pools.some((p) => p.id === t.target.value),
+              ) ||
               targets.some((t) => !t.target.value || !t.modelId.trim()) ||
               (strategy === RoutingStrategy.DIRECT && targets.length !== 1)
             }

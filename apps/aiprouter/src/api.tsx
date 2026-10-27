@@ -98,6 +98,8 @@ export function errorMessage(error: unknown): string {
     return "Your session expired. Sign in again. Your action was not retried.";
   if (e.code === Code.PermissionDenied)
     return "Your permissions changed. This action is no longer available.";
+  if (e.code === Code.Unimplemented)
+    return "This operation is not available on this server.";
   if (e.code === Code.Unavailable)
     return "The server is unavailable. Try again when the connection is restored.";
   if (e.code === Code.ResourceExhausted)

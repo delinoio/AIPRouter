@@ -62,7 +62,7 @@ export function SummaryCards({ summary }: { summary?: UsageSummary }) {
 }
 export function UsagePage({ organization, session }: PageProps) {
   const [range, setRange] = useState(() => ({
-    start: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10),
+    start: new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10),
     end: new Date().toISOString().slice(0, 10),
   }));
   const [model, setModel] = useState("");
@@ -92,7 +92,7 @@ export function UsagePage({ organization, session }: PageProps) {
   });
   const reset = () => {
     setRange({
-      start: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10),
+      start: new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10),
       end: new Date().toISOString().slice(0, 10),
     });
     setModel("");
@@ -185,7 +185,7 @@ export function UsagePage({ organization, session }: PageProps) {
           date.
         </Notice>
       )}
-      <ErrorNotice error={summary.error} />
+      <ErrorNotice error={summary.error} retry={() => void summary.refetch()} />
       <SummaryCards summary={valid ? summary.data?.summary : undefined} />
       {valid && input.timeRange && (
         <UsageTrend
@@ -202,7 +202,7 @@ export function UsagePage({ organization, session }: PageProps) {
           include all outcomes in the selected date and model range.
         </Notice>
       )}
-      <ErrorNotice error={records.error} />
+      <ErrorNotice error={records.error} retry={() => void records.refetch()} />
       {records.isPending && valid ? (
         <Loading />
       ) : visible?.length === 0 ? (
@@ -302,7 +302,7 @@ export function UsageTrend({
         Daily recorded requests in UTC. Missing records remain unknown.
         Estimates include only known costs.
       </p>
-      <ErrorNotice error={query.error} />
+      <ErrorNotice error={query.error} retry={() => void query.refetch()} />
       {query.isPending ? (
         <Loading />
       ) : days.length === 0 ? (

@@ -50,6 +50,7 @@ export function ProvidersPage({ organization }: PageProps) {
   const [search, setSearch] = useState("");
   const [edit, setEdit] = useState<ProviderConnection | true>();
   const [remove, setRemove] = useState<ProviderConnection>();
+  const [models, setModels] = useState<ProviderConnection>();
   const [oauth, setOauth] = useState<ProviderOAuth>();
   const query = useQuery(ProviderService.method.listProviderConnections, {
     organizationId: organization.id,
@@ -91,7 +92,7 @@ export function ProvidersPage({ organization }: PageProps) {
           onChange={(e) => setSearch(e.target.value)}
         />
       </Field>
-      <ErrorNotice error={query.error} />
+      <ErrorNotice error={query.error} retry={() => void query.refetch()} />
       {query.isPending ? (
         <Loading />
       ) : records?.length === 0 ? (
@@ -141,6 +142,7 @@ export function ProvidersPage({ organization }: PageProps) {
               )}
               <div className="actions">
                 <Button onClick={() => setEdit(c)}>Edit connection</Button>
+                <Button onClick={() => setModels(c)}>View models</Button>
                 {c.authKind === ProviderAuthKind.OAUTH && (
                   <Button
                     disabled={action.pending}
@@ -221,6 +223,13 @@ export function ProvidersPage({ organization }: PageProps) {
               "Connection saved.",
             );
           }}
+        />
+      )}
+      {models && (
+        <ModelsDialog
+          organizationId={organization.id}
+          connection={models}
+          onClose={() => setModels(undefined)}
         />
       )}
       {oauth && (
@@ -569,7 +578,7 @@ function OAuthDialog({
         </>
       )}
       {action.feedback}
-      <ErrorNotice error={result.error} />
+      <ErrorNotice error={result.error} retry={() => void result.refetch()} />
       {!pending && (
         <Button
           onClick={() => {
@@ -580,6 +589,59 @@ function OAuthDialog({
           Done
         </Button>
       )}
+    </Dialog>
+  );
+}
+
+function ModelsDialog({
+  organizationId,
+  connection,
+  onClose,
+}: {
+  organizationId: string;
+  connection: ProviderConnection;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const query = useQuery(ProviderService.method.listProviderModels, {
+    organizationId,
+    connectionId: connection.id,
+  });
+  const models = query.data?.models.filter((m) =>
+    `${m.id} ${m.displayName}`.toLowerCase().includes(search.toLowerCase()),
+  );
+  return (
+    <Dialog title={`Models from ${connection.name}`} onClose={onClose}>
+      <Field label="Find a model">
+        <input
+          autoFocus
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </Field>
+      <ErrorNotice error={query.error} />
+      {query.isPending ? (
+        <Loading />
+      ) : models?.length === 0 ? (
+        <p>No matching models.</p>
+      ) : (
+        <ul>
+          {models?.map((m) => (
+            <li key={m.id}>
+              <strong>{m.displayName || m.id}</strong>
+              <br />
+              <code>{m.id}</code>
+              <p>
+                Context: {m.contextLimit?.toString() ?? "Unknown"} · Output:{" "}
+                {m.outputLimit?.toString() ?? "Unknown"}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p>Use a model ID when configuring a route for this connection.</p>
+      <Button onClick={onClose}>Done</Button>
     </Dialog>
   );
 }

@@ -737,3 +737,11 @@ caption {
     min-width: 14px;
   }
 }
+.loading-state {
+  padding: 24px 0;
+}
+.skeleton {
+  height: 100px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #e9edf3, #f0f3f7, #e9edf3);
+}
