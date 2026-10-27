@@ -37,6 +37,31 @@ Run `python3 scripts/aiprouter/maintenance.py` from the repository root with:
 
 Every mutation leaves the server stopped, including on failure. The operator explicitly runs `docker compose up -d aiprouter` only after success. Stop fixture sidecars before maintenance. Recovery requires fresh login, keys, invitations, and CLI connections. These commands assume the single-host Compose instance is the only process admitting traffic to this database; stop any separately managed instance too. Backup scheduling and retention remain operator responsibilities.
 
+### Recover orphaned admission slots
+
+Admission slots do not expire by time: a lost process or database write does not prove that an upstream execution stopped. Recover only the identified boot instance. Each new server process registers a fresh instance ID before listening; a terminated or previously registered ID cannot be reused. Database migration does not register a boot.
+
+Run the wrapper from the repository root. Status prints safe metadata (`id`, `state`, `created_at`, `active_admissions`) and does not reveal proof values:
+
+```sh
+python3 scripts/aiprouter/maintenance.py admission-status
+python3 scripts/aiprouter/maintenance.py admission-drain INSTANCE_ID --proof-file /private/path/recovery-proof
+```
+
+Drain fences new admissions from the selected boot while already dispatched work may continue. It creates a new owner-only mode-0600 file exclusively; it refuses an existing path. Keep that one-use proof private and out of shell arguments, environment variables, logs, backups, and source control. Draining again creates a new proof and invalidates the previous one. If proof delivery fails, drain again to a new file.
+
+Stop the selected boot process and prevent it from resuming. For the single-host Compose service, run `docker compose --project-directory packaging/aiprouter -f packaging/aiprouter/compose.yml stop aiprouter`. Independently confirm that every upstream execution dispatched by that boot has stopped. Stopping a container or observing an old timestamp does not establish remote upstream termination. If this cannot be confirmed, leave its slots reserved.
+
+Only after both conditions are established, reconcile:
+
+```sh
+python3 scripts/aiprouter/maintenance.py admission-reconcile INSTANCE_ID --proof-file /private/path/recovery-proof --confirm-instance-stopped --confirm-upstreams-stopped
+```
+
+The wrapper requires both explicit acknowledgments, stops the local Compose service, passes the proof through stdin, and captures subprocess output without logging it. It rejects symlink, shared-access, or foreign-owned proof files. Success consumes the proof and removes its local file; failure preserves the private file for inspection/retry. A repeated or superseded proof is rejected. If the response was lost after server success, use status to confirm termination and remove the now-consumed proof file manually. The service remains stopped until explicitly started with a new boot ID. Only the selected instance's slots are released; unrelated instances, keys, and sessions remain valid. Never use `restore-invalidate` as a slot-recovery shortcut; it belongs only to disaster recovery after restoring a database.
+
+The underlying executable interface is `admission-status`, `admission-drain <instance-id>` (proof plus newline on stdout), and `admission-reconcile <instance-id> --upstreams-stopped` (bounded proof on stdin; JSON `instance_id` and `released_admissions` on success). Use the wrapper to protect proof output and enforce both confirmations. Real upstream-stop verification remains the operator's responsibility; automated fixtures cannot establish it for production.
+
 ## Validation and distribution
 
 `scripts/aiprouter/validate.sh` checks mock servers, maintenance ordering/failure handling, installer integrity, and Compose schema without a daemon. CI additionally runs Compose installation/recovery, alert timing fixtures, cross-compilation, package inspection, and deterministic mock load on Linux. None establishes live account, production, or native OS acceptance.

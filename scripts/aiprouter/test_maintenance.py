@@ -1,4 +1,6 @@
 import importlib.util
+import contextlib
+import io
 from pathlib import Path
 import subprocess
 import tempfile
@@ -48,6 +50,85 @@ class MaintenanceTest(unittest.TestCase):
             m.offline('rotate')
         self.assertEqual(run.call_args_list[0].args[0], ['stop', 'aiprouter'])
         self.assertEqual(run.call_args_list[-1].args[0][-1], 'reencrypt')
+
+
+class AdmissionMaintenanceTest(unittest.TestCase):
+    proof = b'synthetic-proof-01234567890123456789\n'
+
+    def test_drain_captures_proof_in_private_file_without_logging(self):
+        def child(args, **kwargs):
+            self.assertEqual(args[-2:], ['admission-drain', 'boot-1'])
+            self.assertEqual(kwargs['stderr'], subprocess.PIPE)
+            kwargs['stdout'].write(self.proof)
+        with tempfile.TemporaryDirectory() as directory, patch.object(m, 'run', side_effect=child):
+            path = Path(directory) / 'proof'
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                m.admission('admission-drain', 'boot-1', path)
+            self.assertEqual(path.read_bytes(), self.proof)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertNotIn(self.proof.decode().strip(), output.getvalue())
+
+    def test_drain_refuses_existing_path_without_rotating_proof(self):
+        with tempfile.NamedTemporaryFile() as source, patch.object(m, 'run') as run:
+            with self.assertRaises(FileExistsError):
+                m.admission('admission-drain', 'boot-1', source.name)
+            run.assert_not_called()
+
+    def test_reconcile_requires_both_confirmations_before_effects(self):
+        for stopped, upstreams in [(False, False), (True, False), (False, True)]:
+            with patch.object(m, 'run') as run:
+                with self.assertRaises(ValueError):
+                    m.admission('admission-reconcile', 'boot-1', '/absent', stopped, upstreams)
+                run.assert_not_called()
+
+    def test_reconcile_passes_only_stdin_and_removes_consumed_proof(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(m, 'run') as run:
+            path = Path(directory) / 'proof'
+            path.write_bytes(self.proof)
+            path.chmod(0o600)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                m.admission('admission-reconcile', 'boot-1', path, True, True)
+            self.assertEqual(run.call_args_list[0].args[0], ['stop', 'aiprouter'])
+            call = run.call_args_list[1]
+            self.assertEqual(call.args[0][-3:], ['admission-reconcile', 'boot-1', '--upstreams-stopped'])
+            self.assertEqual(call.kwargs['input'], self.proof)
+            self.assertEqual(call.kwargs['stdout'], subprocess.PIPE)
+            self.assertEqual(call.kwargs['stderr'], subprocess.PIPE)
+            self.assertNotIn(self.proof.decode().strip(), str(call.args))
+            self.assertNotIn(self.proof.decode().strip(), output.getvalue())
+            self.assertFalse(path.exists())
+            self.assertNotIn('restore-invalidate', str(run.call_args_list))
+
+    def test_failed_reconcile_keeps_private_proof_for_retry(self):
+        with tempfile.NamedTemporaryFile() as source, patch.object(m, 'run', side_effect=[None, subprocess.CalledProcessError(1, 'server')]):
+            source.write(self.proof)
+            source.flush()
+            with self.assertRaises(subprocess.CalledProcessError):
+                m.admission('admission-reconcile', 'boot-1', source.name, True, True)
+            self.assertEqual(Path(source.name).read_bytes(), self.proof)
+
+    def test_reconcile_refuses_world_readable_and_symlink_proofs(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(m, 'run') as run:
+            path = Path(directory) / 'proof'
+            path.write_bytes(self.proof)
+            path.chmod(0o644)
+            with self.assertRaises(ValueError):
+                m.admission('admission-reconcile', 'boot-1', path, True, True)
+            path.chmod(0o600)
+            link = Path(directory) / 'link'
+            link.symlink_to(path)
+            with self.assertRaises(OSError):
+                m.admission('admission-reconcile', 'boot-1', link, True, True)
+            run.assert_not_called()
+
+    def test_invalid_drain_output_removes_file(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(m, 'run'):
+            path = Path(directory) / 'proof'
+            with self.assertRaises(ValueError):
+                m.admission('admission-drain', 'boot-1', path)
+            self.assertFalse(path.exists())
 
 
 if __name__ == '__main__':
