@@ -98,6 +98,8 @@ type requestState struct {
 	custom       map[string]bool
 	built        bool
 	showThinking bool
+	threadID     string
+	binding      [32]byte
 }
 
 func WithRequestOptions(ctx context.Context, options RequestOptions) context.Context {

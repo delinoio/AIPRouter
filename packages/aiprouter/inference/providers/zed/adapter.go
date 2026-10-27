@@ -101,6 +101,11 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	if err := ctx.Err(); err != nil {
 		return inference.AdapterRequest{}, err
 	}
+	var optionsErr error
+	ctx, optionsErr = optionsForInput(ctx, in)
+	if optionsErr != nil {
+		return inference.AdapterRequest{}, optionsErr
+	}
 	if in.Operation != inference.Generate {
 		return inference.AdapterRequest{}, inference.ErrUnsupported
 	}
@@ -191,6 +196,7 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 	u.Path = strings.TrimRight(u.Path, "/") + "/completions"
 	u.RawPath = ""
 	h := make(http.Header)
+	h[http.CanonicalHeaderKey(PolicyHeader)] = nil
 	h.Set("Content-Type", "application/json")
 	h.Set("Accept", "application/x-ndjson, text/event-stream, */*")
 	h.Set("User-Agent", "OpenCodex/zed")
@@ -203,6 +209,8 @@ func (a *Adapter) Build(ctx context.Context, in inference.AdapterInput) (inferen
 		state.aliases = aliases
 		state.custom = custom
 		state.built = true
+		state.threadID = thread
+		state.binding = inputBinding(in)
 		state.showThinking = objectOf(objectOf(request["generationConfig"])["thinkingConfig"])["includeThoughts"] == true
 	}
 	return inference.AdapterRequest{URL: u.String(), Headers: h, Body: data, ResponseWire: a.responseWire()}, nil
