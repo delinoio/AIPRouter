@@ -72,16 +72,32 @@ type PromptPolicy struct {
 	Comparison      Comparison `json:"comparison"`
 	Rates           Rates      `json:"rates"`
 }
+
+// OptionalRates preserves unknown operator prices. All values are USD per million
+// tokens. CacheWrite is a duration-independent fallback for either cache TTL.
+type OptionalRates struct {
+	Currency        string   `json:"currency"`
+	Input           *float64 `json:"input,omitempty"`
+	Output          *float64 `json:"output,omitempty"`
+	CacheRead       *float64 `json:"cache_read,omitempty"`
+	CacheWrite      *float64 `json:"cache_write,omitempty"`
+	CacheWriteShort *float64 `json:"cache_write_short,omitempty"`
+	CacheWriteLong  *float64 `json:"cache_write_long,omitempty"`
+}
 type Override struct {
-	Provider     string        `json:"provider"`
-	Model        string        `json:"modelId"`
-	Rates        Rates         `json:"cost4"`
-	PromptPolicy *PromptPolicy `json:"promptLengthPricing,omitempty"`
-	SourceRef    string        `json:"source"`
-	VerifiedAt   string        `json:"verifiedAt"`
-	Status       Verification  `json:"status"`
+	ServiceTier   string         `json:"serviceTier,omitempty"`
+	OptionalRates *OptionalRates `json:"optionalRates,omitempty"`
+	Provider      string         `json:"provider"`
+	Model         string         `json:"modelId"`
+	Rates         Rates          `json:"cost4"`
+	PromptPolicy  *PromptPolicy  `json:"promptLengthPricing,omitempty"`
+	SourceRef     string         `json:"source"`
+	VerifiedAt    string         `json:"verifiedAt"`
+	Status        Verification   `json:"status"`
 }
 type Price struct {
+	ServiceTier                       string
+	OptionalRates                     *OptionalRates
 	Provider, Model, MetadataProvider string
 	Rates                             Rates
 	PromptPolicy                      *PromptPolicy
@@ -162,7 +178,28 @@ func NewSnapshot(overrides []Override) (*Snapshot, error) {
 		if o.Provider == "" || o.Model == "" || !validRates(o.Rates) {
 			return nil, errors.New("invalid operator price")
 		}
-		if _, ok := s.overrides[key(o.Provider, o.Model)]; ok {
+		o.ServiceTier = normalizeTier(o.ServiceTier)
+		if strings.ContainsRune(o.Provider, '\x00') || strings.ContainsRune(o.Model, '\x00') || strings.ContainsRune(o.ServiceTier, '\x00') {
+			return nil, errors.New("invalid operator identity")
+		}
+		if o.OptionalRates != nil {
+			if o.PromptPolicy != nil {
+				return nil, errors.New("optional rates require flat absolute pricing")
+			}
+			o.OptionalRates = copyOptional(o.OptionalRates)
+			if o.OptionalRates.Currency == "" {
+				o.OptionalRates.Currency = "USD"
+			}
+			if o.OptionalRates.Currency != "USD" {
+				return nil, errors.New("operator currency must be USD")
+			}
+			for _, rate := range optionalValues(o.OptionalRates) {
+				if rate != nil && !validRates(Rates{Input: *rate}) {
+					return nil, errors.New("invalid optional operator rate")
+				}
+			}
+		}
+		if _, ok := s.overrides[overrideKey(o.Provider, o.Model, o.ServiceTier)]; ok {
 			return nil, errors.New("duplicate operator price")
 		}
 		if o.PromptPolicy != nil {
@@ -175,7 +212,7 @@ func NewSnapshot(overrides []Override) (*Snapshot, error) {
 			}
 			o.PromptPolicy = &p
 		}
-		s.overrides[key(o.Provider, o.Model)] = o
+		s.overrides[overrideKey(o.Provider, o.Model, o.ServiceTier)] = o
 	}
 	raw, _ = json.Marshal(s.overrides)
 	hash.Write(raw)
@@ -259,7 +296,7 @@ func overridePrice(o Override) Price {
 		v := *o.PromptPolicy
 		p = &v
 	}
-	return Price{Provider: o.Provider, Model: o.Model, Rates: o.Rates, PromptPolicy: p, Source: Operator, SourceRef: o.SourceRef, VerifiedAt: o.VerifiedAt, Status: Verified}
+	return Price{ServiceTier: o.ServiceTier, OptionalRates: copyOptional(o.OptionalRates), Provider: o.Provider, Model: o.Model, Rates: o.Rates, PromptPolicy: p, Source: Operator, SourceRef: o.SourceRef, VerifiedAt: o.VerifiedAt, Status: Verified}
 }
 func (s *Snapshot) resolve(provider, model string, opts Resolution) (Price, bool) {
 	if o, ok := s.overrides[key(provider, model)]; ok {
@@ -454,6 +491,7 @@ type Estimate struct {
 	UnknownReason                              UnknownReason
 	Price                                      Price
 	EffectiveRates                             Rates
+	EffectiveOptionalRates                     *OptionalRates
 	Tokens                                     Tokens
 	Cost                                       Breakdown
 	Estimated                                  bool
@@ -477,7 +515,7 @@ func (s *Snapshot) Estimate(req Request, now time.Time) Estimate {
 		return e
 	}
 	e.Tokens = tokens
-	price, ok := s.Resolve(req.Provider, req.Model, req.Resolution)
+	price, ok := s.ResolveForTier(req.Provider, req.Model, req.Resolution, req.Tier)
 	if !ok {
 		e.UnknownReason = MissingPrice
 		return e
@@ -485,6 +523,18 @@ func (s *Snapshot) Estimate(req Request, now time.Time) Estimate {
 	e.Price = price
 	tier := req.Tier.normalized()
 	e.Tier = copyTier(req.Tier)
+	if price.OptionalRates != nil {
+		e.EffectiveOptionalRates = copyOptional(price.OptionalRates)
+		cost, known := calculateOptional(tokens, price.OptionalRates)
+		if !known {
+			e.UnknownReason = MissingPrice
+			return e
+		}
+		e.Known = true
+		e.Cost = cost
+		e.Estimated = req.Usage.Estimated || req.Status == Estimated
+		return e
+	}
 	confirmed := fastTier(tier.Response)
 	r := price.Rates
 	var rule *contextRule
@@ -513,7 +563,7 @@ func (s *Snapshot) Estimate(req Request, now time.Time) Estimate {
 		}
 		e.PriorityLowerBound = confirmed && rule != nil && rule.Relation == "lower-bound"
 	}
-	if fastTier(tier.effective()) && !(e.ContextTier != "" && (rule == nil || rule.Relation != "stack")) && !(e.CustomThresholdApplied && confirmed && rule != nil && rule.Relation == "lower-bound") {
+	if price.ServiceTier == "" && fastTier(tier.effective()) && !(e.ContextTier != "" && (rule == nil || rule.Relation != "stack")) && !(e.CustomThresholdApplied && confirmed && rule != nil && rule.Relation == "lower-bound") {
 		for _, pr := range s.rules.Priority {
 			if pr.Provider == price.Provider && pr.Model == req.Model && (!pr.RequiresResponseConfirmation || confirmed) {
 				e.PriorityMultiplier = pr.Multiplier
