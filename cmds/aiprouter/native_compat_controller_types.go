@@ -16,8 +16,13 @@ type NativeRuntimeRequest struct {
 	Port    int
 	Trial   bool
 }
-type NativeRuntimeConsent struct{ Trust, Application, AccountTrial bool }
+type NativeRuntimeConsent struct {
+	Trust, Application, AccountTrial bool
+	PlanFingerprint                  string
+	PlanDigest                       string
+}
 type NativeRuntimePlan struct {
+	PlanDigest                                               string
 	Profile                                                  string
 	Mode                                                     NativeCompatibilityMode
 	Build, Address, CAPath, Fingerprint                      string
@@ -48,12 +53,16 @@ type nativeReadyProof struct {
 	mode                    NativeCompatibilityMode
 	build, proxyURL, caPath string
 	expires                 time.Time
+	check                   func() bool
 }
 
 func (r NativeRuntimeReady) Validate() error {
 	p := r.proof
 	if p == nil || !time.Now().Before(p.expires) || r.Profile != p.profile || r.Mode != p.mode || r.Build != p.build || r.ProxyURL != p.proxyURL || r.CAPath != p.caPath {
 		return errors.New("native runtime readiness is missing, altered, or expired")
+	}
+	if p.check != nil && (!p.check() || !time.Now().Before(p.expires)) {
+		return errors.New("native runtime readiness was revoked")
 	}
 	return nil
 }
@@ -70,4 +79,5 @@ type NativeRuntimeController interface {
 	Stop(context.Context, string) error
 	Disable(context.Context, string) error
 	Serve(context.Context, string) error
+	Launch(context.Context, string) error
 }

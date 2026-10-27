@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -72,7 +74,9 @@ func controllerFixture(t *testing.T) (*nativeRuntimeController, NativeRuntimeReq
 	p := testProfile()
 	req := NativeRuntimeRequest{Profile: p, Mode: NativeCompatibilityClaudePicker, Build: NativeCompatibilityClaudeBuild, Port: DefaultNativePort}
 	store := &memoryStore{values: map[string]string{credentialID(p): "controller-fixture-key"}}
-	options := NativeRuntimeOptions{Platform: "darwin", Trust: trust, ObserveBuild: func(context.Context, NativeRuntimeRequest) (string, error) {
+	options := NativeRuntimeOptions{Platform: "darwin", Trust: trust, Account: func(context.Context, NativeRuntimeRequest) (NativeCompatibilityAccount, error) {
+		return NativeCompatibilityAccount{}, errors.New("fixture account unavailable")
+	}, ObserveBuild: func(context.Context, NativeRuntimeRequest) (string, error) {
 		return NativeCompatibilityClaudeBuild, nil
 	}, EnsureCA: func(root string, hosts []string) (*NativeCA, error) {
 		return EnsureNativeCAWithOptions(root, NativeCAOptions{Platform: "darwin", DNSNames: hosts, Protection: controllerKeyProtection{}, FileProtection: NativeProtector{}})
@@ -103,7 +107,7 @@ func TestNativeControllerConsentAndPendingRecovery(t *testing.T) {
 		}
 	}
 	trust.failInstall = true
-	s, err := c.Enable(ctx, req, NativeRuntimeConsent{Trust: true, Application: true})
+	s, err := c.Enable(ctx, req, controllerConsent(t, c, req))
 	if err == nil || s.Ready || s.Trusted {
 		t.Fatal("failed trust reported activation")
 	}
@@ -111,13 +115,13 @@ func TestNativeControllerConsentAndPendingRecovery(t *testing.T) {
 		t.Fatal("pending record lost")
 	}
 	trust.failInstall = false
-	s, err = c.Enable(ctx, req, NativeRuntimeConsent{Trust: true, Application: true})
+	s, err = c.Enable(ctx, req, controllerConsent(t, c, req))
 	if err != nil || !s.Trusted || s.Ready || s.ProxyURL != "" {
 		t.Fatalf("retry status: %+v %v", s, err)
 	}
 	altered := req
 	altered.Port++
-	if _, err = c.Enable(ctx, altered, NativeRuntimeConsent{Trust: true, Application: true}); err == nil {
+	if _, err = c.Enable(ctx, altered, controllerConsent(t, c, req)); err == nil {
 		t.Fatal("configuration changed without disable")
 	}
 	trust.failRemove = true
@@ -150,7 +154,7 @@ func TestNativeControllerBuildAndPathGates(t *testing.T) {
 		t.Fatal("unattested build accepted")
 	}
 	c.options.ObserveBuild = func(context.Context, NativeRuntimeRequest) (string, error) { return "unknown", nil }
-	if _, err := c.Enable(ctx, req, NativeRuntimeConsent{Trust: true, Application: true}); err == nil {
+	if _, err := c.Enable(ctx, req, controllerConsent(t, c, req)); err == nil {
 		t.Fatal("mismatched installed build accepted")
 	}
 	if _, err := c.Status(ctx, "../escape"); err == nil {
@@ -170,7 +174,7 @@ func TestNativeControllerOwnedReadinessAndStop(t *testing.T) {
 	}
 	defer listener.Close()
 	req.Port = listener.Addr().(*net.TCPAddr).Port
-	if _, err = c.Enable(ctx, req, NativeRuntimeConsent{Trust: true, Application: true}); err != nil {
+	if _, err = c.Enable(ctx, req, controllerConsent(t, c, req)); err != nil {
 		t.Fatal(err)
 	}
 	record, _, _ := c.load(req.Profile.Name)
@@ -210,12 +214,19 @@ func TestNativeControllerOwnedReadinessAndStop(t *testing.T) {
 	if strings.Contains(string(b), record.Token) || strings.Contains(fmt.Sprintf("%+v %#v", ready, ready), record.Token) {
 		t.Fatal("readiness diagnostic leaked token")
 	}
+	beforeStop, err := c.Ready(ctx, req.Profile.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ready.proof.expires = time.Now().Add(-time.Second)
 	if ready.Validate() == nil {
 		t.Fatal("expired proof accepted")
 	}
 	if err = c.Stop(ctx, req.Profile.Name); err != nil {
 		t.Fatal(err)
+	}
+	if beforeStop.Validate() == nil {
+		t.Fatal("stopped runtime retained a live settings proof")
 	}
 	if _, err = c.Ready(ctx, req.Profile.Name); err == nil {
 		t.Fatal("stopped listener reported ready")
@@ -229,7 +240,7 @@ func TestNativeControllerRefusesForeignListener(t *testing.T) {
 	}
 	defer listener.Close()
 	req.Port = listener.Addr().(*net.TCPAddr).Port
-	if _, err = c.Enable(context.Background(), req, NativeRuntimeConsent{Trust: true, Application: true}); err != nil {
+	if _, err = c.Enable(context.Background(), req, controllerConsent(t, c, req)); err != nil {
 		t.Fatal(err)
 	}
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "foreign", 401) })}
@@ -249,12 +260,13 @@ func TestNativeControllerRefusesForeignListener(t *testing.T) {
 func TestNativeControllerServeLoadsSecretWithoutPersistingIt(t *testing.T) {
 	c, req, _ := controllerFixture(t)
 	ctx := context.Background()
-	if _, err := c.Enable(ctx, req, NativeRuntimeConsent{Trust: true, Application: true}); err != nil {
+	if _, err := c.Enable(ctx, req, controllerConsent(t, c, req)); err != nil {
 		t.Fatal(err)
 	}
 	c.options.Models = func(context.Context, Profile, string) ([]ClientModel, error) {
 		return []ClientModel{{ID: "fixture"}}, nil
 	}
+	c.options.CLIModels = c.options.Models
 	called := false
 	c.options.Run = func(ctx context.Context, config NativeTLSConfig) error {
 		called = true
@@ -292,13 +304,13 @@ func TestNativeControllerTrialExpiryAndIdentity(t *testing.T) {
 	req.Build = NativeCompatibilityCodexBuild
 	req.Trial = true
 	c.options.ObserveBuild = func(context.Context, NativeRuntimeRequest) (string, error) { return NativeCompatibilityCodexBuild, nil }
-	consent := NativeRuntimeConsent{Trust: true, Application: true, AccountTrial: true}
+	consent := controllerConsent(t, c, req)
 	if _, err := c.Enable(ctx, req, consent); err == nil {
 		t.Fatal("unattested trial accepted")
 	}
 	account := NativeCompatibilityAccount{ID: "account", UserID: "user", Plan: "plus", Structure: "personal"}
 	c.options.Account = func(context.Context, NativeRuntimeRequest) (NativeCompatibilityAccount, error) { return account, nil }
-	if _, err := c.Enable(ctx, req, NativeRuntimeConsent{Trust: true, Application: true}); err == nil {
+	if _, err := c.Enable(ctx, req, NativeRuntimeConsent{Trust: true, Application: true, PlanFingerprint: consent.PlanFingerprint}); err == nil {
 		t.Fatal("missing trial consent accepted")
 	}
 	if _, err := c.Enable(ctx, req, consent); err != nil {
@@ -329,5 +341,116 @@ func TestNativeControllerTrialExpiryAndIdentity(t *testing.T) {
 	r.TrialUntil = time.Now().Add(-time.Second)
 	if c.trialValid(ctx, r, "controller-fixture-key") {
 		t.Fatal("expired trial accepted")
+	}
+}
+
+func TestNativeControllerCatalogSurfaces(t *testing.T) {
+	for _, mode := range []NativeCompatibilityMode{NativeCompatibilityClaudeFirstParty, NativeCompatibilityClaudePicker} {
+		t.Run(string(mode), func(t *testing.T) {
+			c, req, _ := controllerFixture(t)
+			req.Mode = mode
+			var queries []string
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				queries = append(queries, r.URL.RawQuery)
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Query().Get("ids") == "desktop" {
+					_, _ = w.Write([]byte(`{"version":1,"models":[{"name":"desktop-only","labelOverride":"Desktop"}]}`))
+				} else {
+					_, _ = w.Write([]byte(`{"data":[{"id":"cli-only","display_name":"CLI"}]}`))
+				}
+			}))
+			defer server.Close()
+			req.Profile.Server = server.URL
+			c.credentials = &memoryStore{values: map[string]string{credentialID(req.Profile): "fixture-key"}}
+			c.options.Transport = server.Client().Transport
+			if _, err := c.Enable(context.Background(), req, controllerConsent(t, c, req)); err != nil {
+				t.Fatal(err)
+			}
+			c.options.Run = func(ctx context.Context, config NativeTLSConfig) error {
+				config.OnReady()
+				if mode == NativeCompatibilityClaudeFirstParty {
+					if len(config.Models) != 1 || config.Models[0].ID != "cli-only" {
+						t.Fatal("wrong first-party catalog")
+					}
+				} else {
+					if len(config.Models) != 1 || config.Models[0].ID != "desktop-only" || len(config.CLIModels) != 1 || config.CLIModels[0].ID != "cli-only" {
+						t.Fatal("mixed picker catalog surfaces")
+					}
+				}
+				return nil
+			}
+			if err := c.Serve(context.Background(), req.Profile.Name); err != nil {
+				t.Fatal(err)
+			}
+			expected := []string{"ids=cli"}
+			if mode == NativeCompatibilityClaudePicker {
+				expected = []string{"ids=desktop&format=desktop-config", "ids=cli"}
+			}
+			if !reflect.DeepEqual(queries, expected) {
+				t.Fatalf("catalog queries %v", queries)
+			}
+		})
+	}
+}
+
+func controllerConsent(t *testing.T, c *nativeRuntimeController, req NativeRuntimeRequest) NativeRuntimeConsent {
+	t.Helper()
+	ca, err := c.ca(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := c.policy(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NativeRuntimeConsent{Trust: true, Application: true, AccountTrial: req.Trial, PlanFingerprint: ca.Fingerprint, PlanDigest: nativePlanDigest(req, ca.Fingerprint, policy)}
+}
+func TestNativeControllerConsentBindsPreviewedCertificate(t *testing.T) {
+	c, req, trust := controllerFixture(t)
+	ctx := context.Background()
+	plan, err := c.Plan(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consent := NativeRuntimeConsent{Trust: true, Application: true, PlanFingerprint: plan.Fingerprint, PlanDigest: plan.PlanDigest}
+	root, _ := c.root(req.Profile.Name)
+	for _, name := range []string{"authority.json", "ca.pem", "leaf.pem"} {
+		if err = os.Remove(filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = c.Enable(ctx, req, consent); err == nil {
+		t.Fatal("replacement CA accepted under previous consent")
+	}
+	if trust.installs != 0 {
+		t.Fatal("replacement CA enrolled")
+	}
+	if _, exists, _ := c.load(req.Profile.Name); exists {
+		t.Fatal("invalid consent persisted")
+	}
+}
+
+func TestNativeControllerConsentBindsFullPlan(t *testing.T) {
+	c, req, _ := controllerFixture(t)
+	ctx := context.Background()
+	req.Port = 0
+	plan, err := c.Plan(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consent := NativeRuntimeConsent{Trust: true, Application: true, PlanFingerprint: plan.Fingerprint, PlanDigest: plan.PlanDigest}
+	changed := req
+	changed.Port = DefaultNativePort + 1
+	if _, err = c.Enable(ctx, changed, consent); err == nil {
+		t.Fatal("changed port accepted under old plan")
+	}
+	changed = req
+	changed.Profile.Server = "https://different.example"
+	if _, err = c.Enable(ctx, changed, consent); err == nil {
+		t.Fatal("changed gateway accepted under old plan")
+	}
+	req.Port = DefaultNativePort
+	if _, err = c.Enable(ctx, req, consent); err != nil {
+		t.Fatal("default port normalization changed plan", err)
 	}
 }

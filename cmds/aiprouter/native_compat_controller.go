@@ -30,6 +30,7 @@ type NativeRuntimeOptions struct {
 	Run          func(context.Context, NativeTLSConfig) error
 	Transport    http.RoundTripper
 	Models       func(context.Context, Profile, string) ([]ClientModel, error)
+	CLIModels    func(context.Context, Profile, string) ([]ClientModel, error)
 }
 type nativeRuntimeController struct {
 	disk        Disk
@@ -46,6 +47,12 @@ func NewNativeRuntimeControllerWithOptions(disk Disk, credentials Credentials, o
 	}
 	if options.Platform == "" {
 		options.Platform = runtime.GOOS
+	}
+	if options.ObserveBuild == nil {
+		options.ObserveBuild = (NativeBuildResolver{Platform: options.Platform}).Observe
+	}
+	if options.Account == nil {
+		options.Account = ObserveNativeCodexAccount
 	}
 	if options.Trust == nil {
 		home, err := os.UserHomeDir()
@@ -88,7 +95,7 @@ func (c *nativeRuntimeController) load(name string) (nativeRuntimeRecord, bool, 
 	if err != nil || !exists {
 		return r, exists, err
 	}
-	if json.Unmarshal(b, &r) != nil || r.Version != 1 || r.Request.Profile.Name != name || len(r.Token) != 64 || r.Fingerprint == "" {
+	if json.Unmarshal(b, &r) != nil || r.Version != 1 || r.Request.Profile.Name != name || len(r.Token) != 64 || r.Fingerprint == "" || r.Consent.PlanFingerprint != r.Fingerprint {
 		return r, true, errors.New("invalid native runtime record; preserve it for recovery")
 	}
 	_, err = c.policy(r.Request)
@@ -136,15 +143,37 @@ func (c *nativeRuntimeController) ca(req NativeRuntimeRequest) (*NativeCA, error
 func (c *nativeRuntimeController) trust(root string) NativeTrustManager {
 	return NativeTrustManager{Root: root, Adapter: c.options.Trust, Protection: c.disk.Protection}
 }
+
+// A shared advisory lock serializes port allocation across profiles. Its stable
+// file remains after exit; the OS releases ownership even after a crash.
 func (c *nativeRuntimeController) lock(name string) (func(), error) {
-	root, err := c.root(name)
+	if _, err := c.root(name); err != nil {
+		return nil, err
+	}
+	d := Disk{Root: filepath.Join(c.disk.Root, "native-tls"), Protection: c.disk.Protection}
+	return d.Lock()
+}
+func (c *nativeRuntimeController) checkPort(req NativeRuntimeRequest) error {
+	entries, err := os.ReadDir(filepath.Join(c.disk.Root, "native-tls"))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if err = c.disk.init(); err != nil {
-		return nil, err
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 {
+			return errors.New("symbolic links are not accepted in native runtime records")
+		}
+		if entry.Name() == req.Profile.Name || !entry.IsDir() {
+			continue
+		}
+		r, exists, e := c.load(entry.Name())
+		if e != nil {
+			return errors.New("cannot validate native runtime port ownership; preserve existing records")
+		}
+		if exists && nativeRuntimeAddress(r.Request) == nativeRuntimeAddress(req) {
+			return errors.New("native loopback port belongs to another profile; select a distinct fixed port")
+		}
 	}
-	return c.disk.nativeLocks([]string{filepath.Join(root, "controller.lock")})
+	return nil
 }
 func (c *nativeRuntimeController) Plan(ctx context.Context, req NativeRuntimeRequest) (NativeRuntimePlan, error) {
 	var plan NativeRuntimePlan
@@ -160,12 +189,26 @@ func (c *nativeRuntimeController) Plan(ctx context.Context, req NativeRuntimeReq
 		return plan, err
 	}
 	defer release()
+	if err = c.checkPort(req); err != nil {
+		return plan, err
+	}
 	ca, err := c.ca(req)
 	if err != nil {
 		return plan, err
 	}
 	address := nativeRuntimeAddress(req)
-	return NativeRuntimePlan{Profile: req.Profile.Name, Mode: req.Mode, Build: req.Build, Address: address, CAPath: ca.CertificatePath, Fingerprint: ca.Fingerprint, Hosts: p.Hosts(), Routes: p.Routes(), Listeners: []string{"HTTP CONNECT and authenticated control: " + address}, TrustChanges: []string{"Install only the owned CA in current-user trust"}, SettingsChanges: []string{"Apply the separately previewed native application settings"}, RequiresTrust: true, RequiresApplication: true, RequiresAccountTrial: req.Trial}, nil
+	return NativeRuntimePlan{PlanDigest: nativePlanDigest(req, ca.Fingerprint, p), Profile: req.Profile.Name, Mode: req.Mode, Build: req.Build, Address: address, CAPath: ca.CertificatePath, Fingerprint: ca.Fingerprint, Hosts: p.Hosts(), Routes: p.Routes(), Listeners: []string{"HTTP CONNECT and authenticated control: " + address}, TrustChanges: []string{"Install only the owned CA in current-user trust"}, SettingsChanges: []string{"Apply the separately previewed native application settings"}, RequiresTrust: true, RequiresApplication: true, RequiresAccountTrial: req.Trial}, nil
+}
+func nativePlanDigest(req NativeRuntimeRequest, fingerprint string, policy NativeCompatibilityPolicy) string {
+	if req.Port == 0 {
+		req.Port = DefaultNativePort
+	}
+	data, _ := json.Marshal(struct {
+		Request       NativeRuntimeRequest
+		Fingerprint   string
+		Hosts, Routes []string
+	}{req, fingerprint, policy.Hosts(), policy.Routes()})
+	return digest(data)
 }
 func nativeRuntimeAddress(req NativeRuntimeRequest) string {
 	port := req.Port
@@ -175,6 +218,9 @@ func nativeRuntimeAddress(req NativeRuntimeRequest) string {
 	return net.JoinHostPort("127.0.0.1", fmt.Sprint(port))
 }
 func (c *nativeRuntimeController) Enable(ctx context.Context, req NativeRuntimeRequest, consent NativeRuntimeConsent) (NativeRuntimeStatus, error) {
+	if len(consent.PlanFingerprint) != 64 || len(consent.PlanDigest) != 64 {
+		return NativeRuntimeStatus{}, errors.New("reviewed native CA fingerprint is required")
+	}
 	if !consent.Trust || !consent.Application || req.Trial && !consent.AccountTrial {
 		return NativeRuntimeStatus{}, errors.New("separate trust, application and applicable account trial consent are required")
 	}
@@ -189,6 +235,9 @@ func (c *nativeRuntimeController) Enable(ctx context.Context, req NativeRuntimeR
 		return NativeRuntimeStatus{}, err
 	}
 	defer release()
+	if err = c.checkPort(req); err != nil {
+		return NativeRuntimeStatus{}, err
+	}
 	if req.Port == 0 {
 		req.Port = DefaultNativePort
 	}
@@ -205,6 +254,13 @@ func (c *nativeRuntimeController) Enable(ctx context.Context, req NativeRuntimeR
 	ca, err := c.ca(req)
 	if err != nil {
 		return NativeRuntimeStatus{}, err
+	}
+	policy, _ := c.policy(req)
+	if consent.PlanDigest != nativePlanDigest(req, ca.Fingerprint, policy) {
+		return NativeRuntimeStatus{}, errors.New("native request differs from the reviewed plan; preview and confirm again")
+	}
+	if ca.Fingerprint != consent.PlanFingerprint {
+		return NativeRuntimeStatus{}, errors.New("native CA differs from the reviewed plan; preview and confirm again")
 	}
 	if !exists {
 		r = nativeRuntimeRecord{Version: 1, Request: req, Consent: consent, Fingerprint: ca.Fingerprint}
@@ -311,7 +367,16 @@ func (c *nativeRuntimeController) Ready(ctx context.Context, name string) (Nativ
 	if r.Request.Trial && r.TrialUntil.Before(expiry) {
 		expiry = r.TrialUntil
 	}
-	return NativeRuntimeReady{Profile: name, Mode: r.Request.Mode, Build: r.Request.Build, ProxyURL: proxy, CAPath: ca.CertificatePath, proof: &nativeReadyProof{name, r.Request.Mode, r.Request.Build, proxy, ca.CertificatePath, expiry}}, nil
+	return NativeRuntimeReady{Profile: name, Mode: r.Request.Mode, Build: r.Request.Build, ProxyURL: proxy, CAPath: ca.CertificatePath, proof: &nativeReadyProof{profile: name, mode: r.Request.Mode, build: r.Request.Build, proxyURL: proxy, caPath: ca.CertificatePath, expires: expiry, check: func() bool {
+		probeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		current, exists, e := c.load(name)
+		if e != nil || !exists || current != r {
+			return false
+		}
+		public, e := c.publicCA(current.Request)
+		return e == nil && c.statusRecord(probeCtx, current, public).Ready
+	}}}, nil
 }
 func (c *nativeRuntimeController) control(ctx context.Context, r nativeRuntimeRecord, method, action string) error {
 	req, err := http.NewRequestWithContext(ctx, method, "http://"+nativeRuntimeAddress(r.Request)+"/_aiprouter/native/"+action, nil)
@@ -420,6 +485,10 @@ func (c *nativeRuntimeController) Serve(ctx context.Context, name string) error 
 		}
 		return errors.New("native runtime is not enabled")
 	}
+	if err = c.checkPort(r.Request); err != nil {
+		release()
+		return err
+	}
 	if err = c.observed(ctx, r.Request); err != nil {
 		release()
 		return err
@@ -466,7 +535,11 @@ func (c *nativeRuntimeController) Serve(ctx context.Context, name string) error 
 			return err
 		}
 	}
-	var models []ClientModel
+	var models, cliModels []ClientModel
+	client := "claude"
+	if r.Request.Mode == NativeCompatibilityClaudePicker {
+		client = "claude-desktop"
+	}
 	if c.options.Models != nil {
 		models, err = c.options.Models(ctx, r.Request.Profile, key)
 	} else if r.Request.Mode == NativeCompatibilityClaudePicker || r.Request.Mode == NativeCompatibilityClaudeFirstParty {
@@ -474,7 +547,21 @@ func (c *nativeRuntimeController) Serve(ctx context.Context, name string) error 
 		if e != nil {
 			err = e
 		} else {
-			models, err = api.ModelsForClient(ctx, key, "claude-desktop")
+			api.HTTP.Transport = c.options.Transport
+			models, err = api.ModelsForClient(ctx, key, client)
+		}
+	}
+	if err == nil && r.Request.Mode == NativeCompatibilityClaudePicker {
+		if c.options.CLIModels != nil {
+			cliModels, err = c.options.CLIModels(ctx, r.Request.Profile, key)
+		} else {
+			api, e := NewConnectAPI(r.Request.Profile.Server)
+			if e != nil {
+				err = e
+			} else {
+				api.HTTP.Transport = c.options.Transport
+				cliModels, err = api.ModelsForClient(ctx, key, "claude")
+			}
 		}
 	}
 	if err != nil {
@@ -486,5 +573,5 @@ func (c *nativeRuntimeController) Serve(ctx context.Context, name string) error 
 	var once sync.Once
 	unlock := func() { once.Do(release) }
 	defer unlock()
-	return c.options.Run(ctx, NativeTLSConfig{Address: nativeRuntimeAddress(r.Request), Policy: policy, CA: ca, Gateway: r.Request.Profile.Server, Key: key, Token: r.Token, Models: models, TrialUntil: r.TrialUntil, OnReady: unlock, Transport: c.options.Transport})
+	return c.options.Run(ctx, NativeTLSConfig{Address: nativeRuntimeAddress(r.Request), Policy: policy, CA: ca, Gateway: r.Request.Profile.Server, Key: key, Token: r.Token, Models: models, CLIModels: cliModels, TrialUntil: r.TrialUntil, OnReady: unlock, Transport: c.options.Transport})
 }
