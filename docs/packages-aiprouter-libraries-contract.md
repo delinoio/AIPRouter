@@ -2,7 +2,7 @@
 
 ## Scope
 
-Owns planned `packages/aiprouter`, reusable Go libraries shared by the service and CLI. The repository root owns the single Go module `github.com/delinoio/AIPRouter`; do not introduce component-specific Go modules.
+Owns `packages/aiprouter`, reusable Go libraries shared by the service and CLI. The repository root owns the single Go module `github.com/delinoio/AIPRouter`; do not introduce component-specific Go modules.
 
 ## Runtime and Language
 
@@ -30,7 +30,7 @@ Use structured logs and request identifiers. Never log provider secrets, API key
 
 ## Build and Test
 
-Follow the release gates and required scenarios in [operations](servers-aiprouter-operations-contract.md). Run root `go test ./...` for Go changes. These commands become applicable when the planned Go module exists; documentation onboarding does not establish runtime acceptance.
+Follow the release gates and required scenarios in [operations](servers-aiprouter-operations-contract.md). Run root `go test ./...` for Go changes. Passing package tests does not establish complete runtime or live acceptance.
 
 ## Dependencies and Integrations
 

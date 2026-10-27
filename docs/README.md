@@ -1,6 +1,6 @@
 # Documentation Catalog
 
-`docs/` is the source of truth for repository contracts. AIPRouter is registered for documentation-first onboarding; its runtime paths are planned.
+`docs/` is the source of truth for repository contracts. The AIPRouter project index defines component ownership and links to the required behavior contracts. Implementation and validation evidence belong in pull requests and CI records.
 
 ## Repository contracts
 

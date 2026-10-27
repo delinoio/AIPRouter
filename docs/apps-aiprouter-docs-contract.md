@@ -2,7 +2,7 @@
 
 ## Scope
 
-Owns planned `apps/aiprouter-docs`, an English public documentation application. Repository source-of-truth contracts remain in `docs/`.
+Owns `apps/aiprouter-docs`, an English public documentation application. Repository source-of-truth contracts remain in `docs/`.
 
 ## Runtime and Language
 

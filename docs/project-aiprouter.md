@@ -10,7 +10,7 @@ Build a self-hosted, organization-based, multi-tenant and multi-user AI provider
 
 ## Domain Ownership Map
 
-All paths below are planned. Documentation-only onboarding does not create runtime functionality. Create the canonical skeleton and required workspace membership before runtime implementation.
+The following canonical paths define component ownership. Contracts describe required behavior; they do not establish implementation completeness or validation results.
 
 | Domain/component  | Canonical path                                        | Ownership and integration boundary                                            |
 | ----------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------- |

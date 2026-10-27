@@ -2,7 +2,7 @@
 
 ## Scope
 
-Owns planned `servers/aiprouter`: the Go service, authorization enforcement, inference adapters, durable and temporary state, and management handlers. Shared mechanisms live in `packages/aiprouter`; this service owns their authorization and lifecycle policy.
+Owns `servers/aiprouter`: the Go service, authorization enforcement, inference adapters, durable and temporary state, and management handlers. Shared mechanisms live in `packages/aiprouter`; this service owns their authorization and lifecycle policy.
 
 ## Runtime and Language
 
@@ -275,7 +275,7 @@ Use structured logs and request identifiers. Never log provider secrets, API key
 
 ## Build and Test
 
-Follow the release gates and required scenarios in [operations](servers-aiprouter-operations-contract.md). Run root `go test ./...` for Go changes. These commands become applicable when the planned Go module exists; documentation onboarding does not establish runtime acceptance.
+Follow the release gates and required scenarios in [operations](servers-aiprouter-operations-contract.md). Run root `go test ./...` for Go changes. Passing package tests does not establish complete runtime or live acceptance.
 
 ## Dependencies and Integrations
 

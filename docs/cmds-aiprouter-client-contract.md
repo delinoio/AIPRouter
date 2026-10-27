@@ -2,7 +2,7 @@
 
 ## Scope
 
-Owns planned `cmds/aiprouter`: the Go CLI, device authorization client, client settings integrations, profiles, and user background HTTP relay.
+Owns `cmds/aiprouter`: the Go CLI, device authorization client, client settings integrations, profiles, and user background HTTP relay.
 
 ## Runtime and Language
 
@@ -78,7 +78,7 @@ Use structured logs and request identifiers. Never log provider secrets, API key
 
 ## Build and Test
 
-Follow the release gates and required scenarios in [operations](servers-aiprouter-operations-contract.md). Run root `go test ./...` for Go changes. These commands become applicable when the planned Go module exists; documentation onboarding does not establish runtime acceptance.
+Follow the release gates and required scenarios in [operations](servers-aiprouter-operations-contract.md). Run root `go test ./...` for Go changes. Passing package tests does not establish complete runtime or live acceptance.
 
 Build all listed target platforms and test credential-store, service, permissions/ACL, restore, conflict, offline revocation, and multi-profile behavior through mocks. Builds and mocked OS behavior do not establish actual native OS acceptance.
 
