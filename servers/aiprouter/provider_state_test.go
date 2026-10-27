@@ -77,7 +77,7 @@ func TestProviderStateAtomicMergeAndRevocation(t *testing.T) {
 	if e = a.SaveProviderState(ctx, p, "devin", "oversize", inference.ProviderState{Data: make([]byte, 4097), ExpiresAt: time.Now().Add(time.Hour)}); e == nil {
 		t.Fatal("oversized state accepted")
 	}
-	for _, ns := range []string{"openai-chat", "openai-responses", "anthropic", "mimo-free", "tool-reasoning-replay"} {
+	for _, ns := range []string{"openai-chat", "openai-responses", "anthropic", "mimo-free", "tool-reasoning-replay", "google-vertex"} {
 		if e = a.SaveProviderState(ctx, p, ns, "receipt", inference.ProviderState{Data: []byte("bound-digest"), ExpiresAt: time.Now().Add(30 * time.Minute)}); e != nil {
 			t.Fatalf("namespace %s save: %v", ns, e)
 		}
@@ -92,7 +92,7 @@ func TestProviderStateAtomicMergeAndRevocation(t *testing.T) {
 	if _, found, e = a.LookupProviderState(ctx, p, "devin", "merge"); e == nil || found {
 		t.Fatalf("revocation treated as absence: %v %v", found, e)
 	}
-	for _, ns := range []string{"openai-chat", "openai-responses", "anthropic", "mimo-free", "tool-reasoning-replay"} {
+	for _, ns := range []string{"openai-chat", "openai-responses", "anthropic", "mimo-free", "tool-reasoning-replay", "google-vertex"} {
 		if _, found, e := a.LookupProviderState(ctx, p, ns, "receipt"); e == nil || found {
 			t.Fatalf("namespace %s revoked read: %v %v", ns, found, e)
 		}

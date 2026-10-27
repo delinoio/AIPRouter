@@ -17,7 +17,7 @@ import (
 )
 
 func providerAdapters() map[inference.Wire]inference.Adapter {
-	out := map[inference.Wire]inference.Adapter{ollama.Wire: ollama.New(), workbuddy.Wire: workbuddy.New(), commandcode.Wire: commandcode.New(), mimofree.Wire: mimofree.New(), dsh.Wire: dsh.New(), azure.Wire: azure.New(), google.WireAPI: google.NewAPI(google.Options{}), google.WireAntigravity: google.NewAntigravity(google.Options{}), google.WireGeminiCLI: google.NewGeminiCLI(google.Options{}), kiro.Wire: kiro.New(), cursor.Wire: cursor.New(), devin.Wire: devin.New()}
+	out := map[inference.Wire]inference.Adapter{ollama.Wire: ollama.New(), workbuddy.Wire: workbuddy.New(), commandcode.Wire: commandcode.New(), mimofree.Wire: mimofree.New(), dsh.Wire: dsh.New(), azure.Wire: azure.New(), google.WireVertex: google.NewVertex(google.Options{}), google.WireAPI: google.NewAPI(google.Options{}), google.WireAntigravity: google.NewAntigravity(google.Options{}), google.WireGeminiCLI: google.NewGeminiCLI(google.Options{}), kiro.Wire: kiro.New(), cursor.Wire: cursor.New(), devin.Wire: devin.New()}
 	for wire, family := range map[inference.Wire]zed.Provider{zed.WireAnthropic: zed.Anthropic, zed.WireOpenAI: zed.OpenAI, zed.WireGoogle: zed.Google, zed.WireXAI: zed.XAI} {
 		a, e := zed.New(family)
 		if e == nil {

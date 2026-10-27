@@ -31,7 +31,7 @@ func providerStatePolicy(namespace string) (providerStateLimits, bool) {
 		return providerStateLimits{24 * time.Hour, 256, 4 << 10, 1 << 20}, true
 	case "kiro":
 		return providerStateLimits{24 * time.Hour, 256, 512 << 10, 16 << 20}, true
-	case "google-gemini", "google-antigravity", "google-gemini-cli":
+	case "google-gemini", "google-antigravity", "google-gemini-cli", "google-vertex":
 		return providerStateLimits{time.Hour, 256, 2 << 20, 64 << 20}, true
 	default:
 		return providerStateLimits{}, false
