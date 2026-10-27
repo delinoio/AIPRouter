@@ -57,6 +57,7 @@ func TestReasoningAxesAndPinnedExporterShapes(t *testing.T) {
 	}{
 		{"unknown", ClientModel{}, nil, ""},
 		{"empty", ClientModel{Efforts: []string{}}, []string{}, ""},
+		{"known-empty", ClientModel{ReasoningEffortsKnown: metadataPtr(true), DefaultReasoningEffort: metadataPtr("high")}, []string{}, ""},
 		{"disabled", ClientModel{SupportsReasoning: metadataPtr(false), Efforts: []string{"high"}, DefaultReasoningEffort: metadataPtr("high")}, []string{}, ""},
 		{"toggle-off", ClientModel{SupportsThinkingToggle: metadataPtr(true), SupportsReasoningEffort: metadataPtr(false), DefaultThinkingEnabled: metadataPtr(false)}, []string{"none", "high"}, "none"},
 		{"toggle-on", ClientModel{SupportsThinkingToggle: metadataPtr(true), SupportsReasoningEffort: metadataPtr(false), DefaultThinkingEnabled: metadataPtr(true)}, []string{"none", "high"}, "high"},

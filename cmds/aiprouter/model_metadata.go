@@ -34,6 +34,9 @@ func exportedEfforts(m ClientModel) []string {
 		return []string{}
 	}
 	efforts := canonicalEfforts(m.Efforts)
+	if efforts == nil && boolIs(m.ReasoningEffortsKnown, true) {
+		efforts = []string{}
+	}
 	if boolIs(m.SupportsReasoningEffort, false) {
 		if boolIs(m.SupportsThinkingToggle, true) {
 			return []string{"none", "high"}
