@@ -71,7 +71,7 @@ func (a *Auth) devinMetadata(c Credential, jwt string) []byte {
 	}
 	return protoBytes(1, out)
 }
-func (a *Auth) devinRPC(ctx context.Context, s core.Scope, c Credential, path, jwt string) ([]protoField, error) {
+func (a *Auth) devinRPC(ctx context.Context, s core.Scope, c Credential, path, jwt string, custom ...map[string]string) ([]protoField, error) {
 	base := c.APIBaseURL
 	if base == "" {
 		base = "https://server.codeium.com"
@@ -80,6 +80,11 @@ func (a *Auth) devinRPC(ctx context.Context, s core.Scope, c Credential, path, j
 		return nil, ErrResponse
 	}
 	h := http.Header{"Accept": {"application/proto"}, "Connect-Protocol-Version": {"1"}}
+	if len(custom) > 0 {
+		overlayHeaders(h, custom[0])
+	}
+	h.Set("Accept", "application/proto")
+	h.Set("Content-Type", "application/proto")
 	b, status, _, err := a.requestBytes(ctx, s, "POST", strings.TrimRight(base, "/")+path, a.devinMetadata(c, jwt), h, 4<<20)
 	if err != nil {
 		return nil, err
@@ -89,7 +94,7 @@ func (a *Auth) devinRPC(ctx context.Context, s core.Scope, c Credential, path, j
 	}
 	return protoFields(b)
 }
-func (a *Auth) devinModels(ctx context.Context, s core.Scope, c Credential) ([]Model, error) {
+func (a *Auth) devinModels(ctx context.Context, s core.Scope, c Credential, headers map[string]string) ([]Model, error) {
 	fields, err := a.devinRPC(ctx, s, c, "/exa.auth_pb.AuthService/GetUserJwt", "")
 	if err != nil {
 		return nil, err
@@ -103,7 +108,7 @@ func (a *Auth) devinModels(ctx context.Context, s core.Scope, c Credential) ([]M
 	if !safeString(jwt) {
 		return nil, ErrResponse
 	}
-	fields, err = a.devinRPC(ctx, s, c, "/exa.api_server_pb.ApiServerService/GetCascadeModelConfigs", jwt)
+	fields, err = a.devinRPC(ctx, s, c, "/exa.api_server_pb.ApiServerService/GetCascadeModelConfigs", jwt, headers)
 	if err != nil {
 		return nil, err
 	}

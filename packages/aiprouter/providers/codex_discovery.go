@@ -23,7 +23,7 @@ func validCodexVersion(v string) bool {
 	core := strings.FieldsFunc(v, func(r rune) bool { return r == '-' || r == '+' })[0]
 	return strings.Trim(core, "0.") != ""
 }
-func (a *Auth) codexModels(ctx context.Context, s core.Scope, c Credential, version string) (ModelCatalog, *Credential, error) {
+func (a *Auth) codexModels(ctx context.Context, s core.Scope, c Credential, version string, headers map[string]string) (ModelCatalog, *Credential, error) {
 	if version == "" {
 		version = CodexDiscoveryVersion
 	}
@@ -31,6 +31,7 @@ func (a *Auth) codexModels(ctx context.Context, s core.Scope, c Credential, vers
 		return ModelCatalog{}, nil, ErrConnection
 	}
 	h := bearer(c.AccessToken)
+	overlayHeaders(h, headers)
 	if c.AccountID != "" {
 		if !safeString(c.AccountID) {
 			return ModelCatalog{}, nil, ErrResponse

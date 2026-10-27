@@ -26,9 +26,11 @@ func (a *Auth) requestBytes(ctx context.Context, s core.Scope, method, endpoint 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var data []byte
+	binaryResponse := false
 	ct := "application/json"
 	switch b := body.(type) {
 	case []byte:
+		binaryResponse = true
 		data = b
 		ct = "application/proto"
 	case url.Values:
@@ -82,7 +84,7 @@ func (a *Auth) requestBytes(ctx context.Context, s core.Scope, method, endpoint 
 	if ctx.Err() != nil {
 		return nil, res.StatusCode, nil, ctx.Err()
 	}
-	if e != nil || int64(len(b)) > limit || (req.Header.Get("Accept") != "application/proto" && !utf8.Valid(b)) {
+	if e != nil || int64(len(b)) > limit || (!binaryResponse && !utf8.Valid(b)) {
 		return nil, res.StatusCode, nil, ErrResponse
 	}
 	return b, res.StatusCode, res.Header.Clone(), nil

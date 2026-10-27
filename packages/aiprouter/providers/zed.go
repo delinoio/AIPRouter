@@ -147,6 +147,9 @@ func ShouldRefreshZed(status int, h http.Header) bool {
 // Every support call and retry uses Executor, and thus the same admission/send budget.
 // The returned credential can differ from input; persist it with compare-and-swap.
 func (a *Auth) ZedModels(ctx context.Context, s core.Scope, c Credential) (ZedCatalog, Credential, error) {
+	return a.zedModels(ctx, s, c, nil)
+}
+func (a *Auth) zedModels(ctx context.Context, s core.Scope, c Credential, custom map[string]string) (ZedCatalog, Credential, error) {
 	if !validScope(s) || s != c.Scope {
 		return ZedCatalog{}, Credential{}, ErrScope
 	}
@@ -163,6 +166,7 @@ func (a *Auth) ZedModels(ctx context.Context, s core.Scope, c Credential) (ZedCa
 	var body []byte
 	for attempt := 0; attempt < 2; attempt++ {
 		h := bearer(c.AccessToken)
+		overlayHeaders(h, custom)
 		h.Set("x-zed-client-supports-x-ai", "true")
 		b, status, headers, err := a.requestBytes(ctx, s, "GET", "https://cloud.zed.dev/models", nil, h, 4*1024*1024)
 		if err != nil {

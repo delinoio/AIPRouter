@@ -16,10 +16,11 @@ const Revision = "88aaa754566d119b6b8fc898f8fb47602387d82e"
 type Wire string
 
 const (
-	Chat      Wire = "openai-chat"
-	Responses Wire = "openai-responses"
-	Anthropic Wire = "anthropic"
-	Google    Wire = "google"
+	Chat        Wire = "openai-chat"
+	Responses   Wire = "openai-responses"
+	Anthropic   Wire = "anthropic"
+	Google      Wire = "google"
+	JEVDecision Wire = "jev-decision"
 )
 
 type AuthKind string
@@ -148,15 +149,16 @@ func Lookup(id string) (Preset, bool) {
 
 // Connection contains private data. Never serialize it into a public catalog response.
 type Connection struct {
-	CodexClientVersion string          `json:"codexClientVersion,omitempty"`
-	Provider           string          `json:"provider"`
-	BaseURL            string          `json:"baseUrl,omitempty"`
-	Wire               Wire            `json:"wire,omitempty"`
-	Auth               AuthKind        `json:"auth,omitempty"`
-	APIKey             string          `json:"apiKey,omitempty"`
-	Credential         *Credential     `json:"credential,omitempty"`
-	DefaultModel       string          `json:"defaultModel,omitempty"`
-	ModelWires         map[string]Wire `json:"modelWires,omitempty"`
+	CodexClientVersion string            `json:"codexClientVersion,omitempty"`
+	Provider           string            `json:"provider"`
+	BaseURL            string            `json:"baseUrl,omitempty"`
+	Wire               Wire              `json:"wire,omitempty"`
+	Auth               AuthKind          `json:"auth,omitempty"`
+	APIKey             string            `json:"apiKey,omitempty"`
+	Credential         *Credential       `json:"credential,omitempty"`
+	DefaultModel       string            `json:"defaultModel,omitempty"`
+	ModelWires         map[string]Wire   `json:"modelWires,omitempty"`
+	Headers            map[string]string `json:"headers,omitempty"`
 }
 type Route struct {
 	Preset                             Preset
@@ -183,6 +185,17 @@ func ValidateConnection(c Connection) error {
 	}
 	if !ok || p.Excluded || p.Deprecated != "" {
 		return ErrProvider
+	}
+	if err := ValidateHeaders(c.Headers); err != nil {
+		return err
+	}
+	if c.Wire != "" && c.Wire != p.Wire {
+		return ErrConnection
+	}
+	for model, w := range c.ModelWires {
+		if !modelID(model) || w == "" || !validModelWireOverride(p, w) {
+			return ErrConnection
+		}
 	}
 	base := p.BaseURL
 	if c.BaseURL != "" {
@@ -271,14 +284,15 @@ func Resolve(c Connection, model string, inbound Inbound) (Route, error) {
 		r.Wire = d.Wire
 		r.ForwardCallerServiceTier = d.ForwardCallerServiceTier
 	}
+
 	if w := c.ModelWires[r.Model]; w != "" {
-		if !supportedCustom(w) {
-			return Route{}, ErrConnection
-		}
 		r.Wire = w
 		r.ForwardCallerServiceTier = false
 	}
 	for k, v := range p.StaticHeaders {
+		r.Headers.Set(k, v)
+	}
+	for k, v := range c.Headers {
 		r.Headers.Set(k, v)
 	}
 	token := c.APIKey

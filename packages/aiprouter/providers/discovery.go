@@ -44,13 +44,13 @@ func (a *Auth) Discover(ctx context.Context, s core.Scope, c Connection) (ModelC
 	switch c.Provider {
 	case "openai":
 		if cr != nil {
-			return a.codexModels(ctx, s, *cr, c.CodexClientVersion)
+			return a.codexModels(ctx, s, *cr, c.CodexClientVersion, c.Headers)
 		}
 	case "zed":
 		if cr == nil {
 			return ModelCatalog{}, nil, ErrReauthenticate
 		}
-		z, fresh, err := a.ZedModels(ctx, s, *cr)
+		z, fresh, err := a.zedModels(ctx, s, *cr, c.Headers)
 		if err != nil {
 			return ModelCatalog{}, nil, err
 		}
@@ -63,7 +63,7 @@ func (a *Auth) Discover(ctx context.Context, s core.Scope, c Connection) (ModelC
 		if cr == nil {
 			return ModelCatalog{}, nil, ErrReauthenticate
 		}
-		models, err := a.specialModels(ctx, s, *cr)
+		models, err := a.specialModels(ctx, s, *cr, c.Headers)
 		if err != nil {
 			return ModelCatalog{}, nil, err
 		}
@@ -155,15 +155,21 @@ func kiroManagement(c Credential, usage bool) (string, map[string]any, http.Head
 	}
 	return "https://management." + region + ".kiro.dev/?" + q.Encode(), b, h, nil
 }
-func (a *Auth) specialModels(ctx context.Context, s core.Scope, c Credential) ([]Model, error) {
+func (a *Auth) specialModels(ctx context.Context, s core.Scope, c Credential, custom ...map[string]string) ([]Model, error) {
 	h := bearer(c.AccessToken)
+	var headers map[string]string
+	if len(custom) > 0 {
+		headers = custom[0]
+	}
+	overlayHeaders(h, headers)
 	method, endpoint := "POST", ""
 	var body any
 	switch c.Provider {
 	case "devin":
-		return a.devinModels(ctx, s, c)
+		return a.devinModels(ctx, s, c, headers)
 	case "cursor":
 		h.Set("Accept", "application/proto")
+		h.Set("Content-Type", "application/proto")
 		h.Set("Connect-Protocol-Version", "1")
 		h.Set("X-Ghost-Mode", "true")
 		h.Set("X-Cursor-Client-Version", "cli-2026.02.13-41ac335")
@@ -198,6 +204,7 @@ func (a *Auth) specialModels(ctx context.Context, s core.Scope, c Credential) ([
 		method = "GET"
 		endpoint = "https://www.workbuddy.ai/v3/config"
 	}
+	overlayHeaders(h, headers)
 	b, status, _, err := a.requestBytes(ctx, s, method, endpoint, body, h, 4<<20)
 	var m map[string]any
 	if err == nil && status == 200 && json.Unmarshal(b, &m) != nil {

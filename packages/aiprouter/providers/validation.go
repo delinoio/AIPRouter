@@ -56,6 +56,12 @@ func (a *Auth) ValidateRemote(ctx context.Context, s core.Scope, c Connection) (
 	if c.Credential != nil && c.Credential.Scope != s {
 		return Validation{}, ErrScope
 	}
+	if p, ok := Lookup(c.Provider); ok && p.CredentialOnly {
+		if err := ValidateConnection(c); err != nil {
+			return Validation{}, err
+		}
+		return Validation{State: ValidationUnknown}, nil
+	}
 	if c.Provider == "openai" && c.Credential != nil {
 		catalog, _, err := a.Discover(ctx, s, c)
 		if err != nil {
