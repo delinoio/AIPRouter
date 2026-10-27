@@ -107,6 +107,8 @@ func (r idleReader) Read(p []byte) (int, error) {
 	return n, e
 }
 func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Principal, in Wire, op Operation, b object, t Target, resp *http.Response, rec *UsageRecord, cancel context.CancelFunc, stall time.Duration) error {
+	stopOnCancel := context.AfterFunc(ctx, func() { resp.Body.Close() })
+	defer stopOnCancel()
 	streaming := b["stream"] == true
 	native := in == t.Wire
 	var timer *time.Timer
@@ -207,7 +209,17 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 		if size > 32<<20 {
 			return &Error{502, "translation_buffer_limit", 0}
 		}
-		return acc.consume(m)
+		if e := acc.consume(m); e != nil {
+			return e
+		}
+		if streaming {
+			items, ready, e := acc.progressItems()
+			if e != nil {
+				return e
+			}
+			return emitter.progress(items, ready, b, in)
+		}
+		return nil
 
 	})
 	if err != nil {
@@ -310,6 +322,7 @@ type streamEmitter struct {
 	id, model            string
 	started, textStarted bool
 	seq                  int
+	progressState        map[int]*emittedItem
 }
 
 func (s *streamEmitter) event(name string, m object) error {
@@ -372,11 +385,49 @@ func (s *streamEmitter) finish(r result) error {
 	}
 	r.ID = s.id
 	out := r.response(s.wire)
+	if e := s.verifyProgress(out); e != nil {
+		return e
+	}
 	switch s.wire {
 	case Chat:
 		msg := obj(obj(arr(out["choices"])[0])["message"])
 		for i, v := range arr(msg["tool_calls"]) {
 			obj(v)["index"] = i
+		}
+		if s.progressState != nil {
+			for i, v := range r.items() {
+				item := obj(v)
+				if hostedItem(item) {
+					continue
+				}
+				state := s.progressState[i]
+				single := result{ID: r.ID, Model: r.Model, Items: []any{item}}.response(Chat)
+				part := clone(obj(obj(arr(single["choices"])[0])["message"]))
+				if state != nil && state.started {
+					delete(part, "content")
+					if item["type"] == "reasoning" {
+						delete(part, "reasoning_content")
+					}
+					if calls := arr(part["tool_calls"]); len(calls) > 0 {
+						for _, v := range calls {
+							call := obj(v)
+							call["index"] = i
+							call["function"] = object{}
+						}
+					}
+				} else if calls := arr(part["tool_calls"]); len(calls) > 0 {
+					for _, v := range calls {
+						obj(v)["index"] = i
+					}
+				}
+				delete(part, "role")
+				if len(part) > 0 {
+					if e := s.chat(part, nil); e != nil {
+						return e
+					}
+				}
+			}
+			msg = object{}
 		}
 		if e := s.chat(msg, nil); e != nil {
 			return e
@@ -400,6 +451,10 @@ func (s *streamEmitter) finish(r result) error {
 	case Anthropic:
 		for i, v := range arr(out["content"]) {
 			block := obj(v)
+			state := s.progressState[i]
+			if state != nil && state.closed {
+				continue
+			}
 			start := clone(block)
 			var deltas []object
 			switch str(block["type"]) {
@@ -420,8 +475,32 @@ func (s *streamEmitter) finish(r result) error {
 				b, _ := json.Marshal(block["input"])
 				deltas = append(deltas, object{"type": "input_json_delta", "partial_json": string(b)})
 			}
-			if e := s.event("content_block_start", object{"type": "content_block_start", "index": i, "content_block": start}); e != nil {
-				return e
+			if state == nil || !state.started {
+				if e := s.event("content_block_start", object{"type": "content_block_start", "index": i, "content_block": start}); e != nil {
+					return e
+				}
+			} else {
+				for _, d := range deltas {
+					key := "text"
+					if d["type"] == "input_json_delta" {
+						key = "partial_json"
+						for _, v := range r.items() {
+							item := obj(v)
+							if item["call_id"] == block["id"] {
+								if raw, ok := item["arguments"].(string); ok {
+									d[key] = raw
+								}
+								break
+							}
+						}
+					}
+					if value, ok := d[key].(string); ok {
+						if len(value) < state.bytes || !strings.HasPrefix(value, state.sent) {
+							return &Error{502, "upstream_stream_rewritten", 0}
+						}
+						d[key] = value[state.bytes:]
+					}
+				}
 			}
 			for _, d := range deltas {
 				if e := s.event("content_block_delta", object{"type": "content_block_delta", "index": i, "delta": d}); e != nil {
@@ -439,6 +518,15 @@ func (s *streamEmitter) finish(r result) error {
 	case Responses:
 		for i, v := range arr(out["output"]) {
 			item := obj(v)
+			state := s.progressState[i]
+			if state != nil && state.started {
+				item = clone(item)
+				item["id"] = state.id
+				arr(out["output"])[i] = item
+			}
+			if state != nil && state.closed {
+				continue
+			}
 			start := clone(item)
 			start["status"] = "in_progress"
 			switch item["type"] {
@@ -452,8 +540,10 @@ func (s *streamEmitter) finish(r result) error {
 			case "custom_tool_call":
 				start["input"] = ""
 			}
-			if e := s.event("response.output_item.added", object{"output_index": i, "item": start}); e != nil {
-				return e
+			if state == nil || !state.started {
+				if e := s.event("response.output_item.added", object{"output_index": i, "item": start}); e != nil {
+					return e
+				}
 			}
 			switch item["type"] {
 			case "message":
@@ -464,11 +554,13 @@ func (s *streamEmitter) finish(r result) error {
 						empty["text"] = ""
 					}
 					base := object{"output_index": i, "item_id": item["id"], "content_index": j, "part": empty}
-					if e := s.event("response.content_part.added", base); e != nil {
-						return e
+					if state == nil || !state.started || j > 0 {
+						if e := s.event("response.content_part.added", base); e != nil {
+							return e
+						}
 					}
 					if part["type"] == "output_text" {
-						if e := s.event("response.output_text.delta", object{"output_index": i, "item_id": item["id"], "content_index": j, "delta": part["text"]}); e != nil {
+						if e := s.event("response.output_text.delta", object{"output_index": i, "item_id": item["id"], "content_index": j, "delta": remainingProgress(state, j, str(part["text"]))}); e != nil {
 							return e
 						}
 						if e := s.event("response.output_text.done", object{"output_index": i, "item_id": item["id"], "content_index": j, "text": part["text"]}); e != nil {
@@ -485,10 +577,12 @@ func (s *streamEmitter) finish(r result) error {
 				for j, v := range arr(item["summary"]) {
 					part := obj(v)
 					base := object{"output_index": i, "item_id": item["id"], "summary_index": j, "part": object{"type": "summary_text", "text": ""}}
-					if e := s.event("response.reasoning_summary_part.added", base); e != nil {
-						return e
+					if state == nil || !state.partStarted || j > 0 {
+						if e := s.event("response.reasoning_summary_part.added", base); e != nil {
+							return e
+						}
 					}
-					if e := s.event("response.reasoning_summary_text.delta", object{"output_index": i, "item_id": item["id"], "summary_index": j, "delta": part["text"]}); e != nil {
+					if e := s.event("response.reasoning_summary_text.delta", object{"output_index": i, "item_id": item["id"], "summary_index": j, "delta": remainingProgress(state, j, str(part["text"]))}); e != nil {
 						return e
 					}
 					if e := s.event("response.reasoning_summary_text.done", object{"output_index": i, "item_id": item["id"], "summary_index": j, "text": part["text"]}); e != nil {
@@ -505,7 +599,7 @@ func (s *streamEmitter) finish(r result) error {
 				if item["type"] == "custom_tool_call" {
 					field, event = "input", "response.custom_tool_call_input"
 				}
-				if e := s.event(event+".delta", object{"output_index": i, "item_id": item["id"], "delta": item[field]}); e != nil {
+				if e := s.event(event+".delta", object{"output_index": i, "item_id": item["id"], "delta": remainingProgress(state, 0, str(item[field]))}); e != nil {
 					return e
 				}
 				if e := s.event(event+".done", object{"output_index": i, "item_id": item["id"], field: item[field]}); e != nil {
@@ -558,10 +652,12 @@ type translationStream struct {
 	chatTools              map[int]object
 	chatThinking, chatText object
 	extra                  object
+	closed                 map[int]bool
+	order                  []int
 }
 
 func newTranslationStream(w Wire) *translationStream {
-	return &translationStream{wire: w, indexed: map[int]object{}, chatTools: map[int]object{}, extra: object{}}
+	return &translationStream{wire: w, indexed: map[int]object{}, chatTools: map[int]object{}, extra: object{}, closed: map[int]bool{}}
 }
 func (s *translationStream) chatMessage(reasoning bool) object {
 	slot := s.chatText
@@ -603,7 +699,7 @@ func (s *translationStream) consume(m object) error {
 		s.model = model
 	}
 	if outputs := arr(m["hosted_outputs"]); len(outputs) > 0 {
-		s.extra["hosted_outputs"] = append(arr(s.extra["hosted_outputs"]), outputs...)
+		s.extra["hosted_outputs"] = mergeHostedOutputs(arr(s.extra["hosted_outputs"]), outputs)
 	}
 	if u := obj(m["usage"]); u != nil {
 		usage := clone(obj(s.extra["usage"]))
@@ -715,6 +811,7 @@ func (s *translationStream) consume(m object) error {
 			block := clone(obj(m["content_block"]))
 			s.indexed[i] = block
 			s.items = append(s.items, block)
+			s.order = append(s.order, i)
 		case "content_block_delta":
 			block := s.indexed[i]
 			if block == nil {
@@ -735,6 +832,8 @@ func (s *translationStream) consume(m object) error {
 			default:
 				return unsupportedField()
 			}
+		case "content_block_stop":
+			s.closed[i] = true
 		case "message_delta":
 			s.stop = str(obj(m["delta"])["stop_reason"])
 		}
@@ -752,7 +851,9 @@ func (s *translationStream) consume(m object) error {
 			item := clone(obj(m["item"]))
 			s.indexed[i] = item
 			s.items = append(s.items, item)
+			s.order = append(s.order, i)
 		case "response.output_item.done":
+			s.closed[i] = true
 			item := s.indexed[i]
 			if item == nil {
 				return &Error{502, "invalid_output_stream", 0}
@@ -1040,4 +1141,591 @@ func (HostedCodec) Collect(ctx context.Context, resp *http.Response, wire Wire, 
 		return nil, &Error{400, "invalid_translation_limit", 0}
 	}
 	return aggregateResponse(ctx, resp, wire, maxBytes)
+}
+
+// emittedItem tracks only the prefix already published for a block. It never
+// marks a turn successful; terminal output remains behind validation and receipts.
+type emittedItem struct {
+	started, closed bool
+	partStarted     bool
+	id, sent        string
+	status          string
+	bytes           int
+}
+
+func remainingProgress(state *emittedItem, part int, value string) string {
+	if state == nil || part != 0 {
+		return value
+	}
+	if len(value) >= state.bytes && strings.HasPrefix(value, state.sent) {
+		return value[state.bytes:]
+	}
+	return ""
+}
+func (s *translationStream) progressItems() ([]any, map[int]bool, error) {
+	out := []any{}
+	ready := map[int]bool{}
+	for i, v := range s.items {
+		q := obj(v)
+		var items []any
+		switch s.wire {
+		case Chat:
+			var err error
+			items, err = messagesToResponses([]any{q})
+			if err != nil {
+				// Freeform custom input is a JSON string inside an argument object. Do not
+				// publish its escaped partial spelling as decoded custom input.
+				if len(arr(q["tool_calls"])) > 0 {
+					if e := pendingBlockBudget(s.items[i:]); e != nil {
+						return nil, nil, e
+					}
+					return out, ready, nil
+				}
+				return nil, nil, err
+			}
+		case Anthropic:
+			switch q["type"] {
+			case "text":
+				items = []any{object{"type": "message", "role": "assistant", "content": []any{object{"type": "output_text", "text": q["text"]}}}}
+			case "thinking", "redacted_thinking":
+				items = []any{anthropicReasoning(q)}
+			case "tool_use", "server_tool_use":
+				args := str(q["_arguments"])
+				if args == "" {
+					b, _ := json.Marshal(q["input"])
+					if string(b) != "{}" {
+						args = string(b)
+					}
+				}
+				item := object{"type": "function_call", "call_id": q["id"], "name": q["name"], "arguments": args}
+				copyFields(item, q, "extra_content", "provider_metadata")
+				items = []any{item}
+			default:
+				msgs, err := toMessages(object{"messages": []any{object{"role": "assistant", "content": []any{q}}}}, Anthropic)
+				if err != nil {
+					return nil, nil, err
+				}
+				items, err = messagesToResponses(msgs)
+				if err != nil {
+					return nil, nil, err
+				}
+			}
+		case Responses:
+			items = []any{q}
+		}
+		if len(items) == 0 {
+			break
+		}
+		for _, item := range items {
+			idx := len(out)
+			out = append(out, item)
+			ready[idx] = obj(item)["type"] != "reasoning" || s.wire == Chat && s.stop != ""
+			if s.wire != Chat {
+				source := i
+				if i < len(s.order) {
+					source = s.order[i]
+				}
+				if s.closed[source] {
+					ready[idx] = true
+				}
+			}
+		}
+	}
+	for _, v := range arr(s.extra["hosted_outputs"]) {
+		ready[len(out)] = true
+		out = append(out, v)
+	}
+	return out, ready, nil
+}
+func (s *streamEmitter) progress(items []any, ready map[int]bool, request object, in Wire) error {
+	if s.progressState == nil {
+		s.progressState = map[int]*emittedItem{}
+	}
+	// Catalog identity is available before argument JSON completes. Custom/hosted
+	// calls are withheld until their projection is complete, not guessed as functions.
+	declarations, err := translateTools(arr(request["tools"]), in, Responses)
+	if err != nil {
+		return err
+	}
+	special := map[string]bool{}
+	for _, v := range declarations {
+		d := obj(v)
+		name := str(d["name"])
+		if ns := str(d["namespace"]); ns != "" {
+			name = ns + "__" + name
+		}
+		if d["type"] != "function" || obj(obj(d["extra_content"])["aiprouter"])["custom_tool"] == true {
+			special[name] = true
+		}
+	}
+	blockIndex := 0
+	for i, v := range items {
+		item := obj(v)
+		kind := str(item["type"])
+		if hostedItem(item) && s.wire != Anthropic {
+			state := s.progressState[i]
+			if state == nil {
+				state = &emittedItem{id: str(item["id"])}
+				s.progressState[i] = state
+			}
+			status := str(item["status"])
+			if status == state.status && state.started {
+				continue
+			}
+			if err := s.start(); err != nil {
+				return err
+			}
+			if s.wire == Chat {
+				if err := emitSSE(s.w, "", object{"id": s.id, "object": "chat.completion.chunk", "model": s.model, "choices": []any{}, "hosted_outputs": []any{item}}); err != nil {
+					return err
+				}
+			} else {
+				if !state.started {
+					if err := s.event("response.output_item.added", object{"output_index": i, "item": item}); err != nil {
+						return err
+					}
+				}
+				if err := s.event("response."+kind+"."+status, object{"output_index": i, "item_id": item["id"]}); err != nil {
+					return err
+				}
+				if status == "completed" || status == "failed" {
+					if err := s.event("response.output_item.done", object{"output_index": i, "item": item}); err != nil {
+						return err
+					}
+					state.closed = true
+				}
+			}
+			state.started = true
+			state.status = status
+			continue
+		}
+		if kind == "reasoning" && s.wire != Anthropic {
+			state := s.progressState[i]
+			if state == nil {
+				state = &emittedItem{id: fmt.Sprintf("item_%s_%d", s.id, i)}
+				s.progressState[i] = state
+			}
+			text := reasoningText(item)
+			if !strings.HasPrefix(text, state.sent) {
+				return &Error{502, "upstream_stream_rewritten", 0}
+			}
+			if !state.started {
+				if e := s.start(); e != nil {
+					return e
+				}
+				if s.wire == Responses {
+					start := clone(item)
+					start["id"] = state.id
+					start["summary"] = []any{}
+					delete(start, "encrypted_content")
+					if e := s.event("response.output_item.added", object{"output_index": i, "item": start}); e != nil {
+						return e
+					}
+				}
+				state.started = true
+			}
+			if text != "" && !state.partStarted && s.wire == Responses {
+				if e := s.event("response.reasoning_summary_part.added", object{"output_index": i, "item_id": state.id, "summary_index": 0, "part": object{"type": "summary_text", "text": ""}}); e != nil {
+					return e
+				}
+				state.partStarted = true
+			}
+			if delta := text[state.bytes:]; delta != "" {
+				if s.wire == Chat {
+					if e := s.chat(object{"reasoning_content": delta}, nil); e != nil {
+						return e
+					}
+				} else {
+					if e := s.event("response.reasoning_summary_text.delta", object{"output_index": i, "item_id": state.id, "summary_index": 0, "delta": delta}); e != nil {
+						return e
+					}
+				}
+			}
+			state.sent = text
+			state.bytes = len(text)
+			continue
+		}
+		if s.wire == Anthropic && kind == "reasoning" {
+			if !ready[i] {
+				return pendingBlockBudget(items[i:])
+			}
+			blocks := reasoningToAnthropic(item, true)
+			for _, v := range blocks {
+				block := obj(v)
+				state := s.progressState[blockIndex]
+				if state == nil {
+					state = &emittedItem{}
+					s.progressState[blockIndex] = state
+				}
+				if !state.started {
+					if err := s.start(); err != nil {
+						return err
+					}
+					if err := s.event("content_block_start", object{"type": "content_block_start", "index": blockIndex, "content_block": block}); err != nil {
+						return err
+					}
+					if err := s.event("content_block_stop", object{"type": "content_block_stop", "index": blockIndex}); err != nil {
+						return err
+					}
+					state.started = true
+					state.closed = true
+				}
+				blockIndex++
+			}
+			continue
+		}
+		idx := i
+		if s.wire == Anthropic {
+			idx = blockIndex
+			blockIndex++
+		}
+		if kind != "message" && kind != "function_call" {
+			if s.wire == Anthropic || kind != "reasoning" {
+				return pendingBlockBudget(items[i:])
+			}
+			continue
+		}
+		text := ""
+		if kind == "message" {
+			parts := arr(item["content"])
+			if len(parts) != 1 || obj(parts[0])["type"] != "output_text" {
+				if s.wire == Anthropic {
+					return pendingBlockBudget(items[i:])
+				}
+				continue
+			}
+			text = str(obj(parts[0])["text"])
+		} else {
+			if special[str(item["name"])] || str(obj(item["provider_metadata"])["tool_kind"]) != "" && obj(item["provider_metadata"])["tool_kind"] != "function" {
+				if s.wire == Anthropic {
+					return pendingBlockBudget(items[i:])
+				}
+				continue
+			}
+			if str(item["name"]) == "" || str(item["call_id"]) == "" {
+				return nil
+			}
+			text = str(item["arguments"])
+		}
+		state := s.progressState[idx]
+		if state == nil {
+			state = &emittedItem{id: fmt.Sprintf("item_%s_%d", s.id, i)}
+			s.progressState[idx] = state
+		}
+		if len(text) < state.bytes || !strings.HasPrefix(text, state.sent) {
+			return &Error{502, "upstream_stream_rewritten", 0}
+		}
+		delta := text[state.bytes:]
+		if !state.started {
+			if err := s.start(); err != nil {
+				return err
+			}
+			switch s.wire {
+			case Responses:
+				start := clone(item)
+				start["id"] = state.id
+				start["status"] = "in_progress"
+				if kind == "message" {
+					start["content"] = []any{}
+				} else {
+					start["arguments"] = ""
+				}
+				if err := s.event("response.output_item.added", object{"output_index": i, "item": start}); err != nil {
+					return err
+				}
+				if kind == "message" {
+					if err := s.event("response.content_part.added", object{"output_index": i, "item_id": state.id, "content_index": 0, "part": object{"type": "output_text", "text": "", "annotations": []any{}}}); err != nil {
+						return err
+					}
+				}
+			case Anthropic:
+				block := object{"type": "text", "text": ""}
+				if kind == "function_call" {
+					block = object{"type": "tool_use", "id": item["call_id"], "name": item["name"], "input": object{}}
+					copyFields(block, item, "extra_content", "provider_metadata")
+				}
+				if err := s.event("content_block_start", object{"type": "content_block_start", "index": idx, "content_block": block}); err != nil {
+					return err
+				}
+			case Chat:
+				if kind == "function_call" {
+					call := responseCallToChat(item)
+					obj(call["function"])["arguments"] = ""
+					call["index"] = i
+					if err := s.chat(object{"tool_calls": []any{call}}, nil); err != nil {
+						return err
+					}
+				}
+			}
+			state.started = true
+		}
+		if delta != "" {
+			switch s.wire {
+			case Responses:
+				name := "response.output_text.delta"
+				m := object{"output_index": i, "item_id": state.id, "delta": delta}
+				if kind == "message" {
+					m["content_index"] = 0
+				} else {
+					name = "response.function_call_arguments.delta"
+				}
+				if err := s.event(name, m); err != nil {
+					return err
+				}
+			case Anthropic:
+				d := object{"type": "text_delta", "text": delta}
+				if kind == "function_call" {
+					d = object{"type": "input_json_delta", "partial_json": delta}
+				}
+				if err := s.event("content_block_delta", object{"type": "content_block_delta", "index": idx, "delta": d}); err != nil {
+					return err
+				}
+			case Chat:
+				d := object{"content": delta}
+				if kind == "function_call" {
+					d = object{"tool_calls": []any{object{"index": i, "function": object{"arguments": delta}}}}
+				}
+				if err := s.chat(d, nil); err != nil {
+					return err
+				}
+			}
+		}
+		state.sent = text
+		state.bytes = len(text)
+	}
+	return nil
+}
+
+// Stream publishes canonical Chat chunks without DONE framing. The finalized
+// return value is suitable for the next hosted iteration only when err is nil.
+func (HostedCodec) Stream(ctx context.Context, resp *http.Response, wire Wire, maxBytes int64, emit func(json.RawMessage) error) (json.RawMessage, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, &Error{502, "missing_upstream_body", 0}
+	}
+	if maxBytes <= 0 || maxBytes > 32<<20 {
+		resp.Body.Close()
+		return nil, &Error{400, "invalid_translation_limit", 0}
+	}
+	if !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+		b, e := (HostedCodec{}).Collect(ctx, resp, wire, maxBytes)
+		if e != nil {
+			return b, e
+		}
+		m, e := decode(b)
+		if e != nil {
+			return nil, e
+		}
+		for _, v := range arr(m["choices"]) {
+			c := obj(v)
+			chunk := object{"id": m["id"], "model": m["model"], "object": "chat.completion.chunk", "choices": []any{object{"index": c["index"], "delta": c["message"], "finish_reason": c["finish_reason"]}}}
+			copyFields(chunk, m, "usage", "hosted_outputs")
+			raw, _ := json.Marshal(chunk)
+			if e = emit(raw); e != nil {
+				return nil, e
+			}
+		}
+		return b, nil
+	}
+	defer resp.Body.Close()
+	stop := context.AfterFunc(ctx, func() { resp.Body.Close() })
+	defer stop()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &Error{resp.StatusCode, "upstream_refused", 0}
+	}
+	acc := newTranslationStream(wire)
+	usage := Usage{}
+	terminal := false
+	var final object
+	size := 0
+	sink := &chunkWriter{emit: emit}
+	emitter := &streamEmitter{w: sink, wire: Chat, id: newID()}
+	err := readSSE(resp.Body, func(_ string, b []byte) error {
+		if e := ctx.Err(); e != nil {
+			return e
+		}
+		size += len(b)
+		if int64(size) > maxBytes {
+			return &Error{502, "translation_buffer_limit", 0}
+		}
+		if string(b) == "[DONE]" {
+			if wire == Chat {
+				terminal = true
+			}
+			return nil
+		}
+		m, e := decode(b)
+		if e != nil {
+			return &Error{502, "invalid_upstream_event", 0}
+		}
+		mergeUsage(&usage, readUsage(m, wire))
+		mergeUsage(&usage, readUsage(obj(m["response"]), wire))
+		mergeUsage(&usage, readUsage(obj(m["message"]), wire))
+		typ := str(m["type"])
+		if typ == "error" || typ == "response.failed" || m["error"] != nil {
+			return &Error{502, "upstream_stream_error", 0}
+		}
+		if wire == Responses && (typ == "response.completed" || typ == "response.incomplete") {
+			final = obj(m["response"])
+			terminal = true
+		}
+		if wire == Anthropic && typ == "message_stop" {
+			terminal = true
+		}
+		if e = acc.consume(m); e != nil {
+			return e
+		}
+		if wire == Chat {
+			return emit(append(json.RawMessage(nil), b...))
+		}
+		items, ready, e := acc.progressItems()
+		if e != nil {
+			return e
+		}
+		return emitter.progress(items, ready, object{}, Chat)
+	})
+	if ctx.Err() != nil {
+		err = ctx.Err()
+	}
+	if err == nil && !terminal {
+		err = &Error{502, "upstream_stream_incomplete", 0}
+	}
+	if err != nil {
+		b, _ := json.Marshal(object{"usage": usageObject(usage, Chat)})
+		return b, err
+	}
+	var r result
+	if final != nil {
+		r, err = parseResult(final, wire)
+	} else {
+		r, err = acc.result()
+	}
+	if err != nil {
+		return nil, err
+	}
+	r.Usage = usage
+	if wire != Chat {
+		if err = emitter.finish(r); err != nil {
+			return nil, err
+		}
+	}
+	return json.Marshal(r.response(Chat))
+}
+
+type chunkWriter struct {
+	emit    func(json.RawMessage) error
+	pending string
+}
+
+func (*chunkWriter) Header() http.Header { return http.Header{} }
+func (*chunkWriter) WriteHeader(int)     {}
+func (*chunkWriter) Flush()              {}
+func (w *chunkWriter) Write(p []byte) (int, error) {
+	w.pending += string(p)
+	for {
+		frame, rest, ok := strings.Cut(w.pending, "\n\n")
+		if !ok {
+			break
+		}
+		w.pending = rest
+		if e := readSSE(strings.NewReader(frame+"\n\n"), func(_ string, b []byte) error {
+			if string(b) == "[DONE]" {
+				return nil
+			}
+			return w.emit(append(json.RawMessage(nil), b...))
+		}); e != nil {
+			return 0, e
+		}
+	}
+	return len(p), nil
+}
+
+func mergeHostedOutputs(existing, updates []any) []any {
+	for _, v := range updates {
+		q := obj(v)
+		matched := false
+		for i, old := range existing {
+			p := obj(old)
+			if q["id"] != nil && p["id"] == q["id"] && p["type"] == q["type"] {
+				merged := clone(p)
+				for k, v := range q {
+					merged[k] = v
+				}
+				existing[i] = merged
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			existing = append(existing, clone(q))
+		}
+	}
+	return existing
+}
+func (s *streamEmitter) verifyProgress(out object) error {
+	if s.progressState == nil {
+		return nil
+	}
+	if s.wire == Chat {
+		return nil
+	} // Chat has no final text snapshot on its terminal chunk.
+	items := arr(out["output"])
+	if s.wire == Anthropic {
+		items = arr(out["content"])
+	}
+	for i, state := range s.progressState {
+		if !state.started || state.bytes == 0 {
+			continue
+		}
+		if i >= len(items) {
+			return &Error{502, "upstream_stream_rewritten", 0}
+		}
+		item := obj(items[i])
+		value := ""
+		if s.wire == Responses {
+			switch item["type"] {
+			case "message":
+				parts := arr(item["content"])
+				if len(parts) > 0 {
+					value = str(obj(parts[0])["text"])
+				}
+			case "function_call":
+				value = str(item["arguments"])
+			default:
+				continue
+			}
+		} else {
+			switch item["type"] {
+			case "text":
+				value = str(item["text"])
+			case "tool_use":
+				b, _ := json.Marshal(item["input"])
+				value = string(b)
+				if parsed, e := decode([]byte(state.sent)); e == nil {
+					normalized, _ := json.Marshal(parsed)
+					if string(normalized) == value {
+						continue
+					}
+				}
+			default:
+				continue
+			}
+		}
+		if !strings.HasPrefix(value, state.sent) {
+			return &Error{502, "upstream_stream_rewritten", 0}
+		}
+	}
+	return nil
+}
+
+// A missing reasoning boundary may delay later Messages blocks, but cannot
+// accumulate an unbounded answer behind a withheld signature.
+func pendingBlockBudget(items []any) error {
+	b, e := json.Marshal(items)
+	if e != nil {
+		return e
+	}
+	if len(b) > 2<<20 {
+		return &Error{502, "translation_pending_block_limit", 0}
+	}
+	return nil
 }

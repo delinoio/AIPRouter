@@ -1642,3 +1642,30 @@ func hostedAnthropic(item object) []any {
 	}
 	return []any{object{"type": "text", "text": strings.Join(links, "\n"), "extra_content": extra}}
 }
+
+// TranslateToolsJSON normalizes a tool catalog even when both wires are Chat.
+// It leaves unrelated same-wire request extensions under the adapter's ownership.
+func TranslateToolsJSON(raw json.RawMessage, from, to Wire) (json.RawMessage, error) {
+	if len(raw) > 2<<20 {
+		return nil, &Error{400, "tool_catalog_limit", 0}
+	}
+	var value any
+	d := json.NewDecoder(strings.NewReader(string(raw)))
+	d.UseNumber()
+	if e := d.Decode(&value); e != nil {
+		return nil, &Error{400, "invalid_tool_catalog", 0}
+	}
+	var extra any
+	if d.Decode(&extra) != io.EOF {
+		return nil, &Error{400, "invalid_tool_catalog", 0}
+	}
+	list, ok := value.([]any)
+	if !ok {
+		return nil, &Error{400, "invalid_tool_catalog", 0}
+	}
+	out, e := translateTools(list, from, to)
+	if e != nil {
+		return nil, e
+	}
+	return json.Marshal(out)
+}
