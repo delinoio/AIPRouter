@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/delinoio/AIPRouter/packages/aiprouter/artifacts"
 	"github.com/delinoio/AIPRouter/packages/aiprouter/core"
 	"sync"
 	"sync/atomic"
@@ -454,5 +455,235 @@ func TestProviderFlowRemovalAndScopeDispatchFence(t *testing.T) {
 	}
 	if e = s.CompleteProviderFlow(ctx, sc, "f", claim, "new", []byte("late")); !errors.Is(e, ErrForbidden) {
 		t.Fatal(e)
+	}
+}
+
+func TestOperationUsageIndependentIdempotentAndDeleted(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, sc := tenant(t, s)
+	l := leaseFor(t, s, sc)
+	u := Usage{Model: "helper", Provider: "helper-account", Outcome: OutcomeUnknown}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if e := s.RecordOperationUsage(ctx, l, "send1", u); e != nil {
+				t.Error(e)
+			}
+		}()
+	}
+	wg.Wait()
+	if e := s.RecordOperationUsage(ctx, l, "send2", u); e != nil {
+		t.Fatal(e)
+	}
+	if e := s.RecordUsage(ctx, l, Usage{Model: "parent", Outcome: OutcomeCanceled}); e != nil {
+		t.Fatal(e)
+	}
+	a, e := s.QueryAggregate(ctx, sc, UsageFilter{UserID: sc.UserID})
+	if e != nil || a.Requests != 3 || a.MissingUsage != 3 {
+		t.Fatal(a, e)
+	}
+	if e = s.DeleteOrganization(ctx, sc); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.RecordOperationUsage(ctx, l, "late", u); !errors.Is(e, ErrForbidden) {
+		t.Fatal(e)
+	}
+}
+func TestSoftDenialsFallbackAndPinned(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, sc := tenant(t, s)
+	l := leaseFor(t, s, sc)
+	r := SelectionRequest{GroupID: "g", Version: "v", Model: "m", Strategy: SelectionPriority}
+	for _, id := range []string{"a", "b"} {
+		if e := s.PutPrivate(ctx, sc, "provider", id, []byte("key")); e != nil {
+			t.Fatal(e)
+		}
+		_, v, e := s.GetPrivateVersion(ctx, sc, "provider", id)
+		if e != nil {
+			t.Fatal(e)
+		}
+		r.Candidates = append(r.Candidates, SelectionCandidate{ID: id, Version: v})
+	}
+	if e := s.SetAccountSoftDenial(ctx, l, "a", r.Candidates[0].Version, "m"); e != nil {
+		t.Fatal(e)
+	}
+	got, e := s.SelectAccount(ctx, l, r)
+	if e != nil || got.CandidateID != "b" {
+		t.Fatal(got, e)
+	}
+	r.PinnedID = "a"
+	got, e = s.SelectAccount(ctx, l, r)
+	if e != nil || got.CandidateID != "a" {
+		t.Fatal(got, e)
+	}
+	r.PinnedID = ""
+	if e = s.SetAccountSoftDenial(ctx, l, "b", r.Candidates[1].Version, "m"); e != nil {
+		t.Fatal(e)
+	}
+	got, e = s.SelectAccount(ctx, l, r)
+	if e != nil || got.CandidateID != "a" {
+		t.Fatal("all-denied fallback", got, e)
+	}
+}
+func TestMistralProbeSingleWinnerNoTimedReclaim(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, sc := tenant(t, s)
+	l := leaseFor(t, s, sc)
+	if e := s.PutPrivate(ctx, sc, "provider", "m", []byte("credential")); e != nil {
+		t.Fatal(e)
+	}
+	_, v, e := s.GetPrivateVersion(ctx, sc, "provider", "m")
+	if e != nil {
+		t.Fatal(e)
+	}
+	initial, e := s.JoinMistralHold(ctx, l, "m", v, "digest", "model")
+	if e != nil {
+		t.Fatal(e)
+	}
+	open, e := s.TryMistralProbe(ctx, l, initial)
+	if e != nil || !open.Ready || open.Claim != "" {
+		t.Fatal("ordinary traffic was gated", open, e)
+	}
+	if e = s.SetMistralHold(ctx, l, "m", v, "digest", "model", time.Now().Add(time.Hour)); e != nil {
+		t.Fatal(e)
+	}
+	ticket, e := s.JoinMistralHold(ctx, l, "m", v, "digest", "model")
+	if e != nil {
+		t.Fatal(e)
+	}
+	p, e := s.TryMistralProbe(ctx, l, ticket)
+	if e != nil || p.Ready {
+		t.Fatal(p, e)
+	}
+	execSQL(t, s, "UPDATE mistral_holds SET hold_until=clock_timestamp()-interval '1 second'")
+	var wins atomic.Int32
+	var winner MistralProbe
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p, e := s.TryMistralProbe(ctx, l, ticket)
+			if e != nil {
+				t.Error(e)
+			}
+			if p.Ready {
+				wins.Add(1)
+				mu.Lock()
+				winner = p
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if wins.Load() != 1 {
+		t.Fatal(wins.Load())
+	}
+	execSQL(t, s, "UPDATE mistral_holds SET hold_until=clock_timestamp()-interval '30 days'")
+	if p, e = s.TryMistralProbe(ctx, l, ticket); e != nil || p.Ready {
+		t.Fatal("probe reclaimed", p, e)
+	}
+	if e = s.SetMistralHold(ctx, l, "m", v, "digest", "model", time.Now().Add(time.Hour)); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.FinishMistralProbe(ctx, l, ticket, winner.Claim, nil); e != nil {
+		t.Fatal(e)
+	}
+	if p, e = s.TryMistralProbe(ctx, l, ticket); e != nil || p.Ready {
+		t.Fatal("late success cleared newer RetryAfter", p, e)
+	}
+	execSQL(t, s, "UPDATE mistral_holds SET hold_until=clock_timestamp()-interval '1 second'")
+	p, e = s.TryMistralProbe(ctx, l, ticket)
+	if e != nil || !p.Ready {
+		t.Fatal(p, e)
+	}
+	if e = s.FinishMistralProbe(ctx, l, ticket, p.Claim, nil); e != nil {
+		t.Fatal(e)
+	}
+	if p, e = s.TryMistralProbe(ctx, l, ticket); e != nil || !p.Ready || p.Claim != "" {
+		t.Fatal(p, e)
+	}
+	if e = s.LeaveMistralHold(ctx, l, ticket); e != nil {
+		t.Fatal(e)
+	}
+}
+
+func TestMistralIdentityQuotaAndTenantIsolation(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, sc := tenant(t, s)
+	l := leaseFor(t, s, sc)
+	if e := s.PutPrivate(ctx, sc, "provider", "m", []byte("key")); e != nil {
+		t.Fatal(e)
+	}
+	_, v, e := s.GetPrivateVersion(ctx, sc, "provider", "m")
+	if e != nil {
+		t.Fatal(e)
+	}
+	for n := range 128 {
+		if e = s.SetMistralHold(ctx, l, "m", v, "digest", fmt.Sprint(n), time.Now().Add(time.Hour)); e != nil {
+			t.Fatal(n, e)
+		}
+	}
+	var limited *LimitError
+	if e = s.SetMistralHold(ctx, l, "m", v, "digest", "overflow", time.Now().Add(time.Hour)); !errors.As(e, &limited) {
+		t.Fatal(e)
+	}
+	_, other := tenant(t, s)
+	ol := leaseFor(t, s, other)
+	if e = s.PutPrivate(ctx, other, "provider", "m", []byte("key")); e != nil {
+		t.Fatal(e)
+	}
+	_, ov, e := s.GetPrivateVersion(ctx, other, "provider", "m")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.SetMistralHold(ctx, ol, "m", ov, "digest", "overflow", time.Now().Add(time.Hour)); e != nil {
+		t.Fatal("cross-tenant identity quota", e)
+	}
+	ticket, e := s.JoinMistralHold(ctx, l, "m", v, "digest", "0")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.TryMistralProbe(ctx, ol, ticket); !errors.Is(e, ErrNotFound) {
+		t.Fatal("cross-tenant ticket", e)
+	}
+}
+func TestVideoMetadataSeparateLimits(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, sc := tenant(t, s)
+	o := artifacts.Owner{OrganizationID: sc.OrganizationID, UserID: sc.UserID, Generation: sc.Generation}
+	now := time.Now()
+	makeArtifact := func(mime string, size int64) artifacts.Artifact {
+		id := core.ID()
+		return artifacts.Artifact{ID: id, ObjectKey: "artifacts/" + id, Owner: o, ContentType: mime, Size: size, CreatedAt: now, ExpiresAt: now.Add(time.Hour), UploadDeadline: now.Add(time.Minute)}
+	}
+	video := makeArtifact("video/mp4", 200<<20)
+	if e := s.Reserve(ctx, o, []artifacts.Artifact{video}, now); e != nil {
+		t.Fatal(e)
+	}
+	if e := s.Reserve(ctx, o, []artifacts.Artifact{makeArtifact("image/png", 51<<20)}, now); e == nil {
+		t.Fatal("image limit widened")
+	}
+	if e := s.Reserve(ctx, o, []artifacts.Artifact{makeArtifact("video/mp4", 201<<20)}, now); e == nil {
+		t.Fatal("video file limit")
+	}
+	if e := s.Reserve(ctx, o, []artifacts.Artifact{makeArtifact("video/mp4", 1), makeArtifact("image/png", 1)}, now); e == nil {
+		t.Fatal("mixed response accepted")
+	}
+	batch := []artifacts.Artifact{makeArtifact("video/mp4", 200<<20), makeArtifact("video/mp4", 200<<20), makeArtifact("video/mp4", 200<<20)}
+	if e := s.Reserve(ctx, o, batch, now); e != nil {
+		t.Fatal(e)
+	}
+	batch = append(batch, makeArtifact("video/mp4", 1))
+	if e := s.Reserve(ctx, o, batch, now); e == nil {
+		t.Fatal("video batch limit")
 	}
 }

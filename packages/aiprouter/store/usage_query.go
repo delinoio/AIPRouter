@@ -136,15 +136,27 @@ func usageSource(ctx context.Context, tx *sql.Tx, org string, f UsageFilter) (st
 	if e := tx.QueryRowContext(ctx, "SELECT GREATEST(usage_history_floor,clock_timestamp()-usage_days*interval '1 day') FROM settings").Scan(&floor); e != nil {
 		return "", nil, e
 	}
-	for _, t := range []*time.Time{f.Start, f.End} {
-		if t != nil {
-			utc := t.UTC()
-			day := time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
-			if !utc.Equal(day) && day.Before(floor) {
-				return "", nil, ErrRangeUnavailable
+	for n, t := range []*time.Time{f.Start, f.End} {
+		if t == nil {
+			continue
+		}
+		utc := t.UTC()
+		day := time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+		if utc.Equal(day) {
+			continue
+		}
+		needed := utc
+		if n == 1 {
+			needed = day
+			if f.Start != nil && f.Start.After(needed) {
+				needed = *f.Start
 			}
 		}
+		if needed.Before(floor) {
+			return "", nil, ErrRangeUnavailable
+		}
 	}
+
 	args := []any{org, f.UserID, f.Model, f.Start, f.End, f.Provider, f.Outcome}
 	q := `WITH records AS (
  SELECT day,COALESCE(user_id,'') AS user_id,model,requests,input_tokens,output_tokens,cost,missing_usage,missing_cost,missing_price,failed_requests,known_input,known_output,known_cost FROM daily_usage WHERE ($1='' OR org_id=$1) AND ($2='' OR user_id=$2) AND ($3='' OR model=$3) AND ($4::timestamptz IS NULL OR day::timestamp AT TIME ZONE 'UTC'>=$4) AND ($5::timestamptz IS NULL OR (day+1)::timestamp AT TIME ZONE 'UTC'<=$5) AND ($6='' OR provider=$6) AND ($7='' OR outcome=$7) AND expires_at>clock_timestamp()

@@ -24,11 +24,11 @@ type SelectionCandidate struct {
 	Weight, Priority int
 }
 type SelectionRequest struct {
-	GroupID, Version, Model, AffinityKey string
-	Strategy                             SelectionStrategy
-	Candidates                           []SelectionCandidate
-	Exclude                              []string
-	AffinityTTL                          time.Duration
+	GroupID, Version, Model, AffinityKey, PinnedID string
+	Strategy                                       SelectionStrategy
+	Candidates                                     []SelectionCandidate
+	Exclude                                        []string
+	AffinityTTL                                    time.Duration
 }
 type SelectionReceipt struct {
 	ID, CandidateID         string
@@ -112,6 +112,30 @@ func (s *Store) selectCandidate(ctx context.Context, l Lease, r SelectionRequest
 				return e
 			}
 			eligible = append(eligible, item)
+		}
+		if !route && len(eligible) > 1 && r.PinnedID == "" {
+			var preferred []candidate
+			for _, c := range eligible {
+				var denied bool
+				if e := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM account_soft_denials WHERE org_id=$1 AND user_id=$2 AND id=$3 AND version=$4 AND model=$5 AND until_at>clock_timestamp())", sc.OrganizationID, sc.UserID, c.ID, c.Version, r.Model).Scan(&denied); e != nil {
+					return e
+				}
+				if !denied {
+					preferred = append(preferred, c)
+				}
+			}
+			if len(preferred) > 0 {
+				eligible = preferred
+			}
+		}
+		if r.PinnedID != "" {
+			var pinned []candidate
+			for _, c := range eligible {
+				if c.ID == r.PinnedID {
+					pinned = append(pinned, c)
+				}
+			}
+			eligible = pinned
 		}
 		if len(eligible) == 0 {
 			return ErrNotFound
@@ -220,4 +244,18 @@ func (s *Store) AccountCooldown(ctx context.Context, sc core.Scope, id, model st
 		return tx.QueryRowContext(ctx, "SELECT max(c.until_at) FROM account_cooldowns c JOIN private_data d ON d.org_id=c.org_id AND d.user_id=c.user_id AND d.kind=c.kind AND d.id=c.id AND d.version=c.version WHERE c.org_id=$1 AND c.user_id=$2 AND c.id=$3 AND c.model IN ('',$4) AND c.until_at>clock_timestamp()", sc.OrganizationID, sc.UserID, id, model).Scan(&until)
 	})
 	return
+}
+
+func (s *Store) SetAccountSoftDenial(ctx context.Context, l Lease, id, version, model string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		if e := s.checkLease(ctx, tx, l); e != nil {
+			return e
+		}
+		sc := l.Principal.Scope
+		if e := s.checkFlowTarget(ctx, tx, sc, "provider", id, version); e != nil {
+			return e
+		}
+		_, e := tx.ExecContext(ctx, "INSERT INTO account_soft_denials(org_id,user_id,id,version,model,until_at) VALUES($1,$2,$3,$4,$5,clock_timestamp()+interval '6 hours') ON CONFLICT(org_id,user_id,id,model) DO UPDATE SET version=excluded.version,until_at=excluded.until_at", sc.OrganizationID, sc.UserID, id, version, model)
+		return e
+	})
 }

@@ -53,6 +53,9 @@ type Aggregate struct {
 // RecordUsage freezes supplied price provenance and cost. The lease ID is the
 // idempotency key, so replaying completion cannot double-count daily totals.
 func (s *Store) recordUsage(ctx context.Context, l Lease, u Usage) error {
+	return s.recordUsageReceipt(ctx, l, "", u)
+}
+func (s *Store) recordUsageReceipt(ctx context.Context, l Lease, operationID string, u Usage) error {
 	if u.InputTokens != nil && *u.InputTokens < 0 || u.OutputTokens != nil && *u.OutputTokens < 0 {
 		return ErrConflict
 	}
@@ -80,15 +83,28 @@ func (s *Store) recordUsage(ctx context.Context, l Lease, u Usage) error {
 		if !ok {
 			return ErrForbidden
 		}
-		reserved, e := tx.ExecContext(ctx, "UPDATE admissions SET usage_recorded=true WHERE id=$1 AND NOT usage_recorded", l.ID)
-		if e != nil {
-			return e
+		usageID := l.ID
+		if operationID == "" {
+			reserved, e := tx.ExecContext(ctx, "UPDATE admissions SET usage_recorded=true WHERE id=$1 AND NOT usage_recorded", l.ID)
+			if e != nil {
+				return e
+			}
+			changed, _ := reserved.RowsAffected()
+			if changed == 0 {
+				return nil
+			}
+		} else {
+			usageID = core.ID()
+			res, e := tx.ExecContext(ctx, "INSERT INTO operation_receipts(admission_id,operation_id,usage_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", l.ID, operationID, usageID)
+			if e != nil {
+				return e
+			}
+			changed, _ := res.RowsAffected()
+			if changed == 0 {
+				return nil
+			}
 		}
-		changed, _ := reserved.RowsAffected()
-		if changed == 0 {
-			return nil
-		}
-		res, e := tx.ExecContext(ctx, `INSERT INTO usage(id,org_id,user_id,model,provider,error_code,input_tokens,output_tokens,cost,price,provenance,outcome,price_known,expires_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,clock_timestamp()+usage_days*interval '1 day' FROM settings ON CONFLICT(id) DO NOTHING`, l.ID, sc.OrganizationID, sc.UserID, u.Model, u.Provider, u.ErrorCode, u.InputTokens, u.OutputTokens, u.Cost, u.Price, u.Provenance, u.Outcome, u.PriceKnown)
+		res, e := tx.ExecContext(ctx, `INSERT INTO usage(id,org_id,user_id,model,provider,error_code,input_tokens,output_tokens,cost,price,provenance,outcome,price_known,expires_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,clock_timestamp()+usage_days*interval '1 day' FROM settings ON CONFLICT(id) DO NOTHING`, usageID, sc.OrganizationID, sc.UserID, u.Model, u.Provider, u.ErrorCode, u.InputTokens, u.OutputTokens, u.Cost, u.Price, u.Provenance, u.Outcome, u.PriceKnown)
 		if e != nil {
 			return e
 		}
@@ -160,6 +176,7 @@ func (s *Store) cleanup(ctx context.Context) error {
 			"DELETE FROM " + s.temp + ".provider_states WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM selection_affinity WHERE expires_at<=clock_timestamp()",
 			"DELETE FROM account_cooldowns WHERE until_at<=clock_timestamp()",
+			"DELETE FROM account_soft_denials WHERE until_at<=clock_timestamp()",
 			"UPDATE api_keys SET revoked=true WHERE NOT handed_off AND handoff_deadline<=clock_timestamp()",
 			// Keep only safe terminal metadata for a bounded browser status window.
 			"UPDATE " + s.temp + ".devices SET value=NULL WHERE expires_at<=clock_timestamp()",

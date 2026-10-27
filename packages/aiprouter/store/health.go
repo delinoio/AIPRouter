@@ -89,3 +89,14 @@ func (s *Store) Cleanup(ctx context.Context) error {
 	h := s.recordHealth(ctx, "cleanup", e == nil)
 	return errors.Join(e, h)
 }
+
+func (s *Store) RecordOperationUsage(ctx context.Context, l Lease, operationID string, u Usage) error {
+	if operationID == "" || len(operationID) > 512 {
+		return ErrConflict
+	}
+	e := s.recordUsageReceipt(ctx, l, operationID, u)
+	if e != nil {
+		return errors.Join(e, s.recordHealth(ctx, "usage", false))
+	}
+	return s.recordHealth(ctx, "usage", true)
+}

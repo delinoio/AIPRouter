@@ -18,14 +18,29 @@ func (s *Store) Reserve(ctx context.Context, o artifacts.Owner, items []artifact
 	if len(items) == 0 || len(items) > 200 {
 		return artifacts.ErrLimit
 	}
+	maxFile, maxBatch := int64(50<<20), int64(100<<20)
+	video := items[0].ContentType == "video/mp4"
+	if video {
+		maxFile, maxBatch = 200<<20, 600<<20
+	}
 	var total int64
 	for _, a := range items {
-		if a.Owner != o || a.Size < 1 || a.Size > 50<<20 || a.ID == "" || a.ObjectKey != "artifacts/"+a.ID {
+		if (a.ContentType == "video/mp4") != video {
+			return artifacts.ErrInvalid
+		}
+		if !video {
+			switch a.ContentType {
+			case "image/png", "image/jpeg", "image/webp", "image/gif", "image/avif":
+			default:
+				return artifacts.ErrInvalid
+			}
+		}
+		if a.Owner != o || a.Size < 1 || a.Size > maxFile || a.ID == "" || a.ObjectKey != "artifacts/"+a.ID {
 			return artifacts.ErrInvalid
 		}
 		total += a.Size
 	}
-	if total > 100<<20 {
+	if total > maxBatch {
 		return artifacts.ErrLimit
 	}
 	return s.tx(ctx, func(tx *sql.Tx) error {
