@@ -396,3 +396,27 @@ test("Responses item ID repair is an optional object with tri-state controls", a
     );
   }
 });
+
+test("JEV quota tiers preserve omitted thresholds and explicit zero", async () => {
+  const { JevDecisionConfigSchema } = await import("../src/index.js");
+  assert.equal(create(JevDecisionConfigSchema).decisionQuotaSignals, false);
+  for (const decisionQuotaTiers of [
+    undefined,
+    {},
+    { moderate: 0, limited: 70, nearlyExhausted: 90 },
+  ]) {
+    const value = create(JevDecisionConfigSchema, {
+      decisionQuotaSignals: true,
+      decisionQuotaTiers,
+    });
+    const decoded = fromBinary(
+      JevDecisionConfigSchema,
+      toBinary(JevDecisionConfigSchema, value),
+    );
+    assert.deepEqual(decoded, value);
+    assert.deepEqual(toJson(JevDecisionConfigSchema, decoded), {
+      decisionQuotaSignals: true,
+      ...(decisionQuotaTiers === undefined ? {} : { decisionQuotaTiers }),
+    });
+  }
+});

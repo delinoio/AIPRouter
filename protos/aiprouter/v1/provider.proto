@@ -132,6 +132,16 @@ message Pool {
 
 // JEV decision settings are private to the authenticated user in the selected organization.
 // Resolve an independent current credential; never borrow another target's credential.
+// Percentage thresholds. Every provided value must be finite and within 0..100.
+// Validate provided moderate < effective limited < effective nearly_exhausted;
+// omitted limited defaults to 70 and omitted nearly_exhausted defaults to 90.
+// Omitted moderate remains unspecified; do not serialize it as zero.
+message JevQuotaTiers {
+  optional double moderate = 1;
+  optional double limited = 2;
+  optional double nearly_exhausted = 3;
+}
+
 message JevDecisionConfig {
   // Explicitly selected personal decision connection, including for the canonical JEV service.
   // No implicit operator/global credential fallback.
@@ -147,6 +157,9 @@ message JevDecisionConfig {
   // At most 512 UTF-16 code units. The canonical JEV preset ignores this field and
   // uses jev-latest. decision_model alias selection still takes precedence.
   string decision_service_model = 5;
+  // Explicit opt-in to quota signals; disabled by default.
+  bool decision_quota_signals = 6;
+  JevQuotaTiers decision_quota_tiers = 7;
 }
 message RouteTarget {
   oneof target {

@@ -397,3 +397,23 @@ func TestResponsesItemIdRepairPolicyPresence(t *testing.T) {
 		}
 	}
 }
+
+func TestJevQuotaTierPresence(t *testing.T) {
+	for _, tiers := range []*v1.JevQuotaTiers{nil, {}, {Moderate: proto.Float64(0), Limited: proto.Float64(70), NearlyExhausted: proto.Float64(90)}} {
+		value := &v1.JevDecisionConfig{DecisionQuotaSignals: true, DecisionQuotaTiers: tiers}
+		wire, err := proto.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := &v1.JevDecisionConfig{}
+		if err := proto.Unmarshal(wire, decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(value, decoded) {
+			t.Fatalf("quota presence lost: %v", decoded)
+		}
+	}
+	if (&v1.JevDecisionConfig{}).GetDecisionQuotaSignals() {
+		t.Fatal("quota signals must default off")
+	}
+}
