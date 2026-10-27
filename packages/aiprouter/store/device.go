@@ -99,6 +99,7 @@ func (s *Store) ApproveDevice(ctx context.Context, sc core.Scope, code string, e
 		}
 		var raw string
 		k, raw, e = s.issueKey(ctx, tx, sc, name, expiry)
+		k.Device = true
 		if e != nil {
 			return e
 		}
@@ -106,7 +107,7 @@ func (s *Store) ApproveDevice(ctx context.Context, sc core.Scope, code string, e
 		if e != nil {
 			return e
 		}
-		if _, e = tx.ExecContext(ctx, "UPDATE api_keys SET handed_off=false,handoff_deadline=$2 WHERE id=$1", k.ID, deadline); e != nil {
+		if _, e = tx.ExecContext(ctx, "UPDATE api_keys SET handed_off=false,device=true,handoff_deadline=$2 WHERE id=$1", k.ID, deadline); e != nil {
 			return e
 		}
 		_, e = tx.ExecContext(ctx, "UPDATE "+s.temp+".devices SET status='approved',org_id=$2,user_id=$3,generation=$4,key_id=$5,value=$6 WHERE id=$1", id, sc.OrganizationID, sc.UserID, sc.Generation, k.ID, v)

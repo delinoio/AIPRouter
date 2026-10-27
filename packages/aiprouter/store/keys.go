@@ -9,9 +9,12 @@ import (
 )
 
 type Key struct {
-	ID, Name  string
-	ExpiresAt *time.Time
-	Revoked   bool
+	ID, Name, Prefix string
+	CreatedAt        time.Time
+	LastUsedAt       *time.Time
+	Device           bool
+	ExpiresAt        *time.Time
+	Revoked          bool
 }
 type Principal struct {
 	Scope core.Scope
@@ -25,6 +28,7 @@ type Lease struct {
 func (s *Store) issueKey(ctx context.Context, tx *sql.Tx, sc core.Scope, name string, expires *time.Time) (k Key, raw string, e error) {
 	k = Key{ID: core.ID(), Name: name, ExpiresAt: expires}
 	raw = "aip_" + core.Token()
+	k.Prefix = raw[:12]
 	var valid bool
 	if e = tx.QueryRowContext(ctx, "SELECT $1::timestamptz IS NULL OR $1>clock_timestamp()", expires).Scan(&valid); e != nil {
 		return
@@ -33,7 +37,7 @@ func (s *Store) issueKey(ctx context.Context, tx *sql.Tx, sc core.Scope, name st
 		e = ErrExpired
 		return
 	}
-	_, e = tx.ExecContext(ctx, "INSERT INTO api_keys(id,org_id,user_id,generation,name,hash,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)", k.ID, sc.OrganizationID, sc.UserID, sc.Generation, name, core.Hash(raw), expires)
+	e = tx.QueryRowContext(ctx, "INSERT INTO api_keys(id,org_id,user_id,generation,name,hash,expires_at,prefix) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING created_at", k.ID, sc.OrganizationID, sc.UserID, sc.Generation, name, core.Hash(raw), expires, k.Prefix).Scan(&k.CreatedAt)
 	if e == nil {
 		e = s.audit(ctx, tx, sc.OrganizationID, sc.UserID, "key.issued", k.ID)
 	}
@@ -81,14 +85,14 @@ func (s *Store) ListKeys(ctx context.Context, sc core.Scope) (out []Key, e error
 		if _, e := s.guard(ctx, tx, sc); e != nil {
 			return e
 		}
-		rows, e := tx.QueryContext(ctx, "SELECT id,name,expires_at,revoked FROM api_keys WHERE org_id=$1 AND user_id=$2 ORDER BY created_at", sc.OrganizationID, sc.UserID)
+		rows, e := tx.QueryContext(ctx, "SELECT id,name,expires_at,revoked,created_at,prefix,last_used_at,device FROM api_keys WHERE org_id=$1 AND user_id=$2 ORDER BY created_at", sc.OrganizationID, sc.UserID)
 		if e != nil {
 			return e
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var k Key
-			if e = rows.Scan(&k.ID, &k.Name, &k.ExpiresAt, &k.Revoked); e != nil {
+			if e = rows.Scan(&k.ID, &k.Name, &k.ExpiresAt, &k.Revoked, &k.CreatedAt, &k.Prefix, &k.LastUsedAt, &k.Device); e != nil {
 				return e
 			}
 			out = append(out, k)
@@ -150,6 +154,10 @@ func (s *Store) Admit(ctx context.Context, raw string) (l Lease, e error) {
 		}
 		l = Lease{p, core.ID()}
 		_, e = tx.ExecContext(ctx, "INSERT INTO admissions(id,org_id,user_id,key_id,generation) VALUES($1,$2,$3,$4,$5)", l.ID, p.Scope.OrganizationID, p.Scope.UserID, p.KeyID, p.Scope.Generation)
+		if e != nil {
+			return e
+		}
+		_, e = tx.ExecContext(ctx, "UPDATE api_keys SET last_used_at=clock_timestamp() WHERE id=$1", p.KeyID)
 		return e
 	})
 	return

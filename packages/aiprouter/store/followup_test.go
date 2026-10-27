@@ -687,3 +687,64 @@ func TestVideoMetadataSeparateLimits(t *testing.T) {
 		t.Fatal("video batch limit")
 	}
 }
+
+func TestKeyMetadataSafePrefixAndAdmissionLastUse(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, sc := tenant(t, s)
+	k, raw, e := s.IssueKey(ctx, sc, "personal", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if k.CreatedAt.IsZero() || k.Prefix != raw[:12] || k.Device || k.LastUsedAt != nil {
+		t.Fatal("issuance metadata", k)
+	}
+	rows, e := s.ListKeys(ctx, sc)
+	if e != nil || len(rows) != 1 || rows[0].CreatedAt.IsZero() || rows[0].Prefix != k.Prefix || rows[0].LastUsedAt != nil {
+		t.Fatal(rows, e)
+	}
+	if _, e = s.AuthenticateKey(ctx, raw); e != nil {
+		t.Fatal(e)
+	}
+	rows, _ = s.ListKeys(ctx, sc)
+	if rows[0].LastUsedAt != nil {
+		t.Fatal("mere lookup counted as usage")
+	}
+	if _, e = s.Admit(ctx, raw); e != nil {
+		t.Fatal(e)
+	}
+	rows, e = s.ListKeys(ctx, sc)
+	if e != nil || rows[0].LastUsedAt == nil {
+		t.Fatal(rows, e)
+	}
+	d, e := s.StartDevice(ctx, "cli", "https://example.com")
+	if e != nil {
+		t.Fatal(e)
+	}
+	cli, e := s.ApproveDevice(ctx, sc, d.Code, nil)
+	if e != nil || !cli.Device || cli.CreatedAt.IsZero() || len(cli.Prefix) != 12 {
+		t.Fatal(cli, e)
+	}
+	rows, e = s.ListKeys(ctx, sc)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, row := range rows {
+		if row.ID == cli.ID && !row.Device {
+			t.Fatal("CLI mapped as personal")
+		}
+	}
+	execSQL(t, s, "UPDATE api_keys SET prefix='' WHERE id=$1", k.ID)
+	if e = s.Migrate(ctx); e != nil {
+		t.Fatal(e)
+	}
+	rows, e = s.ListKeys(ctx, sc)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, row := range rows {
+		if row.ID == k.ID && row.Prefix != "" {
+			t.Fatal("fabricated legacy prefix")
+		}
+	}
+}
