@@ -122,15 +122,30 @@ func TestProviderAcceptanceCommandCode(t *testing.T) {
 	for _, mode := range []string{"success", "plan", "credits"} {
 		t.Run(mode, func(t *testing.T) {
 			var calls atomic.Int32
-			f := newProviderAcceptance(t, "command-code", "deepseek/deepseek-v4-flash", func(w http.ResponseWriter, r *http.Request) {
+			f := newProviderAcceptance(t, "command-code", "glm-5.2", func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
 				if r.Host != "api.commandcode.ai" || r.URL.Path != "/alpha/generate" {
 					t.Error("subscription API endpoint mismatch")
 				}
 				b := providerAcceptanceBody(t, r)
 				params, _ := b["params"].(map[string]any)
-				if params["stream"] != true || params["model"] == "" || b["config"] == nil {
+				if params["stream"] != true || params["model"] != "zai-org/GLM-5.2" || b["config"] == nil {
 					t.Error("ModelMessage payload missing")
+				}
+				messages, _ := params["messages"].([]any)
+				if len(messages) != 1 {
+					t.Error("subscription ModelMessage list mismatch")
+				} else {
+					m, _ := messages[0].(map[string]any)
+					parts, _ := m["content"].([]any)
+					if m["role"] != "user" || len(parts) != 1 {
+						t.Error("subscription ModelMessage content missing")
+					} else {
+						text, _ := parts[0].(map[string]any)
+						if text["type"] != "text" || text["text"] != "hello" {
+							t.Error("subscription text conversion mismatch")
+						}
+					}
 				}
 				if b["memory"] != "" || b["skills"] != nil {
 					t.Error("remote request contains local context")

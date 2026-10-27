@@ -43,15 +43,19 @@ func TestProviderAcceptanceReasoningReplay(t *testing.T) {
 			headers := http.Header{"Thread-Id": {"replay-fixture"}}
 			providerAcceptanceStatus(t, f.call("/v1/chat/completions", providerAcceptanceReplayStart, headers), 200)
 			// Assert encrypted durable storage, not a process-local adapter cache.
-			rows, e := f.db.Query(`SELECT value,expires_at>clock_timestamp(),expires_at<=clock_timestamp()+interval '1 hour',quota_entries,quota_bytes FROM "` + f.schema + `_temp".provider_states WHERE namespace='tool-reasoning-replay'`)
+			rows, e := f.db.Query(`SELECT value,expires_at>clock_timestamp(),expires_at<=clock_timestamp()+interval '1 hour',quota_entries,quota_bytes,account_id,credential_version FROM "` + f.schema + `_temp".provider_states WHERE namespace='tool-reasoning-replay'`)
 			acceptanceOK(t, e)
 			count := 0
 			for rows.Next() {
 				var ciphertext []byte
 				var live, bounded bool
 				var entries, limit int64
-				acceptanceOK(t, rows.Scan(&ciphertext, &live, &bounded, &entries, &limit))
+				var account, version string
+				acceptanceOK(t, rows.Scan(&ciphertext, &live, &bounded, &entries, &limit, &account, &version))
 				count++
+				if account != f.data.Metadata.Id || version == "" {
+					t.Error("replay row lost account generation binding")
+				}
 				if bytes.Contains(ciphertext, []byte(providerAcceptanceRawThought)) {
 					t.Error("raw reasoning stored in plaintext")
 				}
