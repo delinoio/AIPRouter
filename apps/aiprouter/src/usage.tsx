@@ -66,7 +66,8 @@ export function UsagePage({ organization, session }: PageProps) {
     end: new Date().toISOString().slice(0, 10),
   }));
   const [model, setModel] = useState("");
-  const [outcome, setOutcome] = useState(0);
+  const [provider, setProvider] = useState("");
+  const [outcome, setOutcome] = useState<RequestOutcome | -1>(-1);
   const [token, setToken] = useState("");
   const [detail, setDetail] = useState<UsageRecord>();
   const [filters, setFilters] = useState(false);
@@ -81,6 +82,8 @@ export function UsagePage({ organization, session }: PageProps) {
         }
       : undefined,
     modelId: model.trim() || undefined,
+    providerId: provider.trim() || undefined,
+    outcome: outcome === -1 ? undefined : outcome,
   };
   const records = useQuery(
     UsageService.method.listUsage,
@@ -96,7 +99,8 @@ export function UsagePage({ organization, session }: PageProps) {
       end: new Date().toISOString().slice(0, 10),
     });
     setModel("");
-    setOutcome(0);
+    setProvider("");
+    setOutcome(-1);
     setToken("");
   };
   const filterForm = (
@@ -132,12 +136,25 @@ export function UsagePage({ organization, session }: PageProps) {
           }}
         />
       </Field>
-      <Field label="Outcome on this page">
+      <Field label="Provider ID">
+        <input
+          value={provider}
+          onChange={(e) => {
+            setProvider(e.target.value);
+            setToken("");
+          }}
+        />
+      </Field>
+      <Field label="Outcome">
         <select
           value={outcome}
-          onChange={(e) => setOutcome(Number(e.target.value))}
+          onChange={(e) => {
+            setOutcome(Number(e.target.value) as RequestOutcome | -1);
+            setToken("");
+          }}
         >
-          <option value={0}>All outcomes</option>
+          <option value={-1}>All outcomes</option>
+          <option value={RequestOutcome.UNSPECIFIED}>Unknown outcome</option>
           {[
             RequestOutcome.SUCCEEDED,
             RequestOutcome.UPSTREAM_ERROR,
@@ -154,9 +171,7 @@ export function UsagePage({ organization, session }: PageProps) {
       <Button onClick={reset}>Clear filters</Button>
     </>
   );
-  const visible = records.data?.records.filter(
-    (r) => !outcome || r.outcome === outcome,
-  );
+  const visible = records.data?.records;
   return (
     <>
       <PageHeader
@@ -169,7 +184,8 @@ export function UsagePage({ organization, session }: PageProps) {
       </Notice>
       <div className="desktop-filters filters">{filterForm}</div>
       <Button className="mobile-filters" onClick={() => setFilters(true)}>
-        Filters ({Number(!!model) + Number(!!outcome)})
+        Filters ({Number(!!model) + Number(outcome !== -1) + Number(!!provider)}
+        )
       </Button>
       {filters && (
         <Dialog title="Usage filters" onClose={() => setFilters(false)}>
@@ -189,18 +205,14 @@ export function UsagePage({ organization, session }: PageProps) {
       <SummaryCards summary={valid ? summary.data?.summary : undefined} />
       {valid && input.timeRange && (
         <UsageTrend
-          key={`${range.start}:${range.end}:${model}`}
+          key={`${range.start}:${range.end}:${model}:${provider}:${outcome}`}
           organizationId={organization.id}
           userId={session.userId}
           timeRange={input.timeRange}
           modelId={input.modelId}
+          providerId={input.providerId}
+          outcome={input.outcome}
         />
-      )}
-      {outcome !== 0 && (
-        <Notice>
-          Outcome filtering applies to this page of requests. Summary totals
-          include all outcomes in the selected date and model range.
-        </Notice>
       )}
       <ErrorNotice error={records.error} retry={() => void records.refetch()} />
       {records.isPending && valid ? (
@@ -273,6 +285,8 @@ export function UsageTrend({
   userId,
   timeRange,
   modelId,
+  providerId,
+  outcome,
 }: {
   organizationId: string;
   userId: string;
@@ -281,6 +295,8 @@ export function UsageTrend({
     end: ReturnType<typeof timestampFromDate>;
   };
   modelId?: string;
+  providerId?: string;
+  outcome?: RequestOutcome;
 }) {
   const [token, setToken] = useState("");
   const query = useQuery(UsageService.method.listDailyUsage, {
@@ -288,6 +304,8 @@ export function UsageTrend({
     userId,
     timeRange,
     modelId,
+    providerId,
+    outcome,
     page: { pageSize, pageToken: token },
   });
   const days = query.data?.days ?? [];

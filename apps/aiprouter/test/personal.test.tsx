@@ -392,3 +392,28 @@ it("clears privileged navigation after a scoped read loses permission without en
   ).toBeGreaterThan(0);
   expect(screen.queryByText("Continue with your identity provider")).toBeNull();
 });
+
+it("sends provider and explicit unknown-outcome filters to records, summary, and daily RPCs", async () => {
+  const { UsagePage } = await import("../src/usage");
+  const user = userEvent.setup();
+  const listUsage = vi.fn((_request: unknown) => ({ records: [] }));
+  const getUsageSummary = vi.fn((_request: unknown) => ({}));
+  const listDailyUsage = vi.fn((_request: unknown) => ({ days: [] }));
+  mount(<UsagePage {...props} />, (r) =>
+    r.service(UsageService, { listUsage, getUsageSummary, listDailyUsage }),
+  );
+  await user.type(screen.getByLabelText("Provider ID"), "openai");
+  await user.selectOptions(screen.getByLabelText("Outcome"), "0");
+  await waitFor(() => {
+    for (const mock of [listUsage, getUsageSummary, listDailyUsage])
+      expect(mock.mock.lastCall?.[0]).toMatchObject({
+        organizationId: "one",
+        userId: "person",
+        providerId: "openai",
+        outcome: 0,
+      });
+  });
+  expect(
+    screen.queryByText(/Outcome filtering applies to this page/),
+  ).toBeNull();
+});

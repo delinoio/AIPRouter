@@ -283,7 +283,16 @@ function AuthenticatedApp() {
   );
   if (page === "instance")
     return session.data.isInstanceOperator ? (
-      <OperatorPage session={session.data} />
+      <>
+        <a className="skip-link" href="#main-content">
+          Skip to content
+        </a>
+        <main id="main-content">
+          <DirtyContext value={setDirty}>
+            <OperatorPage session={session.data} />
+          </DirtyContext>
+        </main>
+      </>
     ) : (
       <main className="standalone">
         <Notice tone="danger">Instance operator access is required.</Notice>
