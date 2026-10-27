@@ -121,8 +121,7 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 	var terminal bool
 	var final object
 	var r = result{ID: newID(), Model: rec.Model, Stop: "stop"}
-	tools := map[int]*toolCall{}
-	toolOrder := []int{}
+	acc := newTranslationStream(t.Wire)
 	size := 0
 	emitter := &streamEmitter{w: w, wire: in, id: r.ID, model: r.Model}
 	if streaming {
@@ -151,10 +150,22 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 		if e != nil {
 			return &Error{502, "invalid_upstream_event", 0}
 		}
+		mergeUsage(&rec.Usage, readUsage(m, t.Wire))
+		if response := obj(m["response"]); response != nil {
+			mergeUsage(&rec.Usage, readUsage(response, t.Wire))
+		}
+		if id := str(m["id"]); id != "" {
+			rec.ResponseID = id
+		}
+		if id := str(obj(m["response"])["id"]); id != "" {
+			rec.ResponseID = id
+		}
+		if id := str(obj(m["message"])["id"]); id != "" {
+			rec.ResponseID = id
+		}
 		if str(m["type"]) == "error" || m["error"] != nil {
 			return &Error{502, "upstream_stream_error", 0}
 		}
-		mergeUsage(&rec.Usage, readUsage(m, t.Wire))
 		if t.Wire == Responses && (str(m["type"]) == "response.completed" || str(m["type"]) == "response.incomplete") {
 			final = obj(m["response"])
 			terminal = true
@@ -185,92 +196,8 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 		if size > 32<<20 {
 			return &Error{502, "translation_buffer_limit", 0}
 		}
-		text := ""
-		switch t.Wire {
-		case Chat:
-			for _, v := range arr(m["choices"]) {
-				c := obj(v)
-				if str(c["finish_reason"]) != "" {
-					r.Stop = str(c["finish_reason"])
-				}
-				d := obj(c["delta"])
-				if d["reasoning_content"] != nil {
-					return unsupportedField()
-				}
-				text += str(d["content"])
-				for _, v := range arr(d["tool_calls"]) {
-					c := obj(v)
-					i := index(c["index"])
-					tc := tools[i]
-					if tc == nil {
-						tc = &toolCall{}
-						tools[i] = tc
-						toolOrder = append(toolOrder, i)
-					}
-					if s := str(c["id"]); s != "" {
-						tc.ID = s
-					}
-					f := obj(c["function"])
-					tc.Name += str(f["name"])
-					tc.Arguments += str(f["arguments"])
-				}
-			}
-		case Anthropic:
-			switch str(m["type"]) {
-			case "content_block_start":
-				q := obj(m["content_block"])
-				i := index(m["index"])
-				if str(q["type"]) == "tool_use" {
-					tools[i] = &toolCall{ID: str(q["id"]), Name: str(q["name"])}
-					toolOrder = append(toolOrder, i)
-				} else if str(q["type"]) == "text" {
-					text = str(q["text"])
-				} else {
-					return unsupportedField()
-				}
-			case "content_block_delta":
-				d := obj(m["delta"])
-				switch str(d["type"]) {
-				case "text_delta":
-					text = str(d["text"])
-				case "input_json_delta":
-					tc := tools[index(m["index"])]
-					if tc == nil {
-						return &Error{502, "invalid_tool_stream", 0}
-					}
-					tc.Arguments += str(d["partial_json"])
-				default:
-					return unsupportedField()
-				}
-			case "message_delta":
-				r.Stop = str(obj(m["delta"])["stop_reason"])
-			}
-		case Responses:
-			switch str(m["type"]) {
-			case "response.output_text.delta":
-				text = str(m["delta"])
-			case "response.output_item.added":
-				q := obj(m["item"])
-				if str(q["type"]) == "function_call" {
-					i := index(m["output_index"])
-					tools[i] = &toolCall{ID: str(q["call_id"]), Name: str(q["name"])}
-					toolOrder = append(toolOrder, i)
-				} else if str(q["type"]) != "message" {
-					return unsupportedField()
-				}
-			case "response.function_call_arguments.delta":
-				tc := tools[index(m["output_index"])]
-				if tc == nil {
-					return &Error{502, "invalid_tool_stream", 0}
-				}
-				tc.Arguments += str(m["delta"])
-			}
-		}
-		r.Text += text
-		if streaming && text != "" {
-			return emitter.text(text)
-		}
-		return nil
+		return acc.consume(m)
+
 	})
 	if err != nil {
 		return err
@@ -292,10 +219,21 @@ func (h *Handler) deliverStream(ctx context.Context, w http.ResponseWriter, p Pr
 			return err
 		}
 	} else {
-		for _, i := range toolOrder {
-			r.Tools = append(r.Tools, *tools[i])
+		r, err = acc.result()
+		if err != nil {
+			return err
 		}
 	}
+	if r.ID == "" {
+		r.ID = emitter.id
+	}
+	if r.Model == "" {
+		r.Model = rec.Model
+	}
+	if streaming {
+		r.ID = emitter.id
+	}
+	rec.ResponseID = r.ID
 	r.Usage = rec.Usage
 	if err = validateTools(r, b, in); err != nil {
 		return err
@@ -393,84 +331,13 @@ func (s *streamEmitter) finish(r result) error {
 	}
 	r.ID = s.id
 	out := r.response(s.wire)
-	offset := 0
-	if s.textStarted {
-		offset = 1
-		switch s.wire {
-		case Anthropic:
-			if e := s.event("content_block_stop", object{"type": "content_block_stop", "index": 0}); e != nil {
-				return e
-			}
-		case Responses:
-			if e := s.event("response.output_text.done", object{"output_index": 0, "item_id": "msg_" + s.id, "content_index": 0, "text": r.Text}); e != nil {
-				return e
-			}
-			item := obj(arr(out["output"])[0])
-			if e := s.event("response.content_part.done", object{"output_index": 0, "item_id": "msg_" + s.id, "content_index": 0, "part": arr(item["content"])[0]}); e != nil {
-				return e
-			}
-			if e := s.event("response.output_item.done", object{"output_index": 0, "item": item}); e != nil {
-				return e
-			}
-		}
-	}
-	for i, t := range r.Tools {
-		idx := offset + i
-		switch s.wire {
-		case Chat:
-			if e := s.chat(object{"tool_calls": []any{object{"index": i, "id": t.ID, "type": "function", "function": object{"name": t.Name, "arguments": t.Arguments}}}}, nil); e != nil {
-				return e
-			}
-		case Anthropic:
-			if e := s.event("content_block_start", object{"type": "content_block_start", "index": idx, "content_block": object{"type": "tool_use", "id": t.ID, "name": t.Name, "input": object{}}}); e != nil {
-				return e
-			}
-			if e := s.event("content_block_delta", object{"type": "content_block_delta", "index": idx, "delta": object{"type": "input_json_delta", "partial_json": t.Arguments}}); e != nil {
-				return e
-			}
-			if e := s.event("content_block_stop", object{"type": "content_block_stop", "index": idx}); e != nil {
-				return e
-			}
-		case Responses:
-			item := obj(arr(out["output"])[idx])
-			start := clone(item)
-			start["arguments"] = ""
-			start["status"] = "in_progress"
-			if e := s.event("response.output_item.added", object{"output_index": idx, "item": start}); e != nil {
-				return e
-			}
-			if e := s.event("response.function_call_arguments.delta", object{"output_index": idx, "item_id": item["id"], "delta": t.Arguments}); e != nil {
-				return e
-			}
-			if e := s.event("response.function_call_arguments.done", object{"output_index": idx, "item_id": item["id"], "arguments": t.Arguments}); e != nil {
-				return e
-			}
-			if e := s.event("response.output_item.done", object{"output_index": idx, "item": item}); e != nil {
-				return e
-			}
-		}
-	}
 	switch s.wire {
-	case Responses:
-		name := "response.completed"
-		if out["status"] == "incomplete" {
-			name = "response.incomplete"
-		}
-		return s.event(name, object{"response": out})
-	case Anthropic:
-		if e := s.event("message_delta", object{"type": "message_delta", "delta": object{"stop_reason": out["stop_reason"], "stop_sequence": nil}, "usage": out["usage"]}); e != nil {
+	case Chat:
+		msg := obj(obj(arr(out["choices"])[0])["message"])
+		if e := s.chat(msg, nil); e != nil {
 			return e
 		}
-		return s.event("message_stop", object{"type": "message_stop"})
-	default:
-		finish := "stop"
-		if len(r.Tools) > 0 {
-			finish = "tool_calls"
-		}
-		if r.Stop == "length" || r.Stop == "max_tokens" {
-			finish = "length"
-		}
-		if e := s.chat(object{}, finish); e != nil {
+		if e := s.chat(object{}, obj(arr(out["choices"])[0])["finish_reason"]); e != nil {
 			return e
 		}
 		if e := emitSSE(s.w, "", object{"id": s.id, "object": "chat.completion.chunk", "model": s.model, "choices": []any{}, "usage": out["usage"]}); e != nil {
@@ -481,7 +348,132 @@ func (s *streamEmitter) finish(r result) error {
 			f.Flush()
 		}
 		return e
+	case Anthropic:
+		for i, v := range arr(out["content"]) {
+			block := obj(v)
+			start := clone(block)
+			var deltas []object
+			switch str(block["type"]) {
+			case "thinking":
+				start["thinking"] = ""
+				delete(start, "signature")
+				if text := str(block["thinking"]); text != "" {
+					deltas = append(deltas, object{"type": "thinking_delta", "thinking": text})
+				}
+				if sig := str(block["signature"]); sig != "" {
+					deltas = append(deltas, object{"type": "signature_delta", "signature": sig})
+				}
+			case "text":
+				start["text"] = ""
+				deltas = append(deltas, object{"type": "text_delta", "text": block["text"]})
+			case "tool_use", "server_tool_use":
+				start["input"] = object{}
+				b, _ := json.Marshal(block["input"])
+				deltas = append(deltas, object{"type": "input_json_delta", "partial_json": string(b)})
+			}
+			if e := s.event("content_block_start", object{"type": "content_block_start", "index": i, "content_block": start}); e != nil {
+				return e
+			}
+			for _, d := range deltas {
+				if e := s.event("content_block_delta", object{"type": "content_block_delta", "index": i, "delta": d}); e != nil {
+					return e
+				}
+			}
+			if e := s.event("content_block_stop", object{"type": "content_block_stop", "index": i}); e != nil {
+				return e
+			}
+		}
+		if e := s.event("message_delta", object{"type": "message_delta", "delta": object{"stop_reason": out["stop_reason"], "stop_sequence": nil}, "usage": out["usage"]}); e != nil {
+			return e
+		}
+		return s.event("message_stop", object{"type": "message_stop"})
+	case Responses:
+		for i, v := range arr(out["output"]) {
+			item := obj(v)
+			start := clone(item)
+			start["status"] = "in_progress"
+			switch item["type"] {
+			case "message":
+				start["content"] = []any{}
+			case "reasoning":
+				start["summary"] = []any{}
+				delete(start, "encrypted_content")
+			case "function_call":
+				start["arguments"] = ""
+			case "custom_tool_call":
+				start["input"] = ""
+			}
+			if e := s.event("response.output_item.added", object{"output_index": i, "item": start}); e != nil {
+				return e
+			}
+			switch item["type"] {
+			case "message":
+				for j, v := range arr(item["content"]) {
+					part := obj(v)
+					empty := clone(part)
+					if part["type"] == "output_text" {
+						empty["text"] = ""
+					}
+					base := object{"output_index": i, "item_id": item["id"], "content_index": j, "part": empty}
+					if e := s.event("response.content_part.added", base); e != nil {
+						return e
+					}
+					if part["type"] == "output_text" {
+						if e := s.event("response.output_text.delta", object{"output_index": i, "item_id": item["id"], "content_index": j, "delta": part["text"]}); e != nil {
+							return e
+						}
+						if e := s.event("response.output_text.done", object{"output_index": i, "item_id": item["id"], "content_index": j, "text": part["text"]}); e != nil {
+							return e
+						}
+					}
+					base = clone(base)
+					base["part"] = part
+					if e := s.event("response.content_part.done", base); e != nil {
+						return e
+					}
+				}
+			case "reasoning":
+				for j, v := range arr(item["summary"]) {
+					part := obj(v)
+					base := object{"output_index": i, "item_id": item["id"], "summary_index": j, "part": object{"type": "summary_text", "text": ""}}
+					if e := s.event("response.reasoning_summary_part.added", base); e != nil {
+						return e
+					}
+					if e := s.event("response.reasoning_summary_text.delta", object{"output_index": i, "item_id": item["id"], "summary_index": j, "delta": part["text"]}); e != nil {
+						return e
+					}
+					if e := s.event("response.reasoning_summary_text.done", object{"output_index": i, "item_id": item["id"], "summary_index": j, "text": part["text"]}); e != nil {
+						return e
+					}
+					base = clone(base)
+					base["part"] = part
+					if e := s.event("response.reasoning_summary_part.done", base); e != nil {
+						return e
+					}
+				}
+			case "function_call", "custom_tool_call":
+				field, event := "arguments", "response.function_call_arguments"
+				if item["type"] == "custom_tool_call" {
+					field, event = "input", "response.custom_tool_call_input"
+				}
+				if e := s.event(event+".delta", object{"output_index": i, "item_id": item["id"], "delta": item[field]}); e != nil {
+					return e
+				}
+				if e := s.event(event+".done", object{"output_index": i, "item_id": item["id"], field: item[field]}); e != nil {
+					return e
+				}
+			}
+			if e := s.event("response.output_item.done", object{"output_index": i, "item": item}); e != nil {
+				return e
+			}
+		}
+		event := "response.completed"
+		if out["status"] == "incomplete" {
+			event = "response.incomplete"
+		}
+		return s.event(event, object{"response": out})
 	}
+	return ErrUnsupported
 }
 
 func splitSSELine(data []byte, atEOF bool) (advance int, token []byte, err error) {
@@ -504,4 +496,301 @@ func splitSSELine(data []byte, atEOF bool) (advance int, token []byte, err error
 		return len(data), data, nil
 	}
 	return 0, nil, nil
+}
+
+// translationStream retains at most the caller's 32 MiB budget. Thinking blocks
+// remain mutable until termination because several providers deliver signatures
+// after visible text. Emission then closes each block only after its signature.
+type translationStream struct {
+	wire                   Wire
+	id, model, stop        string
+	items                  []any
+	indexed                map[int]object
+	chatTools              map[int]object
+	chatThinking, chatText object
+	extra                  object
+}
+
+func newTranslationStream(w Wire) *translationStream {
+	return &translationStream{wire: w, indexed: map[int]object{}, chatTools: map[int]object{}, extra: object{}}
+}
+func (s *translationStream) chatMessage(reasoning bool) object {
+	slot := s.chatText
+	if reasoning {
+		slot = s.chatThinking
+	}
+	if slot != nil {
+		return slot
+	}
+	slot = object{"role": "assistant"}
+	s.items = append(s.items, slot)
+	if reasoning {
+		s.chatThinking = slot
+		s.chatText = nil
+	} else {
+		s.chatText = slot
+	}
+	return slot
+}
+func appendString(m object, key string, v any) {
+	if text, ok := v.(string); ok {
+		m[key] = str(m[key]) + text
+	}
+}
+func (s *translationStream) consume(m object) error {
+	for _, key := range []string{"index", "output_index", "content_index", "summary_index"} {
+		if v, ok := m[key]; ok {
+			n := index(v)
+			if n < 0 || n > 4095 {
+				return &Error{502, "stream_index_limit", 0}
+			}
+		}
+	}
+
+	if id := str(m["id"]); id != "" {
+		s.id = id
+	}
+	if model := str(m["model"]); model != "" {
+		s.model = model
+	}
+	if u := obj(m["usage"]); u != nil {
+		usage := clone(obj(s.extra["usage"]))
+		mergeExtra(usage, u)
+		s.extra["usage"] = usage
+	}
+	switch s.wire {
+	case Chat:
+		for _, v := range arr(m["choices"]) {
+			c := obj(v)
+			if index(c["index"]) != 0 {
+				return unsupportedField()
+			}
+			if stop := str(c["finish_reason"]); stop != "" {
+				s.stop = stop
+			}
+			d := obj(c["delta"])
+			if d["reasoning_content"] != nil || d["reasoning_signature"] != nil || d["kiro_reasoning"] != nil || d["reasoning_details"] != nil || obj(obj(d["extra_content"])["google"])["parts"] != nil {
+				msg := s.chatMessage(true)
+				appendString(msg, "reasoning_content", d["reasoning_content"])
+				appendString(msg, "reasoning_signature", d["reasoning_signature"])
+				if d["kiro_reasoning"] != nil {
+					msg["kiro_reasoning"] = d["kiro_reasoning"]
+				}
+				for _, v := range arr(d["reasoning_details"]) {
+					q := obj(v)
+					details := arr(msg["reasoning_details"])
+					idx := index(q["index"])
+					if idx < 0 || idx > 4095 {
+						return &Error{502, "stream_index_limit", 0}
+					}
+					for len(details) <= idx {
+						details = append(details, object{})
+					}
+					part := obj(details[idx])
+					copyFields(part, q, "type", "format", "index")
+					appendString(part, "text", q["text"])
+					appendString(part, "signature", q["signature"])
+					appendString(part, "data", q["data"])
+					msg["reasoning_details"] = details
+				}
+				extra := clone(obj(msg["extra_content"]))
+				mergeExtra(extra, obj(d["extra_content"]))
+				msg["extra_content"] = extra
+			} else if d["extra_content"] != nil {
+				msg := s.chatMessage(false)
+				extra := clone(obj(msg["extra_content"]))
+				mergeExtra(extra, obj(d["extra_content"]))
+				msg["extra_content"] = extra
+			}
+			if d["content"] != nil {
+				msg := s.chatMessage(false)
+				if text, ok := d["content"].(string); ok {
+					appendString(msg, "content", text)
+				} else {
+					msg["content"] = append(arr(msg["content"]), arr(d["content"])...)
+				}
+			}
+			if d["images"] != nil {
+				msg := s.chatMessage(false)
+				extra := clone(obj(msg["extra_content"]))
+				extra["images"] = append(arr(extra["images"]), arr(d["images"])...)
+				msg["extra_content"] = extra
+			}
+			for _, v := range arr(d["tool_calls"]) {
+				call := obj(v)
+				i := index(call["index"])
+				if i < 0 || i > 4095 {
+					return &Error{502, "stream_index_limit", 0}
+				}
+				tc := s.chatTools[i]
+				if tc == nil {
+					tc = object{"type": "function", "function": object{}}
+					s.chatTools[i] = tc
+					s.items = append(s.items, object{"role": "assistant", "tool_calls": []any{tc}})
+					s.chatText = nil
+				}
+				copyFields(tc, call, "id", "type", "provider_metadata")
+				if call["extra_content"] != nil {
+					extra := clone(obj(tc["extra_content"]))
+					mergeExtra(extra, obj(call["extra_content"]))
+					tc["extra_content"] = extra
+				}
+				f := obj(tc["function"])
+				delta := obj(call["function"])
+				appendString(f, "name", delta["name"])
+				appendString(f, "arguments", delta["arguments"])
+				copyFields(f, delta, "extra_content")
+			}
+		}
+	case Anthropic:
+		i := index(m["index"])
+		switch str(m["type"]) {
+		case "message_start":
+			msg := obj(m["message"])
+			s.id = str(msg["id"])
+			s.model = str(msg["model"])
+			if u := obj(msg["usage"]); u != nil {
+				s.extra["usage"] = clone(u)
+			}
+			copyFields(s.extra, msg, "extra_content")
+		case "content_block_start":
+			if s.indexed[i] != nil {
+				return &Error{502, "duplicate_content_block", 0}
+			}
+			block := clone(obj(m["content_block"]))
+			s.indexed[i] = block
+			s.items = append(s.items, block)
+		case "content_block_delta":
+			block := s.indexed[i]
+			if block == nil {
+				return &Error{502, "invalid_content_stream", 0}
+			}
+			d := obj(m["delta"])
+			switch str(d["type"]) {
+			case "text_delta":
+				appendString(block, "text", d["text"])
+			case "thinking_delta":
+				appendString(block, "thinking", d["thinking"])
+			case "signature_delta":
+				appendString(block, "signature", d["signature"])
+			case "input_json_delta":
+				appendString(block, "_arguments", d["partial_json"])
+			case "citations_delta":
+				block["citations"] = append(arr(block["citations"]), d["citation"])
+			default:
+				return unsupportedField()
+			}
+		case "message_delta":
+			s.stop = str(obj(m["delta"])["stop_reason"])
+		}
+	case Responses:
+		i := index(m["output_index"])
+		switch str(m["type"]) {
+		case "response.created", "response.in_progress":
+			r := obj(m["response"])
+			s.id = str(r["id"])
+			s.model = str(r["model"])
+		case "response.output_item.added":
+			if s.indexed[i] != nil {
+				return &Error{502, "duplicate_output_item", 0}
+			}
+			item := clone(obj(m["item"]))
+			s.indexed[i] = item
+			s.items = append(s.items, item)
+		case "response.output_item.done":
+			item := s.indexed[i]
+			if item == nil {
+				return &Error{502, "invalid_output_stream", 0}
+			}
+			for k := range item {
+				delete(item, k)
+			}
+			for k, v := range obj(m["item"]) {
+				item[k] = v
+			}
+		case "response.function_call_arguments.delta", "response.custom_tool_call_input.delta":
+			item := s.indexed[i]
+			if item == nil {
+				return &Error{502, "invalid_tool_stream", 0}
+			}
+			key := "arguments"
+			if m["type"] == "response.custom_tool_call_input.delta" {
+				key = "input"
+			}
+			appendString(item, key, m["delta"])
+		case "response.content_part.added", "response.reasoning_summary_part.added":
+			item := s.indexed[i]
+			if item == nil {
+				return &Error{502, "invalid_output_stream", 0}
+			}
+			key := "content"
+			idx := index(m["content_index"])
+			if m["type"] == "response.reasoning_summary_part.added" {
+				key = "summary"
+				idx = index(m["summary_index"])
+			}
+			parts := arr(item[key])
+			for len(parts) <= idx {
+				parts = append(parts, object{})
+			}
+			parts[idx] = clone(obj(m["part"]))
+			item[key] = parts
+		case "response.output_text.delta", "response.reasoning_summary_text.delta":
+			item := s.indexed[i]
+			if item == nil {
+				item = object{"type": "message", "role": "assistant", "content": []any{object{"type": "output_text", "text": ""}}}
+				if m["type"] == "response.reasoning_summary_text.delta" {
+					item = object{"type": "reasoning", "summary": []any{object{"type": "summary_text", "text": ""}}}
+				}
+				s.indexed[i] = item
+				s.items = append(s.items, item)
+			}
+			key := "content"
+			idx := index(m["content_index"])
+			if m["type"] == "response.reasoning_summary_text.delta" {
+				key = "summary"
+				idx = index(m["summary_index"])
+			}
+			parts := arr(item[key])
+			if idx < 0 || idx >= len(parts) {
+				return &Error{502, "invalid_output_stream", 0}
+			}
+			appendString(obj(parts[idx]), "text", m["delta"])
+		}
+	}
+	return nil
+}
+func (s *translationStream) result() (result, error) {
+	m := object{"id": s.id, "model": s.model, "usage": s.extra["usage"]}
+	copyFields(m, s.extra, "extra_content")
+	switch s.wire {
+	case Chat:
+		items, e := messagesToResponses(s.items)
+		if e != nil {
+			return result{}, e
+		}
+		m["output"] = items
+		m["status"] = "completed"
+		r, e := parseResult(m, Responses)
+		r.Stop = s.stop
+		return r, e
+	case Anthropic:
+		for _, v := range s.items {
+			block := obj(v)
+			if raw, ok := block["_arguments"].(string); ok {
+				args, e := decode([]byte(raw))
+				if e != nil {
+					return result{}, &Error{502, "invalid_upstream_tool_arguments", 0}
+				}
+				block["input"] = args
+				delete(block, "_arguments")
+			}
+		}
+		m["content"] = s.items
+		m["stop_reason"] = s.stop
+	case Responses:
+		m["output"] = s.items
+		m["status"] = "completed"
+	}
+	return parseResult(m, s.wire)
 }
