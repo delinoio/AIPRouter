@@ -871,6 +871,10 @@ type JevDecisionConfig struct {
 	DecisionTimeoutMs uint32 `protobuf:"varint,3,opt,name=decision_timeout_ms,json=decisionTimeoutMs,proto3" json:"decision_timeout_ms,omitempty"`
 	// Zero disables session pinning; otherwise 60..86400 seconds.
 	SessionPinTtlSeconds uint32 `protobuf:"varint,4,opt,name=session_pin_ttl_seconds,json=sessionPinTtlSeconds,proto3" json:"session_pin_ttl_seconds,omitempty"`
+	// Backend model for a custom SystemOne decision connection, not an ordinary route alias.
+	// At most 512 UTF-16 code units. The canonical JEV preset ignores this field and
+	// uses jev-latest. decision_model alias selection still takes precedence.
+	DecisionServiceModel string `protobuf:"bytes,5,opt,name=decision_service_model,json=decisionServiceModel,proto3" json:"decision_service_model,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -931,6 +935,13 @@ func (x *JevDecisionConfig) GetSessionPinTtlSeconds() uint32 {
 		return x.SessionPinTtlSeconds
 	}
 	return 0
+}
+
+func (x *JevDecisionConfig) GetDecisionServiceModel() string {
+	if x != nil {
+		return x.DecisionServiceModel
+	}
+	return ""
 }
 
 type RouteTarget struct {
@@ -3356,12 +3367,13 @@ const file_aiprouter_v1_provider_proto_rawDesc = "" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x126\n" +
 	"\bstrategy\x18\x04 \x01(\x0e2\x1a.aiprouter.v1.PoolStrategyR\bstrategy\x122\n" +
 	"\amembers\x18\x05 \x03(\v2\x18.aiprouter.v1.PoolMemberR\amembers\x12)\n" +
-	"\x10affinity_enabled\x18\x06 \x01(\bR\x0faffinityEnabled\"\xd7\x01\n" +
+	"\x10affinity_enabled\x18\x06 \x01(\bR\x0faffinityEnabled\"\x8d\x02\n" +
 	"\x11JevDecisionConfig\x124\n" +
 	"\x16decision_connection_id\x18\x01 \x01(\tR\x14decisionConnectionId\x12%\n" +
 	"\x0edecision_model\x18\x02 \x01(\tR\rdecisionModel\x12.\n" +
 	"\x13decision_timeout_ms\x18\x03 \x01(\rR\x11decisionTimeoutMs\x125\n" +
-	"\x17session_pin_ttl_seconds\x18\x04 \x01(\rR\x14sessionPinTtlSeconds\"\xfa\x01\n" +
+	"\x17session_pin_ttl_seconds\x18\x04 \x01(\rR\x14sessionPinTtlSeconds\x124\n" +
+	"\x16decision_service_model\x18\x05 \x01(\tR\x14decisionServiceModel\"\xfa\x01\n" +
 	"\vRouteTarget\x12%\n" +
 	"\rconnection_id\x18\x01 \x01(\tH\x00R\fconnectionId\x12\x19\n" +
 	"\apool_id\x18\x02 \x01(\tH\x00R\x06poolId\x12\x19\n" +

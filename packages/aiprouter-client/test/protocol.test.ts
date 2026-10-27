@@ -305,7 +305,11 @@ test("JEV configuration preserves absence, defaults, and target hints", async ()
   assert.equal(create(UpdateRouteRequestSchema).jevDecision, undefined);
   const route = create(UpdateRouteRequestSchema, {
     strategy: RoutingStrategy.JEV,
-    jevDecision: { decisionConnectionId: "private", decisionModel: "alias" },
+    jevDecision: {
+      decisionConnectionId: "private",
+      decisionModel: "alias",
+      decisionServiceModel: "tev1",
+    },
     targets: [
       {
         modelId: "candidate",

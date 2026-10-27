@@ -131,6 +131,10 @@ message JevDecisionConfig {
   uint32 decision_timeout_ms = 3;
   // Zero disables session pinning; otherwise 60..86400 seconds.
   uint32 session_pin_ttl_seconds = 4;
+  // Backend model for a custom SystemOne decision connection, not an ordinary route alias.
+  // At most 512 UTF-16 code units. The canonical JEV preset ignores this field and
+  // uses jev-latest. decision_model alias selection still takes precedence.
+  string decision_service_model = 5;
 }
 message RouteTarget {
   oneof target {
