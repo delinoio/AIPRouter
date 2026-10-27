@@ -756,3 +756,51 @@ func TestProviderConfigurationStructuredItemRepairPresence(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderPoolNativeOptionsPersistenceAndValidation(t *testing.T) {
+	m, ctx, sc := oauthFixture(t)
+	d := oauthSavedProvider(t, m, ctx, sc)
+	members := []*v1.PoolMember{{ConnectionId: d.Metadata.Id, Priority: 7, NativeOptions: &v1.NativePoolMemberOptions{Priority: ptr(int32(-12)), AutoSwitchThreshold: ptr(uint32(0)), UseRemainingQuota: true}}}
+	opts := &v1.NativePoolOptions{AutoSwitchThreshold: ptr(uint32(0)), NativeMessages: ptr(false), Routes: []*v1.NativeModelRoute{{Name: "claude", Match: "claude-*", ConnectionIds: []string{d.Metadata.Id}}}}
+	created, err := m.CreatePool(ctx, connect.NewRequest(&v1.CreatePoolRequest{OrganizationId: sc.OrganizationID, Name: "native", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: members, NativeOptions: opts}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := m.ListPools(ctx, connect.NewRequest(&v1.ListPoolsRequest{OrganizationId: sc.OrganizationID}))
+	if err != nil || len(listed.Msg.Pools) != 1 {
+		t.Fatalf("list: %v", err)
+	}
+	p := listed.Msg.Pools[0]
+	if p.NativeOptions == nil || p.NativeOptions.Enabled == nil || !*p.NativeOptions.Enabled || p.NativeOptions.AutoSwitchThreshold == nil || *p.NativeOptions.AutoSwitchThreshold != 0 || p.NativeOptions.NativeMessages == nil || *p.NativeOptions.NativeMessages || len(p.NativeOptions.Routes) != 1 || p.Members[0].Priority != 7 || p.Members[0].NativeOptions.GetPriority() != -12 {
+		t.Fatal("native option presence or independent priorities lost")
+	}
+	opts.Enabled = ptr(false)
+	updated, err := m.UpdatePool(ctx, connect.NewRequest(&v1.UpdatePoolRequest{OrganizationId: sc.OrganizationID, PoolId: created.Msg.Pool.Id, Name: "native", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: members, NativeOptions: opts}))
+	if err != nil || updated.Msg.Pool.NativeOptions.Enabled == nil || *updated.Msg.Pool.NativeOptions.Enabled {
+		t.Fatalf("explicit disable lost: %v", err)
+	}
+	updated, err = m.UpdatePool(ctx, connect.NewRequest(&v1.UpdatePoolRequest{OrganizationId: sc.OrganizationID, PoolId: created.Msg.Pool.Id, Name: "native", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: members}))
+	if err != nil || updated.Msg.Pool.NativeOptions != nil {
+		t.Fatalf("omission did not clear: %v", err)
+	}
+	for name, options := range map[string]*v1.NativePoolOptions{
+		"sticky zero": {StickyLimit: ptr(uint32(0))}, "threshold": {AutoSwitchThreshold: ptr(uint32(101))}, "strategy": {Strategy: v1.NativePoolStrategy(99)}, "codex strategy": {Strategy: v1.NativePoolStrategy_NATIVE_POOL_STRATEGY_RESET_FIRST}, "codex cache": {CacheAffinity: ptr(false)}, "route glob": {Routes: []*v1.NativeModelRoute{{Name: "bad", Match: "[a]", ConnectionIds: []string{d.Metadata.Id}}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, e := m.CreatePool(ctx, connect.NewRequest(&v1.CreatePoolRequest{OrganizationId: sc.OrganizationID, Name: "invalid", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: members, NativeOptions: options}))
+			if connect.CodeOf(e) != connect.CodeInvalidArgument {
+				t.Fatalf("accepted invalid option: %v", e)
+			}
+		})
+	}
+	other := oauthSavedProvider(t, m, ctx, sc)
+	other.Metadata.ProviderId = "anthropic2"
+	other.Credential.Provider = "anthropic2"
+	if err = m.put(ctx, sc, providerKind, other.Metadata.Id, other); err != nil {
+		t.Fatal(err)
+	}
+	_, err = m.CreatePool(ctx, connect.NewRequest(&v1.CreatePoolRequest{OrganizationId: sc.OrganizationID, Name: "mixed", Strategy: v1.PoolStrategy_POOL_STRATEGY_PRIORITY, Members: append(members, &v1.PoolMember{ConnectionId: other.Metadata.Id}), NativeOptions: &v1.NativePoolOptions{}}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("mixed native instances accepted: %v", err)
+	}
+}

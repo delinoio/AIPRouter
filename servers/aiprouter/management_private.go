@@ -12,6 +12,7 @@ import (
 	v1 "github.com/delinoio/AIPRouter/protos/aiprouter/v1"
 	"google.golang.org/protobuf/proto"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -230,6 +231,9 @@ func (m *management) validatePool(ctx context.Context, sc core.Scope, p *v1.Pool
 		return invalid("invalid pool strategy")
 	}
 	seen := map[string]bool{}
+	nativeProvider := ""
+	homogeneousNative := true
+	hasNativeOptions := p.NativeOptions != nil
 	for _, member := range p.Members {
 		if member == nil || member.ConnectionId == "" || seen[member.ConnectionId] {
 			return invalid("duplicate or missing pool member")
@@ -238,6 +242,122 @@ func (m *management) validatePool(ctx context.Context, sc core.Scope, p *v1.Pool
 		var d providerData
 		if e := m.get(ctx, sc, providerKind, member.ConnectionId, &d); e != nil {
 			return rpcError(e)
+		}
+		if d.Metadata == nil {
+			return invalid("invalid pool connection")
+		}
+		id := d.Metadata.ProviderId
+		if d.Metadata.AuthKind != v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH || (id != "openai" && id != "anthropic" && id != "anthropic2") {
+			homogeneousNative = false
+		}
+		if nativeProvider == "" {
+			nativeProvider = id
+		} else if nativeProvider != id {
+			homogeneousNative = false
+		}
+		hasNativeOptions = hasNativeOptions || member.NativeOptions != nil
+	}
+	if hasNativeOptions && !homogeneousNative {
+		return invalid("native options require one native OAuth provider instance")
+	}
+	if hasNativeOptions {
+		return m.validateNativePoolOptions(ctx, sc, p, nativeProvider)
+	}
+	return nil
+}
+
+var nativeRouteName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+var nativeRouteMatch = regexp.MustCompile(`^[A-Za-z0-9_./:*?-]+$`)
+
+func (m *management) validateNativePoolOptions(ctx context.Context, sc core.Scope, p *v1.Pool, provider string) error {
+	codex := provider == "openai"
+	for _, member := range p.Members {
+		o := member.NativeOptions
+		if o == nil {
+			continue
+		}
+		if o.AutoSwitchThreshold != nil && *o.AutoSwitchThreshold > 100 {
+			return invalid("native member threshold must be 0 to 100")
+		}
+		if o.Priority != nil && (*o.Priority < -100 || *o.Priority > 100) {
+			return invalid("native priority must be -100 to 100")
+		}
+		if o.AllowCredits && !codex {
+			return invalid("credits require Codex")
+		}
+	}
+	o := p.NativeOptions
+	if o == nil {
+		return nil
+	}
+	switch o.Strategy {
+	case v1.NativePoolStrategy_NATIVE_POOL_STRATEGY_UNSPECIFIED, v1.NativePoolStrategy_NATIVE_POOL_STRATEGY_QUOTA, v1.NativePoolStrategy_NATIVE_POOL_STRATEGY_ROUND_ROBIN, v1.NativePoolStrategy_NATIVE_POOL_STRATEGY_FILL_FIRST:
+	case v1.NativePoolStrategy_NATIVE_POOL_STRATEGY_RESET_FIRST:
+		if !codex {
+			return invalid("reset-first requires Codex")
+		}
+	default:
+		return invalid("invalid native pool strategy")
+	}
+	if o.StickyLimit != nil && (*o.StickyLimit < 1 || *o.StickyLimit > 100) {
+		return invalid("native sticky limit must be 1 to 100")
+	}
+	if o.AutoSwitchThreshold != nil && *o.AutoSwitchThreshold > 100 {
+		return invalid("native threshold must be 0 to 100")
+	}
+	switch o.QuotaWindow {
+	case v1.NativeQuotaWindow_NATIVE_QUOTA_WINDOW_UNSPECIFIED:
+	case v1.NativeQuotaWindow_NATIVE_QUOTA_WINDOW_FIVE_HOUR, v1.NativeQuotaWindow_NATIVE_QUOTA_WINDOW_WEEKLY, v1.NativeQuotaWindow_NATIVE_QUOTA_WINDOW_MAX_UTILIZATION:
+		if codex {
+			return invalid("quota window requires Anthropic")
+		}
+	default:
+		return invalid("invalid native quota window")
+	}
+	if !codex && (o.CacheAffinity != nil || len(o.ExcludedPlans) != 0) {
+		return invalid("cache affinity and excluded plans require Codex")
+	}
+	if codex && (o.NativeMessages != nil || len(o.Routes) != 0) {
+		return invalid("native messages and model routes require Anthropic")
+	}
+	if len(o.ExcludedPlans) > 100 {
+		return invalid("too many excluded plans")
+	}
+	plans := map[string]bool{}
+	for _, plan := range o.ExcludedPlans {
+		key := strings.ToLower(plan)
+		if !validConfiguredModel(plan) || len(plan) > 128 || plans[key] {
+			return invalid("invalid or duplicate excluded plan")
+		}
+		plans[key] = true
+	}
+	if len(o.Routes) > 32 {
+		return invalid("at most 32 native model routes allowed")
+	}
+	names, patterns := map[string]bool{}, map[string]bool{}
+	for _, route := range o.Routes {
+		if route == nil || !nativeRouteName.MatchString(route.Name) || names[route.Name] || len(route.Match) > 128 || !nativeRouteMatch.MatchString(route.Match) || patterns[route.Match] {
+			return invalid("invalid or duplicate native model route")
+		}
+		names[route.Name], patterns[route.Match] = true, true
+		if len(route.ConnectionIds) < 1 || len(route.ConnectionIds) > 32 {
+			return invalid("native model route requires 1 to 32 connections")
+		}
+		seen := map[string]bool{}
+		for _, id := range route.ConnectionIds {
+			if !validConfiguredModel(id) || len(id) > 128 || seen[id] {
+				return invalid("native route connection must be a unique stored ID")
+			}
+			seen[id] = true
+			// A stored owned connection can remain dormant outside the roster;
+			// runtime intersects the ordered allowlist with eligible members.
+			var d providerData
+			if err := m.get(ctx, sc, providerKind, id, &d); err != nil {
+				return rpcError(err)
+			}
+			if d.Metadata == nil || d.Metadata.ProviderId != provider || d.Metadata.AuthKind != v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH {
+				return invalid("native route connection must use the same provider instance")
+			}
 		}
 	}
 	return nil
@@ -266,9 +386,40 @@ func (m *management) CreatePool(ctx context.Context, r *connect.Request[v1.Creat
 	if e != nil {
 		return nil, e
 	}
-	p := &v1.Pool{Id: core.ID(), OrganizationId: sc.OrganizationID, Name: r.Msg.Name, Strategy: r.Msg.Strategy, Members: r.Msg.Members, AffinityEnabled: r.Msg.GetAffinityEnabled()}
+	p := &v1.Pool{Id: core.ID(), OrganizationId: sc.OrganizationID, Name: r.Msg.Name, Strategy: r.Msg.Strategy, Members: r.Msg.Members, AffinityEnabled: r.Msg.GetAffinityEnabled(), NativeOptions: r.Msg.NativeOptions}
 	if e = m.validatePool(ctx, sc, p); e != nil {
 		return nil, e
+	}
+	// Creating a personal native pool is the explicit proactive opt-in. Importers
+	// preserve their source default separately; updates remain full replacements.
+	nativeProvider := ""
+	native := true
+	for _, member := range p.Members {
+		var d providerData
+		if e = m.get(ctx, sc, providerKind, member.ConnectionId, &d); e != nil {
+			return nil, rpcError(e)
+		}
+		if d.Metadata == nil {
+			native = false
+			break
+		}
+		id := d.Metadata.ProviderId
+		if d.Metadata.AuthKind != v1.ProviderAuthKind_PROVIDER_AUTH_KIND_OAUTH || (id != "openai" && id != "anthropic" && id != "anthropic2") || (nativeProvider != "" && nativeProvider != id) {
+			native = false
+			break
+		}
+		nativeProvider = id
+	}
+	if native {
+		if p.NativeOptions == nil {
+			p.NativeOptions = &v1.NativePoolOptions{}
+		} else {
+			p.NativeOptions = proto.Clone(p.NativeOptions).(*v1.NativePoolOptions)
+		}
+		if p.NativeOptions.Enabled == nil {
+			enabled := true
+			p.NativeOptions.Enabled = &enabled
+		}
 	}
 	return connect.NewResponse(&v1.CreatePoolResponse{Pool: p}), rpcError(m.put(ctx, sc, poolKind, p.Id, p))
 }
@@ -289,6 +440,7 @@ func (m *management) UpdatePool(ctx context.Context, r *connect.Request[v1.Updat
 	p.Strategy = r.Msg.Strategy
 	p.Members = r.Msg.Members
 	p.AffinityEnabled = r.Msg.GetAffinityEnabled()
+	p.NativeOptions = r.Msg.NativeOptions
 	if e = m.validatePool(ctx, sc, p); e != nil {
 		return nil, e
 	}
