@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useEffect, useState } from "react";
+import { HostedHelpers } from "./hosted";
+import {
+  ConfigurationFields,
+  configurationDraft,
+  configurationValues,
+} from "./provider-configuration";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { useQuery } from "@connectrpc/connect-query";
 import {
@@ -93,6 +99,7 @@ export function ProvidersPage({ organization }: PageProps) {
           Manage account pools
         </a>
       </div>
+      <HostedHelpers organizationId={organization.id} />
       {action.feedback}
       <Field label="Search your connections">
         <input
@@ -202,9 +209,12 @@ export function ProvidersPage({ organization }: PageProps) {
                   await api.provider.updateProviderConnection({
                     organizationId: organization.id,
                     connectionId: edit.id,
+                    resetConfiguration: values.resetConfiguration,
                     name: values.name,
                     baseUrl: values.baseUrl,
                     apiKey: values.secret || undefined,
+                    configuration: values.configuration,
+                    customHeaders: values.customHeaders,
                   });
                   return undefined;
                 }
@@ -215,6 +225,8 @@ export function ProvidersPage({ organization }: PageProps) {
                   baseUrl: values.baseUrl,
                   authKind: values.authKind,
                   apiKey: values.secret || undefined,
+                  configuration: values.configuration,
+                  customHeaders: values.customHeaders,
                 });
                 return undefined;
               },
@@ -327,7 +339,7 @@ export function ProvidersPage({ organization }: PageProps) {
     </>
   );
 }
-type ConnectionValues = {
+type ConnectionValues = ReturnType<typeof configurationValues> & {
   providerId: string;
   name: string;
   baseUrl: string;
@@ -349,6 +361,10 @@ function ConnectionEditor({
   pending: boolean;
   error: unknown;
 }) {
+  const [configuration, setConfiguration] = useState(() =>
+    configurationDraft(connection),
+  );
+  const [validationError, setValidationError] = useState("");
   const [providerId, setProvider] = useState(connection?.providerId ?? "");
   const [name, setName] = useState(connection?.name ?? "");
   const [baseUrl, setBase] = useState(connection?.baseUrl ?? "");
@@ -367,13 +383,24 @@ function ConnectionEditor({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onSave({
-            providerId,
-            name: name.trim(),
-            baseUrl: baseUrl.trim(),
-            authKind,
-            secret,
-          });
+          try {
+            const advanced = configurationValues(configuration);
+            setValidationError("");
+            onSave({
+              ...advanced,
+              providerId,
+              name: name.trim(),
+              baseUrl: baseUrl.trim(),
+              authKind,
+              secret,
+            });
+          } catch (error) {
+            setValidationError(
+              error instanceof Error
+                ? error.message
+                : "Check the connection settings.",
+            );
+          }
         }}
       >
         {!connection && (
@@ -393,6 +420,7 @@ function ConnectionEditor({
                 onChange={(e) => {
                   const p = providers.find((p) => p.id === e.target.value);
                   setProvider(e.target.value);
+                  setConfiguration(configurationDraft());
                   setAuth(p?.authKinds[0] ?? ProviderAuthKind.UNSPECIFIED);
                 }}
               >
@@ -469,6 +497,20 @@ function ConnectionEditor({
             </Button>
           </>
         )}
+        {authKind === ProviderAuthKind.OAUTH && !connection ? (
+          <Notice>
+            After authorization, edit this connection to configure API formats,
+            policies, or headers.
+          </Notice>
+        ) : (
+          <ConfigurationFields
+            draft={configuration}
+            onChange={setConfiguration}
+            providerId={providerId}
+            connection={connection}
+          />
+        )}
+        {validationError && <Notice tone="danger">{validationError}</Notice>}
         <ErrorNotice error={error} />
         <div className="actions">
           <Button onClick={onClose}>Cancel</Button>

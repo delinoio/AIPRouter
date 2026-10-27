@@ -20,6 +20,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  HostedSettingsService,
   AccountService,
   OrganizationService,
   MembershipService,
@@ -48,6 +49,7 @@ export const transport = createConnectTransport({
 });
 export function makeClients(t: Transport) {
   return {
+    hosted: createClient(HostedSettingsService, t),
     account: createClient(AccountService, t),
     organization: createClient(OrganizationService, t),
     membership: createClient(MembershipService, t),

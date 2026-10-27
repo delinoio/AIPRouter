@@ -201,9 +201,9 @@ export function Dialog({
         if (event.key !== "Tab") return;
         const items = Array.from(
           event.currentTarget.querySelectorAll<HTMLElement>(
-            'button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]',
+            'button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,[tabindex="0"]',
           ),
-        );
+        ).filter((item) => !item.hidden && (item.checkVisibility?.() ?? true));
         const first = items[0];
         const last = items.at(-1);
         if (event.shiftKey && document.activeElement === first) {

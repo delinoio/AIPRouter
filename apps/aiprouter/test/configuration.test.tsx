@@ -1,0 +1,282 @@
+// SPDX-License-Identifier: Apache-2.0
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, it, expect, vi } from "vitest";
+import {
+  createRouterTransport,
+  ConnectError,
+  Code,
+  type ConnectRouter,
+} from "@connectrpc/connect";
+import { create } from "@bufbuild/protobuf";
+import { QueryClient } from "@tanstack/react-query";
+import {
+  ProviderService,
+  PoolService,
+  RoutingService,
+  HostedSettingsService,
+  ProviderConnectionSchema,
+  OrganizationSchema,
+  GetSessionResponseSchema,
+  ProviderAuthKind,
+  ProviderWire,
+  Role,
+  HostedSettingsSchema,
+  HostedSearchBackend,
+} from "@aiprouter/client";
+import { ApiProvider } from "../src/api";
+import { ProvidersPage } from "../src/providers";
+import { HostedHelpers } from "../src/hosted";
+import type { ReactNode } from "react";
+const organization = create(OrganizationSchema, {
+  id: "org",
+  name: "Studio",
+  role: Role.MEMBER,
+});
+const session = create(GetSessionResponseSchema, { userId: "person" });
+function mount(ui: ReactNode, routes: (r: ConnectRouter) => void) {
+  render(
+    <ApiProvider
+      rpcTransport={createRouterTransport(routes)}
+      queryClient={
+        new QueryClient({
+          defaultOptions: {
+            queries: { retry: false },
+            mutations: { retry: false },
+          },
+        })
+      }
+    >
+      {ui}
+    </ApiProvider>,
+  );
+}
+const connection = create(ProviderConnectionSchema, {
+  id: "connection",
+  providerId: "custom",
+  name: "Custom endpoint",
+  authKind: ProviderAuthKind.API_KEY,
+  configuration: {
+    wire: ProviderWire.RESPONSES,
+    responsesPath: "/generate",
+    policy: { parallelToolCalls: false },
+  },
+  customHeaderNames: ["X-Private"],
+});
+function providerRoutes(
+  r: ConnectRouter,
+  update: (request: unknown) => object,
+) {
+  r.service(ProviderService, {
+    listProviderCatalog: () => ({
+      providers: [
+        {
+          id: "custom",
+          displayName: "Custom",
+          authKinds: [ProviderAuthKind.API_KEY],
+        },
+      ],
+    }),
+    listProviderConnections: () => ({ connections: [connection] }),
+    updateProviderConnection: update,
+  });
+  r.service(PoolService, { listPools: () => ({}) });
+  r.service(RoutingService, { listRoutes: () => ({}) });
+}
+describe("provider configuration mutations", () => {
+  it("preserves hidden header values and configuration when only the name changes", async () => {
+    const user = userEvent.setup(),
+      update = vi.fn((_request: unknown) => ({}));
+    mount(
+      <ProvidersPage organization={organization} session={session} />,
+      (r) => providerRoutes(r, update),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Edit connection" }),
+    );
+    await user.type(screen.getByLabelText("Account label"), " renamed");
+    await user.click(screen.getByRole("button", { name: "Save connection" }));
+    expect(update.mock.calls[0]?.[0]).toMatchObject({
+      name: "Custom endpoint renamed",
+      resetConfiguration: false,
+    });
+    expect(
+      (update.mock.calls[0]?.[0] as { configuration?: unknown }).configuration,
+    ).toBeUndefined();
+    expect(
+      (update.mock.calls[0]?.[0] as { customHeaders?: unknown }).customHeaders,
+    ).toBeUndefined();
+  });
+  it("sends typed exact model formats, explicit false policy, and masked replacement headers", async () => {
+    const user = userEvent.setup(),
+      update = vi.fn((_request: unknown) => ({}));
+    mount(
+      <ProvidersPage organization={organization} session={session} />,
+      (r) => providerRoutes(r, update),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Edit connection" }),
+    );
+    await user.click(screen.getByText("Advanced connection settings"));
+    await user.selectOptions(
+      screen.getByLabelText("API format"),
+      String(ProviderWire.ANTHROPIC),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Add model override" }),
+    );
+    await user.type(screen.getByLabelText("Model ID 1"), "exact-model");
+    await user.selectOptions(
+      screen.getByLabelText("Model format 1"),
+      String(ProviderWire.GOOGLE),
+    );
+    await user.click(screen.getByText("Request compatibility policies"));
+    await user.selectOptions(
+      screen.getByLabelText("Prompt cache key"),
+      "false",
+    );
+    await user.selectOptions(
+      screen.getByLabelText("Header changes"),
+      "replace",
+    );
+    await user.click(screen.getByRole("button", { name: "Add header" }));
+    await user.type(screen.getByLabelText("Header name 1"), "X-Private");
+    const secret = screen.getByLabelText("Header value 1");
+    expect(secret.getAttribute("type")).toBe("password");
+    await user.type(secret, "private-test-value");
+    await user.click(screen.getByRole("button", { name: "Save connection" }));
+    expect(update.mock.calls[0]?.[0]).toMatchObject({
+      organizationId: "org",
+      configuration: {
+        wire: ProviderWire.ANTHROPIC,
+        responsesPath: "/generate",
+        modelWires: { "exact-model": ProviderWire.GOOGLE },
+        policy: { parallelToolCalls: false, promptCacheKey: false },
+      },
+      customHeaders: { values: { "X-Private": "private-test-value" } },
+    });
+  });
+  it("resets configuration separately from explicit header clearing", async () => {
+    const user = userEvent.setup(),
+      update = vi.fn((_request: unknown) => ({}));
+    mount(
+      <ProvidersPage organization={organization} session={session} />,
+      (r) => providerRoutes(r, update),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Edit connection" }),
+    );
+    await user.click(screen.getByText("Advanced connection settings"));
+    await user.selectOptions(
+      screen.getByLabelText("Configuration changes"),
+      "reset",
+    );
+    await user.selectOptions(screen.getByLabelText("Header changes"), "clear");
+    await user.click(screen.getByRole("button", { name: "Save connection" }));
+    expect(update.mock.calls[0]?.[0]).toMatchObject({
+      resetConfiguration: true,
+      customHeaders: { values: {} },
+    });
+    expect(
+      (update.mock.calls[0]?.[0] as { configuration?: unknown }).configuration,
+    ).toBeUndefined();
+  });
+});
+describe("personal hosted settings", () => {
+  const settings = create(HostedSettingsSchema, {
+    search: {
+      enabled: false,
+      backend: HostedSearchBackend.XAI,
+      maxSearchesPerTurn: 0,
+      target: {
+        selection: { case: "connectionId", value: "connection" },
+        modelId: "grok",
+      },
+    },
+    images: {
+      bridgeEnabled: false,
+      videoBridgeEnabled: true,
+      target: {
+        selection: { case: "poolId", value: "pool" },
+        modelId: "media",
+      },
+    },
+  });
+  function routes(r: ConnectRouter, update: (request: unknown) => object) {
+    r.service(HostedSettingsService, {
+      getHostedSettings: () => ({ settings }),
+      updateHostedSettings: update,
+    });
+    r.service(ProviderService, {
+      listProviderConnections: () => ({ connections: [connection] }),
+    });
+    r.service(PoolService, {
+      listPools: () => ({ pools: [{ id: "pool", name: "Media" }] }),
+    });
+    r.service(RoutingService, { listRoutes: () => ({}) });
+  }
+  it("preserves false, zero and unrelated sections while replacing complete settings", async () => {
+    const user = userEvent.setup(),
+      update = vi.fn((_request: unknown) => ({ settings }));
+    mount(<HostedHelpers organizationId="org" />, (r) => routes(r, update));
+    await user.click(
+      screen.getByRole("button", { name: "Configure hosted helpers" }),
+    );
+    await screen.findByLabelText("Search backend");
+    await user.type(screen.getByLabelText("Search model ID"), "-updated");
+    await user.click(
+      screen.getByRole("button", { name: "Save helper settings" }),
+    );
+    expect(update.mock.calls[0]?.[0]).toMatchObject({
+      organizationId: "org",
+      settings: {
+        search: {
+          enabled: false,
+          maxSearchesPerTurn: 0,
+          target: { modelId: "grok-updated" },
+        },
+        images: {
+          videoBridgeEnabled: true,
+          target: { selection: { case: "poolId", value: "pool" } },
+        },
+      },
+    });
+    expect(
+      (update.mock.calls[0]?.[0] as { settings: { vision?: unknown } }).settings
+        .vision,
+    ).toBeUndefined();
+  });
+  it("retains failed drafts and sends routed vision without a connection target", async () => {
+    const user = userEvent.setup(),
+      update = vi.fn((_request: unknown) => {
+        throw new ConnectError("invalid target", Code.InvalidArgument);
+      });
+    mount(<HostedHelpers organizationId="org" />, (r) => routes(r, update));
+    await user.click(
+      screen.getByRole("button", { name: "Configure hosted helpers" }),
+    );
+    await user.click(
+      await screen.findByLabelText("Configure image understanding"),
+    );
+    await user.selectOptions(screen.getByLabelText("Vision backend"), "3");
+    await user.type(
+      screen.getByLabelText("Vision route model"),
+      "vision-route",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Save helper settings" }),
+    );
+    await screen.findByRole("alert");
+    expect(
+      (screen.getByLabelText("Vision route model") as HTMLInputElement).value,
+    ).toBe("vision-route");
+    expect(update.mock.calls[0]?.[0]).toMatchObject({
+      settings: {
+        vision: { selection: { case: "routeModel", value: "vision-route" } },
+      },
+    });
+    expect(
+      within(screen.getByRole("dialog")).queryByLabelText("Vision account"),
+    ).toBeNull();
+  });
+});
