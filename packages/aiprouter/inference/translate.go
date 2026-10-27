@@ -392,7 +392,7 @@ func contentToChat(v any, w Wire) (any, error) {
 			q := clone(m)
 			q["type"] = "text"
 			parts = append(parts, q)
-		case "document", "file", "input_file", "input_audio", "audio", "refusal", "web_search_tool_result", "web_fetch_tool_result", "code_execution_tool_result", "bash_code_execution_tool_result", "text_editor_code_execution_tool_result":
+		case "image_url", "document", "file", "input_file", "input_audio", "audio", "refusal", "web_search_tool_result", "web_fetch_tool_result", "code_execution_tool_result", "bash_code_execution_tool_result", "text_editor_code_execution_tool_result":
 			parts = append(parts, clone(m))
 		case "input_image":
 			parts = append(parts, object{"type": "image_url", "image_url": object{"url": m["image_url"], "detail": m["detail"]}})
@@ -430,7 +430,17 @@ func messagesToResponses(msgs []any) ([]any, error) {
 				out = append(out, clone(item))
 				continue
 			}
-			item := object{"type": "function_call_output", "call_id": m["tool_call_id"], "output": m["content"]}
+			output := m["content"]
+			if parts := arr(output); parts != nil {
+				converted, e := messagesToResponses([]any{object{"role": "user", "content": parts}})
+				if e != nil {
+					return nil, e
+				}
+				if len(converted) > 0 {
+					output = obj(converted[0])["content"]
+				}
+			}
+			item := object{"type": "function_call_output", "call_id": m["tool_call_id"], "output": output}
 			if m["custom_result"] == true {
 				item["type"] = "custom_tool_call_output"
 			}
