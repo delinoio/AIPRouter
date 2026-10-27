@@ -3,6 +3,7 @@
 package commandcode
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -22,9 +23,10 @@ const Wire inference.Wire = "command-code"
 const maxBytes = 32 << 20
 
 type object = map[string]any
-type Adapter struct{}
+type Adapter struct{ options Options }
 
-func New() *Adapter { return &Adapter{} }
+func New() *Adapter                           { return &Adapter{} }
+func NewWithOptions(options Options) *Adapter { return &Adapter{options: options} }
 
 var _ inference.Adapter = (*Adapter)(nil)
 var _ inference.ContextualAdapter = (*Adapter)(nil)
@@ -58,6 +60,7 @@ func sessionID(ctx context.Context, in inference.AdapterInput) string {
 	return s[:8] + "-" + s[8:12] + "-4" + s[13:16] + "-8" + s[17:20] + "-" + s[20:32]
 }
 
+var safeIdentity = regexp.MustCompile(`^[A-Za-z0-9._/@:+\[\]~-]+$`)
 var identity = regexp.MustCompile(`You are Codex, (?:a coding agent|an agent) based on GPT-[0-9]+(?:\.[0-9]+)*\.`)
 
 func chatInput(in inference.AdapterInput) (object, error) {
@@ -69,8 +72,35 @@ func chatInput(in inference.AdapterInput) (object, error) {
 		return nil, err
 	}
 	var m object
-	if json.Unmarshal(b, &m) != nil || m == nil {
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.UseNumber()
+	if decoder.Decode(&m) != nil || m == nil {
 		return nil, fail(400, "invalid_json")
+	}
+	// Same-wire Chat translation intentionally preserves native custom tools. Lower
+	// those tools here because /alpha/generate accepts only function-shaped tools.
+	for _, raw := range arr(m["tools"]) {
+		t := obj(raw)
+		if t["type"] == "custom" {
+			c := obj(t["custom"])
+			if c == nil {
+				c = t
+			}
+			t["type"] = "function"
+			t["function"] = object{"name": c["name"], "description": c["description"], "parameters": object{"type": "object", "properties": object{"input": object{"type": "string"}}, "required": []any{"input"}, "additionalProperties": false}, "extra_content": object{"aiprouter": object{"custom_tool": true}}}
+		}
+	}
+	for _, raw := range arr(m["messages"]) {
+		msg := obj(raw)
+		for _, raw := range arr(msg["tool_calls"]) {
+			call := obj(raw)
+			if call["type"] == "custom" {
+				c := obj(call["custom"])
+				args, _ := json.Marshal(object{"input": c["input"]})
+				call["type"] = "function"
+				call["function"] = object{"name": c["name"], "arguments": string(args)}
+			}
+		}
 	}
 	return m, nil
 }
@@ -103,11 +133,17 @@ func (*Adapter) Build(ctx context.Context, in inference.AdapterInput) (inference
 		return empty, err
 	}
 	tools, instruction := wireTools(m)
+	if nudge := toolNudge(tools); nudge != "" {
+		system += "\n\n" + nudge
+	}
 	if instruction != "" {
 		system += "\n\n" + instruction
 	}
 	system = identity.ReplaceAllStringFunc(system, func(string) string {
-		return "You are a coding agent. Do not claim to be GPT-5 or to be made by OpenAI."
+		if safeIdentity.MatchString(model) && len(model) <= 128 {
+			return "You are a coding agent powered by the " + model + ". If asked which model you are, identify as " + model + ". Do not claim to be a different model or to have a different creator."
+		}
+		return "You are a coding agent powered by the configured model. If asked which model you are, identify as configured model. Do not claim to be GPT-5 or made by OpenAI."
 	})
 	limit := any(64000)
 	if p.DefaultMaxOutputTokens > 0 {

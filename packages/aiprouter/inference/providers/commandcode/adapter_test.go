@@ -202,3 +202,72 @@ func TestCancellationAndConcurrentDecode(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestMiMoBlockBoundariesAndSchema(t *testing.T) {
+	in := fixtureInput(`{"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object","properties":{"n":{"type":"integer","minimum":1}},"required":["n"],"additionalProperties":false}}}]}`)
+	in.Target.Model = "xiaomi/mimo-v2.6-flash"
+	envelope := `<tool_call><function=lookup><parameter=n>3</parameter></function></tool_call>`
+	for _, tc := range []struct {
+		name             string
+		events           []object
+		calls            int
+		contains, absent string
+	}{
+		{"mismatched native arguments", []object{{"type": "text-delta", "text": envelope}, {"type": "tool-call", "toolName": "lookup", "input": object{"n": float64(9)}}, {"type": "finish", "finishReason": "stop"}}, 1, "parameter=n", ""},
+		{"schema refusal stays text", []object{{"type": "text-delta", "text": strings.Replace(envelope, ">3<", ">0<", 1)}, {"type": "finish", "finishReason": "stop"}}, 0, "parameter=n", ""},
+		{"post prose not executable", []object{{"type": "text-delta", "text": "Example: " + envelope}, {"type": "finish", "finishReason": "stop"}}, 0, "Example:", ""},
+		{"split post prose echo", []object{{"type": "text-delta", "text": "Example: <too"}, {"type": "text-delta", "text": envelope[len("<too"):]}, {"type": "tool-call", "toolName": "lookup", "input": object{"n": float64(3)}}, {"type": "finish", "finishReason": "stop"}}, 1, "Example:", "parameter=n"},
+		{"block boundary cannot create call", []object{{"type": "text-start", "id": "a"}, {"type": "text-delta", "id": "a", "text": "<tool_"}, {"type": "text-end", "id": "a"}, {"type": "text-start", "id": "b"}, {"type": "text-delta", "id": "b", "text": envelope[len("<tool_"):]}, {"type": "finish", "finishReason": "stop"}}, 0, "parameter=n", ""},
+		{"interleaved reasoning", []object{{"type": "text-delta", "id": "a", "text": envelope[:20]}, {"type": "reasoning-delta", "text": "thought"}, {"type": "text-delta", "id": "a", "text": envelope[20:]}, {"type": "finish", "finishReason": "stop"}}, 1, "thought", "parameter=n"},
+		{"error does not restore", []object{{"type": "text-delta", "text": envelope}, {"type": "finish", "finishReason": "error"}}, 0, "parameter=n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var b strings.Builder
+			for _, e := range tc.events {
+				v, _ := json.Marshal(e)
+				b.Write(v)
+				b.WriteByte('\n')
+			}
+			out := decodeFixture(t, in, b.String())
+			if strings.Count(out, `"name":"lookup"`) != tc.calls || !strings.Contains(out, tc.contains) || tc.absent != "" && strings.Contains(out, tc.absent) {
+				t.Fatal(out)
+			}
+		})
+	}
+}
+func TestFreeformAndAllowedTools(t *testing.T) {
+	in := fixtureInput(`{"tools":[{"type":"custom","custom":{"name":"exec","description":"code"}},{"type":"function","function":{"name":"other","parameters":{"type":"object"}}}],"tool_choice":{"type":"allowed_tools","mode":"required","tools":[{"type":"function","function":{"name":"exec"}}]},"messages":[]}`)
+	in.Target.Model = "xiaomi/mimo-v2.6-flash"
+	r, e := New().Build(context.Background(), in)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var b object
+	json.Unmarshal(r.Body, &b)
+	p := obj(b["params"])
+	if len(arr(p["tools"])) != 1 || obj(arr(p["tools"])[0])["name"] != "exec" || !strings.Contains(str(p["system"]), "required") {
+		t.Fatalf("%s", r.Body)
+	}
+	out := decodeFixture(t, in, "{\"type\":\"text-delta\",\"text\":\"<tool_call><function=exec>await tools.read();</parameter></tool_call>\"}\n{\"type\":\"finish\",\"finishReason\":\"stop\"}\n")
+	if !strings.Contains(out, `"name":"exec"`) || !strings.Contains(out, `await tools.read();`) {
+		t.Fatal(out)
+	}
+}
+func TestParserBounds(t *testing.T) {
+	in := fixtureInput(`{}`)
+	r, e := New().DecodeWithInput(context.Background(), in, &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(strings.Repeat("x", 1<<20) + "\n"))})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer r.Body.Close()
+	if _, e = io.ReadAll(r.Body); e == nil {
+		t.Fatal("oversized line accepted")
+	}
+	in.Target.Model = "xiaomi/mimo-v2.6-flash"
+	f := newToolFilter(in)
+	text := "<tool_call>" + strings.Repeat("x", heldLimit)
+	out := f.event(object{"type": "text-delta", "text": text})
+	if len(out) != 1 || f.bytes > heldLimit {
+		t.Fatalf("held bound exceeded %d", f.bytes)
+	}
+}

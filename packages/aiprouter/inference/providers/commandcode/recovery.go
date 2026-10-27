@@ -47,7 +47,7 @@ func (*Adapter) RecoverHTTP(ctx context.Context, in inference.AdapterInput, f in
 	}
 	return inference.RecoveryDecision{Action: action, Error: e}, nil
 }
-func (*Adapter) RepairRequest(ctx context.Context, in inference.AdapterInput, r inference.AdapterRequest, f inference.HTTPFailure) (inference.AdapterRequest, bool, error) {
+func (a *Adapter) RepairRequest(ctx context.Context, in inference.AdapterInput, r inference.AdapterRequest, f inference.HTTPFailure) (inference.AdapterRequest, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return r, false, err
 	}
@@ -73,6 +73,13 @@ func (*Adapter) RepairRequest(ctx context.Context, in inference.AdapterInput, r 
 	// A refusal alone does not authorize a silent downgrade. The profile owner
 	// must supply refreshed evidence that excludes the rejected shipped rung.
 	refreshed, ok := lookup(p.RefreshedEfforts, model)
+	if !ok {
+		var err error
+		refreshed, ok, err = a.refreshProfile(ctx, in, model, effort)
+		if err != nil {
+			return r, false, err
+		}
+	}
 	if !ok || slices.Contains(refreshed, effort) {
 		return r, false, nil
 	}

@@ -130,7 +130,9 @@ func wireMessages(messages []any) ([]any, string, error) {
 				}
 				var input any = object{}
 				if s := str(f["arguments"]); s != "" {
-					if json.Unmarshal([]byte(s), &input) != nil {
+					decoder := json.NewDecoder(strings.NewReader(s))
+					decoder.UseNumber()
+					if !json.Valid([]byte(s)) || decoder.Decode(&input) != nil {
 						return nil, "", fail(400, "invalid_tool_arguments")
 					}
 				}
@@ -182,4 +184,15 @@ func wireTools(m object) ([]any, string) {
 		out = append(out, object{"name": name, "description": f["description"], "input_schema": f["parameters"]})
 	}
 	return out, instruction
+}
+
+func toolNudge(tools []any) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	names := []string{}
+	for _, raw := range tools {
+		names = append(names, "`"+str(obj(raw)["name"])+"`")
+	}
+	return "Tool contract: use the current tool catalog as ground truth. Valid tool names for this turn are exactly " + strings.Join(names, ", ") + ". These listed names are the complete top-level tool-call surface for this turn. Call only listed names with their listed argument keys; do not invent, translate, or rename tools. Names mentioned only in instructions, tool descriptions, argument descriptions, or nested helper APIs are not additional top-level tools. If a listed tool exposes nested helpers such as a tools.* API, call the listed parent tool and use those helpers only inside that tool's input. Count a tool call only after its tool result returns; batch independent read-only calls when the runtime supports it."
 }

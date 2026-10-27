@@ -16,18 +16,42 @@ const heldLimit = 64 << 10
 var envelope = regexp.MustCompile(`(?s)^<tool_call>\s*<function=([^>\s]+)>(.*)</tool_call>$`)
 var parameter = regexp.MustCompile(`(?s)<parameter=([^>]+)>(.*?)</parameter>`)
 
+type blockState uint8
+
+const (
+	probing blockState = iota
+	held
+	queued
+	dropped
+	streaming
+)
+
+type textBlock struct {
+	id          string
+	text        strings.Builder
+	probe       string
+	state       blockState
+	interrupted bool
+	candidates  map[string]bool
+	late        bool
+}
+type pendingEvent struct {
+	block *textBlock
+	event object
+}
 type toolFilter struct {
-	freeform  map[string]bool
-	enabled   bool
-	tools     map[string]object
-	pending   []object
-	bytes     int
-	probing   bool
-	streaming bool
+	enabled    bool
+	freeform   map[string]bool
+	tools      map[string]object
+	blocks     map[string]*textBlock
+	openInputs map[string]string
+	held       []*textBlock
+	pending    []pendingEvent
+	bytes      int
 }
 
 func newToolFilter(in inference.AdapterInput) *toolFilter {
-	f := &toolFilter{enabled: strings.HasPrefix(strings.ToLower(CanonicalModel(in.Target.Model)), "xiaomi/mimo-"), tools: map[string]object{}, freeform: map[string]bool{}}
+	f := &toolFilter{enabled: strings.HasPrefix(strings.ToLower(CanonicalModel(in.Target.Model)), "xiaomi/mimo-"), tools: map[string]object{}, freeform: map[string]bool{}, blocks: map[string]*textBlock{}, openInputs: map[string]string{}}
 	if !f.enabled {
 		return f
 	}
@@ -44,16 +68,144 @@ func newToolFilter(in inference.AdapterInput) *toolFilter {
 	tools, _ := wireTools(m)
 	for _, v := range tools {
 		t := obj(v)
-		f.tools[str(t["name"])] = obj(t["input_schema"])
+		// Schema validation uses finite JSON numbers; original request schema bytes
+		// remain untouched in Build.
+		raw, _ := json.Marshal(t["input_schema"])
+		var schema object
+		_ = json.Unmarshal(raw, &schema)
+		f.tools[str(t["name"])] = schema
 	}
 	return f
 }
+func (f *toolFilter) newBlock(id string, interrupted bool) *textBlock {
+	b := &textBlock{id: id, state: probing, interrupted: interrupted, candidates: map[string]bool{}}
+	for id := range f.openInputs {
+		b.candidates[id] = true
+	}
+	f.blocks[id] = b
+	return b
+}
 func (f *toolFilter) drain() []object {
-	v := f.pending
-	f.pending = nil
-	f.bytes = 0
-	f.probing = false
-	return v
+	var out []object
+	index := 0
+	for _, p := range f.pending {
+		if p.block != nil && (p.block.state == held || p.block.state == probing) {
+			break
+		}
+		index++
+		if p.block == nil || p.block.state != dropped {
+			out = append(out, p.event)
+		}
+	}
+	f.pending = append([]pendingEvent(nil), f.pending[index:]...)
+	if len(f.pending) == 0 {
+		f.bytes = 0
+	}
+	return out
+}
+func (f *toolFilter) boundary(except string) []object {
+	for id, b := range f.blocks {
+		if id != except && b.state == probing {
+			b.state = queued
+			b.interrupted = true
+			b.text.Reset()
+		}
+	}
+	return f.drain()
+}
+func (f *toolFilter) append(b *textBlock, e object) []object {
+	raw, _ := json.Marshal(e)
+	size := len(raw)
+	var out []object
+	if f.bytes+size > heldLimit {
+		out, _ = f.finish(false)
+		if b != nil {
+			b.state = queued
+			b.interrupted = true
+			b.text.Reset()
+		}
+	}
+	f.pending = append(f.pending, pendingEvent{b, e})
+	f.bytes += size
+	return append(out, f.drain()...)
+}
+func probe(b *textBlock, text string) {
+	if b.state != probing {
+		return
+	}
+	for _, c := range text {
+		if b.probe == "" && strings.TrimSpace(string(c)) == "" {
+			continue
+		}
+		b.probe += string(c)
+		if !strings.HasPrefix("<tool_call>", b.probe) {
+			b.state = queued
+			b.text.Reset()
+			return
+		}
+		if b.probe == "<tool_call>" {
+			b.state = held
+			b.probe = ""
+			return
+		}
+	}
+}
+func marker(text string) int {
+	if i := strings.Index(text, "<tool_call>"); i >= 0 {
+		return i
+	}
+	for n := min(len(text), len("<tool_call>")-1); n > 0; n-- {
+		if strings.HasSuffix(text, "<tool_call>"[:n]) {
+			return len(text) - n
+		}
+	}
+	return -1
+}
+func (f *toolFilter) textDelta(id, text string) []object {
+	out := f.boundary(id)
+	b := f.blocks[id]
+	if b == nil {
+		b = f.newBlock(id, false)
+	}
+	old := b.state
+	probe(b, text)
+	if b.state == held && old != held {
+		f.held = append(f.held, b)
+	}
+	if b.state == streaming || b.state == queued {
+		if i := marker(text); i >= 0 {
+			if i > 0 {
+				out = append(out, f.append(b, object{"type": "text-delta", "text": text[:i]})...)
+			}
+			b = f.newBlock(id, true)
+			text = text[i:]
+			probe(b, text)
+			if b.state == held {
+				f.held = append(f.held, b)
+			}
+		}
+	}
+	if b.state == dropped {
+		b = f.newBlock(id, true)
+		b.state = queued
+	}
+	if b.state == probing || b.state == held {
+		b.text.WriteString(text)
+	}
+	out = append(out, f.append(b, object{"type": "text-delta", "text": text})...)
+	if b.state == queued && len(f.pending) == 0 {
+		b.state = streaming
+	}
+	return out
+}
+func (f *toolFilter) end(id string) []object {
+	b := f.blocks[id]
+	delete(f.blocks, id)
+	if b != nil && b.state == probing {
+		b.state = queued
+		b.text.Reset()
+	}
+	return f.drain()
 }
 func (f *toolFilter) event(e object) []object {
 	kind := str(e["type"])
@@ -63,120 +215,205 @@ func (f *toolFilter) event(e object) []object {
 		}
 		return nil
 	}
-	if kind == "text-start" {
-		f.streaming = false
-		return nil
+	id := str(e["id"])
+	// Metadata-only frames must not grow the block/input registries without the
+	// held-text byte accounting. Fall back to presentation text at this bound.
+	if len(id) > 1024 || len(str(e["toolName"])) > 1024 || len(f.blocks)+len(f.openInputs) >= 1024 {
+		released, _ := f.finish(false)
+		f.enabled = false
+		return append(released, f.event(e)...)
 	}
-	if kind == "text-end" {
-		return nil
-	}
-	if kind == "tool-input-start" {
-		return nil
-	}
-	if kind == "text-delta" {
-		text := str(e["text"])
-		if len(f.pending) == 0 && f.streaming {
-			return []object{e}
-		}
-		if len(f.pending) == 0 {
-			trimmed := strings.TrimLeft(text, " \t\r\n")
-			if !strings.HasPrefix("<tool_call>", trimmed) && !strings.Contains(text, "<tool_call>") {
-				f.streaming = true
-				return []object{e}
+	switch kind {
+	case "text-start":
+		out := f.end(id)
+		out = append(out, f.boundary(id)...)
+		f.newBlock(id, false)
+		return out
+	case "text-end":
+		return f.end(id)
+	case "text-delta":
+		return f.textDelta(id, str(e["text"]))
+	case "tool-input-start":
+		out := f.boundary("\x00boundary")
+		name := str(e["toolName"])
+		f.openInputs[id] = name
+		for _, b := range f.held {
+			if b.interrupted && len(b.candidates) > 0 && !b.late && looseName(b.text.String()) == name {
+				b.candidates[id] = true
+				b.late = true
 			}
-			f.probing = true
 		}
-	}
-	if kind == "tool-call" && len(f.pending) > 0 {
-		// A native call is canonical. Drop only a complete envelope for that same
-		// declared function; unrelated text and reasoning retain their original order.
-		f.dropEcho(str(e["toolName"]), e["input"])
-	}
-	if len(f.pending) == 0 && !f.probing {
-		return []object{e}
-	}
-	size, _ := json.Marshal(e)
-	f.bytes += len(size)
-	f.pending = append(f.pending, e)
-	if f.bytes > heldLimit {
-		f.streaming = true
-		return f.drain()
-	}
-	return nil
-}
-func (f *toolFilter) text() string {
-	var b strings.Builder
-	for _, e := range f.pending {
-		if e["type"] == "text-delta" {
-			b.WriteString(str(e["text"]))
+		return out
+	case "tool-call":
+		out := f.boundary("\x00boundary")
+		callID, name := str(e["toolCallId"]), str(e["toolName"])
+		delete(f.openInputs, callID)
+		input := e["input"]
+		if input == nil {
+			input = e["args"]
 		}
-	}
-	return b.String()
-}
-func (f *toolFilter) replaceText(text string) {
-	out := []object{}
-	inserted := false
-	for _, e := range f.pending {
-		if e["type"] == "text-delta" {
-			if !inserted && text != "" {
-				out = append(out, object{"type": "text-delta", "text": text})
-				inserted = true
+		remaining := []*textBlock{}
+		for _, b := range f.held {
+			if b.state != held {
+				continue
 			}
-		} else {
-			out = append(out, e)
+			if len(b.candidates) > 0 && !b.candidates[callID] {
+				remaining = append(remaining, b)
+				continue
+			}
+			markup, valid := parseMarkup(b.text.String())
+			if valid && markup.name == name && matchesMarkup(markup, input) {
+				b.state = dropped
+				b.text.Reset()
+				continue
+			}
+			delete(b.candidates, callID)
+			if len(b.candidates) == 0 {
+				if !b.interrupted && !valid && f.tools[name] != nil && looseName(b.text.String()) == name {
+					b.state = dropped
+				} else {
+					b.state = queued
+				}
+				b.text.Reset()
+			} else {
+				remaining = append(remaining, b)
+			}
 		}
+		f.held = remaining
+		return append(out, f.append(nil, e)...)
+	case "reasoning-delta":
+		out := f.boundary("\x00boundary")
+		return append(out, f.append(nil, e)...)
+	default:
+		return f.boundary("\x00boundary")
 	}
-	f.pending = out
-}
-func (f *toolFilter) dropEcho(name string, input any) {
-	if f.tools[name] == nil {
-		return
-	}
-	text := f.text()
-	start := strings.Index(text, "<tool_call>")
-	if start < 0 {
-		return
-	}
-	tail := strings.TrimSpace(text[start:])
-	match := envelope.FindStringSubmatch(tail)
-	if match == nil || match[1] != name || strings.Contains(match[2], "<tool_call>") {
-		return
-	}
-	// The upstream permits removal of malformed complete echoes for a declared
-	// native function. The native call supplies the authoritative argument bytes.
-	f.replaceText(text[:start])
-	f.probing = len(f.pending) > 0
 }
 func (f *toolFilter) finish(clean bool) ([]object, bool) {
-	if !f.enabled {
-		return f.drain(), false
-	}
-	text := strings.TrimSpace(f.text())
-	match := envelope.FindStringSubmatch(text)
-	if clean && match != nil && !strings.Contains(match[2], "<tool_call>") {
-		schema, known := f.tools[match[1]]
-		if known {
-			if args, ok := restoreMarkup(match[2], schema, f.freeform[match[1]]); ok {
-				out := []object{}
-				inserted := false
-				for _, e := range f.pending {
-					if e["type"] == "text-delta" {
-						if !inserted {
-							out = append(out, object{"type": "tool-call", "toolCallId": uuid(), "toolName": match[1], "input": args})
-							inserted = true
-						}
-					} else {
-						out = append(out, e)
-					}
+	out := []object{}
+	salvaged := false
+	for _, p := range f.pending {
+		b := p.block
+		if b == nil {
+			out = append(out, p.event)
+			continue
+		}
+		if b.state == held {
+			markup, valid := parseMarkup(b.text.String())
+			schema := f.tools[markup.name]
+			if clean && !b.interrupted && valid && schema != nil {
+				if args, ok := restoreMarkup(markup.body, schema, f.freeform[markup.name]); ok {
+					out = append(out, object{"type": "tool-call", "toolCallId": uuid(), "toolName": markup.name, "input": args})
+					b.state = dropped
+					salvaged = true
 				}
-				f.drain()
-				return out, true
 			}
-			// Complete malformed declared envelopes are suppressed on a clean finish.
-			f.replaceText("")
+			if b.state == held {
+				if clean && !b.interrupted && !valid && f.tools[looseName(b.text.String())] != nil {
+					b.state = dropped
+				} else {
+					b.state = queued
+				}
+			}
+		}
+		if b.state != dropped {
+			out = append(out, p.event)
 		}
 	}
-	return f.drain(), false
+	f.pending = nil
+	f.held = nil
+	f.bytes = 0
+	f.blocks = map[string]*textBlock{}
+	f.openInputs = map[string]string{}
+	return out, salvaged
+}
+
+type markup struct {
+	name, body, raw string
+	params          map[string]string
+}
+
+func looseName(text string) string {
+	m := envelope.FindStringSubmatch(strings.TrimSpace(text))
+	if m == nil || strings.Contains(m[2], "<tool_call>") {
+		return ""
+	}
+	return m[1]
+}
+func parseMarkup(text string) (markup, bool) {
+	m := envelope.FindStringSubmatch(strings.TrimSpace(text))
+	if m == nil {
+		return markup{}, false
+	}
+	v := markup{name: m[1], body: m[2]}
+	body := m[2]
+	if strings.Contains(body, "<tool_call>") || strings.Contains(body, "</tool_call>") || strings.Contains(body, "<function=") {
+		return markup{}, false
+	}
+	closed := strings.HasSuffix(strings.TrimSpace(body), "</function>")
+	if closed {
+		body = strings.TrimSuffix(strings.TrimRight(body, " \t\r\n"), "</function>")
+	}
+	if !strings.Contains(body, "<parameter=") {
+		v.raw = trimNewlines(strings.TrimSuffix(body, "</parameter>"))
+		return v, true
+	}
+	if !closed || strings.TrimSpace(parameter.ReplaceAllString(body, "")) != "" {
+		return markup{}, false
+	}
+	v.params = map[string]string{}
+	for _, p := range parameter.FindAllStringSubmatch(body, -1) {
+		key := strings.TrimSpace(p[1])
+		if key == "" {
+			return markup{}, false
+		}
+		if _, exists := v.params[key]; exists {
+			return markup{}, false
+		}
+		v.params[key] = trimNewlines(p[2])
+	}
+	return v, len(v.params) > 0
+}
+func matchesMarkup(m markup, input any) bool {
+	if m.params == nil {
+		if s, ok := input.(string); ok {
+			return strings.TrimSpace(s) == strings.TrimSpace(m.raw)
+		}
+		o := obj(input)
+		if len(o) != 1 {
+			return false
+		}
+		for _, v := range o {
+			s, ok := v.(string)
+			return ok && strings.TrimSpace(s) == strings.TrimSpace(m.raw)
+		}
+		return false
+	}
+	if s, ok := input.(string); ok {
+		if json.Unmarshal([]byte(s), &input) != nil {
+			return false
+		}
+	}
+	o := obj(input)
+	if len(o) != len(m.params) {
+		return false
+	}
+	for key, raw := range m.params {
+		expected, ok := o[key]
+		if !ok {
+			return false
+		}
+		if s, ok := expected.(string); ok {
+			if s != raw {
+				return false
+			}
+		} else {
+			var v any
+			if json.Unmarshal([]byte(raw), &v) != nil || !reflect.DeepEqual(v, expected) {
+				return false
+			}
+		}
+	}
+	return true
 }
 func trimNewlines(s string) string {
 	s = strings.TrimPrefix(s, "\r\n")
@@ -187,7 +424,7 @@ func trimNewlines(s string) string {
 func restoreMarkup(body string, schema object, freeform bool) (object, bool) {
 	closed := strings.HasSuffix(strings.TrimSpace(body), "</function>")
 	if closed {
-		body = strings.TrimSuffix(strings.TrimSpace(body), "</function>")
+		body = strings.TrimSuffix(strings.TrimRight(body, " \t\r\n"), "</function>")
 	}
 	props := obj(schema["properties"])
 	out := object{}
@@ -218,7 +455,7 @@ func restoreMarkup(body string, schema object, freeform bool) (object, bool) {
 			}
 			raw := trimNewlines(m[2])
 			var value any
-			if json.Unmarshal([]byte(raw), &value) != nil || !validSchema(value, rule, 0) {
+			if obj(rule)["type"] == "string" || json.Unmarshal([]byte(raw), &value) != nil || !validSchema(value, rule, 0) {
 				value = raw
 			}
 			if !validSchema(value, rule, 0) {
@@ -227,7 +464,7 @@ func restoreMarkup(body string, schema object, freeform bool) (object, bool) {
 			out[key] = value
 		}
 	}
-	return out, validSchema(out, schema, 0)
+	return out, supportedSchema(schema, 0) && validSchema(out, schema, 0)
 }
 
 // Unknown schema assertions fail closed: text is never promoted to an executable
@@ -432,4 +669,49 @@ func matchesType(v any, t string) bool {
 		return ok && n >= -9007199254740991 && n <= 9007199254740991 && n == float64(int64(n))
 	}
 	return false
+}
+
+func supportedSchema(raw any, depth int) bool {
+	if depth > 16 {
+		return false
+	}
+	if _, ok := raw.(bool); ok {
+		return true
+	}
+	s := obj(raw)
+	if s == nil {
+		return false
+	}
+	for key, v := range s {
+		switch key {
+		case "$schema", "$id", "title", "description", "default", "examples", "deprecated", "readOnly", "writeOnly", "type", "enum", "const", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "minItems", "maxItems", "uniqueItems", "minProperties", "maxProperties", "required":
+		case "properties":
+			p := obj(v)
+			if p == nil {
+				return false
+			}
+			for _, child := range p {
+				if !supportedSchema(child, depth+1) {
+					return false
+				}
+			}
+		case "items", "additionalProperties":
+			if !supportedSchema(v, depth+1) {
+				return false
+			}
+		case "anyOf", "oneOf", "allOf":
+			a := arr(v)
+			if len(a) == 0 {
+				return false
+			}
+			for _, child := range a {
+				if !supportedSchema(child, depth+1) {
+					return false
+				}
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
