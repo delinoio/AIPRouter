@@ -97,7 +97,7 @@ func (a *inferenceAdapter) beginJEVPin(ctx context.Context, p inference.Principa
 		if err != nil {
 			return nil, nil, err
 		}
-		if ok && effortAllowed {
+		if ok && effortAllowed && (c.Quota == nil || c.Quota.Tier != jevQuotaNearlyExhausted) {
 			return scope, current.Decision, nil
 		}
 	}
@@ -190,6 +190,8 @@ func (a *inferenceAdapter) withJEVModelInvocation(invoke func(context.Context, s
 			attempted[k] = maps.Clone(v)
 		}
 		account, version, target, pin := a.activeAccount, a.activeVersion, a.activeTarget, a.jev
+		native := maps.Clone(a.native)
+		a.native = nil
 		a.jev = nil
 		a.mu.Unlock()
 		defer func() {
@@ -202,6 +204,7 @@ func (a *inferenceAdapter) withJEVModelInvocation(invoke func(context.Context, s
 			a.activeVersion = version
 			a.activeTarget = target
 			a.jev = pin
+			a.native = native
 			a.mu.Unlock()
 		}()
 		return invoke(ctx, model, raw)
@@ -342,13 +345,26 @@ func (a *inferenceAdapter) selectJEVRouteInput(ctx context.Context, p inference.
 		Route      *v1.Route
 		Selections map[string]store.SelectionRequest
 	}{chosen, requests})
+	if cfg.GetDecisionQuotaSignals() {
+		tiers, err := resolveJEVQuotaTiers(cfg.GetDecisionQuotaTiers())
+		if err != nil {
+			return out, err
+		}
+		for i := range candidates {
+			signal, err := a.jevQuotaForSelection(ctx, p, selections[candidates[i].Key], tiers)
+			if err != nil {
+				return out, err
+			}
+			candidates[i].Quota = &signal
+		}
+	}
 	scope, pinned, err := a.beginJEVPin(ctx, p, chosen, candidates, config, eligible)
 	if err != nil {
 		return out, err
 	}
 	var decision jevDecision
 	if pinned != nil {
-		decision = *pinned
+		decision = withJEVQuotaSummary(*pinned, candidates)
 	} else {
 		options := jevOptions{ConnectionID: cfg.DecisionConnectionId, Model: cfg.DecisionServiceModel, DecisionModel: cfg.DecisionModel, Timeout: time.Duration(cfg.DecisionTimeoutMs) * time.Millisecond, Body: body, Candidates: candidates, Eligible: eligible}
 		if invoke != nil {
