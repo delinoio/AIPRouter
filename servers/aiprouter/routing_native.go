@@ -21,6 +21,11 @@ import (
 type nativeSelectionState struct {
 	Group, Version, Session, Provider, Model, TargetProvider string
 	ConfigGroup                                              string
+	Health                                                   *nativeHealthReceipt
+	Family                                                   *nativeFamilyReceipt
+	HealthProbeAccount                                       string
+	HealthDetour                                             bool
+	HealthHoldSince                                          time.Time
 	Epoch, ActiveEpoch                                       int64
 	ActiveSession                                            string
 	PreserveActive                                           bool
@@ -53,6 +58,7 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 	now := time.Now()
 	quotas := map[string]nativeQuotaSnapshot{}
 	deniedIDs := map[string]bool{}
+	familyBlocked := map[string]bool{}
 	eligible := make([]store.SelectionCandidate, 0, len(req.Candidates))
 	preferred := []store.SelectionCandidate{}
 	for _, c := range req.Candidates {
@@ -66,16 +72,28 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 		if skip {
 			continue
 		}
+		q, _, e := a.readNativeQuota(ctx, p, c.ID, c.Version)
+		if e != nil {
+			return req, e
+		}
+		recovered, e := a.recoverNativeQuotaIfDue(ctx, p, t, provider, c)
+		if e != nil {
+			return req, e
+		}
+		if !recovered {
+			continue
+		}
+		// A recovery read may have replaced the windows used for this very pick.
+		q, _, e = a.readNativeQuota(ctx, p, c.ID, c.Version)
+		if e != nil {
+			return req, e
+		}
 		until, e := a.s.AccountCooldown(ctx, scopeOf(p), c.ID, req.Model)
 		if e != nil {
 			return req, inferenceError(e)
 		}
 		if until != nil && until.After(now) {
 			continue
-		}
-		q, _, e := a.readNativeQuota(ctx, p, c.ID, c.Version)
-		if e != nil {
-			return req, e
 		}
 		if provider == "openai" && req.PinnedID == "" {
 			if options.planExcluded(q.Plan) {
@@ -84,6 +102,9 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 			credits := options.members[c.ID] != nil && options.members[c.ID].AllowCredits && q.spendableCredits(now)
 			held := false
 			for _, w := range q.Windows {
+				if w.Window == "weekly" && (strings.EqualFold(q.Plan, "free") || strings.EqualFold(q.Plan, "go")) {
+					continue
+				}
 				if nativeWindowCurrent(w, now) && w.Percent >= 100 && (w.Window == "5h" && (w.ResetAt != nil || now.Sub(w.ObservedAt) <= 5*time.Minute) || w.Window != "5h" && w.ResetAt != nil) {
 					held = true
 				}
@@ -93,11 +114,16 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 			}
 		}
 		if provider != "openai" {
-			family := nativeModelFamily(t.Model)
-			if at := q.Rejected[family]; family != "" && !at.IsZero() && !at.After(now) && now.Sub(at) < 30*time.Minute && at.After(q.RejectionCleared[family]) {
+			eligibleFamily, e := a.nativeFamilyEligible(ctx, p, c, t.Model)
+			if e != nil {
+				return req, e
+			}
+			if !eligibleFamily {
+				familyBlocked[c.ID] = true
 				continue
 			}
 		}
+
 		quotas[c.ID] = q
 		eligible = append(eligible, c)
 		denied, e := a.s.AccountSoftDenied(ctx, lease, c.ID, c.Version, t.Model)
@@ -117,6 +143,41 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 	}
 	req.AffinityKey = ""
 	if !options.enabled || req.PinnedID != "" {
+		// Failure-window steering applies to fresh placement even when the
+		// proactive pool selector is disabled. Existing conversation bindings
+		// must not be mistaken for new threads by the manual-pin policy.
+		bound := false
+		if provider == "openai" && inference.AffinitySession(ctx) != "" {
+			group := "native/" + provider + "/" + req.GroupID + "/" + nativeQuotaScope(provider, t.Model)
+			session := selectionVersion([]string{p.KeyID, provider, "session", inference.AffinitySession(ctx)})
+			affinity, e := a.s.GetNativeAffinity(ctx, lease, group, req.Version, session)
+			if e != nil {
+				return req, inferenceError(e)
+			}
+			bound = affinity.AccountID != ""
+		}
+		if !bound {
+			filtered, e := a.filterNativeHealthNew(ctx, p, t, provider, eligible, req.PinnedID)
+			if e != nil {
+				return req, e
+			}
+			if req.PinnedID != "" {
+				found := false
+				for _, c := range filtered {
+					found = found || c.ID == req.PinnedID
+				}
+				if !found {
+					if !a.nativeHealthPolicy(t).DetourPinned {
+						return req, inference.ErrNoCredential
+					}
+					req.PinnedID = ""
+				}
+			}
+			eligible = filtered
+		}
+		if len(eligible) == 0 {
+			return req, inference.ErrNoCredential
+		}
 		req.Candidates = eligible
 		return req, nil
 	}
@@ -156,12 +217,25 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 			return req, inferenceError(e)
 		}
 		state.Epoch = affinity.Epoch
+		if cs, handled, e := a.resolveNativeHealthAffinity(ctx, p, t, provider, &state, affinity, eligible); e != nil {
+			return req, e
+		} else if handled {
+			if state.HealthDetour {
+				eligible = cs
+				goto nativeFreshSelection
+			}
+			return save(cs)
+		}
 		for _, c := range eligible {
 			if c.ID != affinity.AccountID || c.Version != affinity.CredentialVersion {
 				continue
 			}
 			retains := !nativeExhausted(provider, t.Model, quotas[c.ID], now)
-			if provider == "openai" && !options.cacheAffinity {
+			if provider == "openai" {
+				score, known := options.score(provider, t.Model, c.ID, quotas[c.ID], now)
+				retains = !known || score < 100
+			}
+			if provider == "openai" && !options.cacheAffinity && !nativeUploadedFiles(inference.RoutingRequestBody(ctx)) {
 				retains = options.headroom(provider, t.Model, c.ID, quotas[c.ID], now)
 			}
 			if retains {
@@ -177,7 +251,7 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 					present = true
 				}
 			}
-			state.Preserve = !present || deniedIDs[affinity.AccountID]
+			state.Preserve = !present || deniedIDs[affinity.AccountID] || familyBlocked[affinity.AccountID]
 			if provider != "openai" {
 				allowed := false
 				for _, c := range eligible {
@@ -195,6 +269,14 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 				state.Preserve = true
 			}
 		}
+	}
+	if len(eligible) == 0 {
+		return req, inference.ErrNoCredential
+	}
+nativeFreshSelection:
+	eligible, e = a.filterNativeHealthNew(ctx, p, t, provider, eligible, req.PinnedID)
+	if e != nil {
+		return req, e
 	}
 	if len(eligible) == 0 {
 		return req, inference.ErrNoCredential
@@ -257,9 +339,48 @@ func (a *inferenceAdapter) preselectNative(ctx context.Context, p inference.Prin
 			sort.SliceStable(eligible, func(i, j int) bool { return eligible[i].ID < eligible[j].ID })
 		}
 		start := 0
+		foundActive := false
 		for i, c := range eligible {
 			if c.ID == active.AccountID {
 				start = (i + 1) % len(eligible)
+				foundActive = true
+			}
+		}
+		if !foundActive && active.AccountID != "" {
+			if !declared {
+				for i, c := range eligible {
+					if c.ID > active.AccountID {
+						start = i
+						break
+					}
+				}
+			} else {
+				for _, rule := range options.routes {
+					if !nativeGlob(rule.Match, t.Model) {
+						continue
+					}
+					at := -1
+					for i, id := range rule.ConnectionIds {
+						if id == active.AccountID {
+							at = i
+							break
+						}
+					}
+					if at >= 0 {
+						matched := false
+						for step := 1; step <= len(rule.ConnectionIds) && !matched; step++ {
+							id := rule.ConnectionIds[(at+step)%len(rule.ConnectionIds)]
+							for i, c := range eligible {
+								if c.ID == id {
+									start = i
+									matched = true
+									break
+								}
+							}
+						}
+					}
+					break
+				}
 			}
 		}
 		eligible = append(append([]store.SelectionCandidate{}, eligible[start:]...), eligible[:start]...)
@@ -432,4 +553,41 @@ func (a *inferenceAdapter) nativeConfigurationCurrent(ctx context.Context, p inf
 		Route *v1.Route
 		Pool  *v1.Pool
 	}{&route, &pool}) == s.Version, nil
+}
+
+// Uploaded references remain scoped to their issuing account even when the user
+// disables prompt-cache affinity. Tool schemas/arguments are caller data, not
+// evidence that an uploaded object participates in conversation history.
+func nativeUploadedFiles(raw []byte) bool {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return false
+	}
+	var visit func(any) bool
+	visit = func(value any) bool {
+		switch node := value.(type) {
+		case []any:
+			for _, v := range node {
+				if visit(v) {
+					return true
+				}
+			}
+		case map[string]any:
+			for _, k := range []string{"file_id", "upload_id"} {
+				if v, ok := node[k].(string); ok && v != "" {
+					return true
+				}
+			}
+			for k, v := range node {
+				if k == "arguments" || k == "input_schema" || k == "parameters" || k == "tools" || k == "input" && node["type"] == "tool_use" {
+					continue
+				}
+				if visit(v) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return visit(value)
 }

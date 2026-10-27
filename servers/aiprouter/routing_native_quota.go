@@ -159,6 +159,15 @@ func nativeReset(raw string) *time.Time {
 	return &t
 }
 
+// Preserve explicit empty/invalid reset evidence for the advisory reader.
+func nativeResetHeader(h http.Header, key string) string {
+	value := h.Get(key)
+	if value == "" && len(h.Values(key)) > 0 {
+		return "invalid"
+	}
+	return value
+}
+
 // Header classification follows the pinned quota.ts duration rules. These are
 // observations from the dispatched model response, never support-call headers.
 func parseNativeQuota(provider, model string, status int, h http.Header, now time.Time) nativeQuotaSnapshot {
@@ -184,23 +193,23 @@ func parseNativeQuota(provider, model string, status int, h http.Header, now tim
 			if n, ok := nativeNumber(primary); ok && n >= 0 && n <= 100 {
 				out.MonthlyPrimaryObservedAt = now
 			}
-			add("monthly", primary, h.Get(prefix+"primary-reset-at"), 1)
-			add("weekly", secondary, h.Get(prefix+"secondary-reset-at"), 1)
+			add("monthly", primary, nativeResetHeader(h, prefix+"primary-reset-at"), 1)
+			add("weekly", secondary, nativeResetHeader(h, prefix+"secondary-reset-at"), 1)
 		case minutes > 0 && minutes < 24*60:
-			add("5h", primary, h.Get(prefix+"primary-reset-at"), 1)
-			add("weekly", secondary, h.Get(prefix+"secondary-reset-at"), 1)
+			add("5h", primary, nativeResetHeader(h, prefix+"primary-reset-at"), 1)
+			add("weekly", secondary, nativeResetHeader(h, prefix+"secondary-reset-at"), 1)
 		case primaryKnown:
-			add("weekly", primary, h.Get(prefix+"primary-reset-at"), 1)
+			add("weekly", primary, nativeResetHeader(h, prefix+"primary-reset-at"), 1)
 		default:
-			add("weekly", secondary, h.Get(prefix+"secondary-reset-at"), 1)
+			add("weekly", secondary, nativeResetHeader(h, prefix+"secondary-reset-at"), 1)
 		}
 		if !(minutes >= 28*24*60 && primaryKnown) {
-			add("monthly", h.Get(prefix+"tertiary-used-percent"), h.Get(prefix+"tertiary-reset-at"), 1)
+			add("monthly", h.Get(prefix+"tertiary-used-percent"), nativeResetHeader(h, prefix+"tertiary-reset-at"), 1)
 		}
 	} else if provider == "anthropic" || provider == "anthropic2" {
 		for _, pair := range [][2]string{{"5h", "5h"}, {"weekly", "7d"}, {"fable", "7d_oi"}} {
 			prefix := "anthropic-ratelimit-unified-" + pair[1]
-			add(pair[0], h.Get(prefix+"-utilization"), h.Get(prefix+"-reset"), 100)
+			add(pair[0], h.Get(prefix+"-utilization"), nativeResetHeader(h, prefix+"-reset"), 100)
 			if status == 429 && strings.TrimSpace(h.Get(prefix+"-status")) == "rejected" {
 				if out.Rejected == nil {
 					out.Rejected = map[string]time.Time{}
@@ -284,6 +293,9 @@ func nativeExhausted(provider, model string, q nativeQuotaSnapshot, now time.Tim
 	return false
 }
 func (a *inferenceAdapter) observeNativeResponse(ctx context.Context, p inference.Principal, t inference.Target, c inference.Credential, status int, h http.Header) error {
+	if err := a.observeNativeFamily(ctx, p, t, c, status, h); err != nil {
+		return err
+	}
 	if t.Auth != inference.OAuth {
 		return nil
 	}
@@ -409,6 +421,9 @@ func parseNativeQuotaBody(provider string, raw []byte, now time.Time) (nativeQuo
 					if at, e := time.Parse(time.RFC3339Nano, raw); e == nil {
 						window.ResetAt = &at
 					} else {
+						if raw == "" {
+							raw = "invalid"
+						}
 						window.ResetAt = nativeReset(raw)
 					}
 				} else {
@@ -449,6 +464,9 @@ func parseNativeQuotaBody(provider string, raw []byte, now time.Time) (nativeQuo
 					if at, err := time.Parse(time.RFC3339Nano, text); err == nil {
 						reset = &at
 					} else {
+						if text == "" {
+							text = "invalid"
+						}
 						reset = nativeReset(text)
 					}
 				} else {

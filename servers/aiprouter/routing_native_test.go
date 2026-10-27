@@ -55,6 +55,11 @@ func TestNativeQuotaPinnedWindows(t *testing.T) {
 	if len(q.Windows) != 1 || q.Windows[0].Percent != 99.991 || q.Windows[0].ResetAt == nil || !q.Windows[0].ResetAt.IsZero() {
 		t.Fatalf("raw advisory/reset evidence changed: %+v", q)
 	}
+	h.Set("anthropic-ratelimit-unified-7d_oi-reset", "")
+	emptyReset := parseNativeQuota("anthropic", "claude-fable-5", 200, h, now)
+	if len(emptyReset.Windows) != 1 || emptyReset.Windows[0].ResetAt == nil || !emptyReset.Windows[0].ResetAt.IsZero() {
+		t.Fatal("explicit empty reset became valid undated evidence")
+	}
 	if nativeExhausted("anthropic", "claude-sonnet-4", nativeTestQuota(now, "fable", 100), now) {
 		t.Fatal("Fable quota leaked into Sonnet")
 	}
@@ -283,5 +288,101 @@ func TestNativeRoundRobinStickyAcrossInstances(t *testing.T) {
 			t.Fatal(err)
 		}
 		release()
+	}
+}
+
+func TestNativeUploadedFileRetention(t *testing.T) {
+	if !nativeUploadedFiles([]byte(`{"input":[{"content":[{"type":"input_file","file_id":"file-1"}]}]}`)) {
+		t.Fatal("uploaded reference lost retention")
+	}
+	if nativeUploadedFiles([]byte(`{"tools":[{"parameters":{"file_id":"example"}}],"input":[{"type":"tool_use","input":{"file_id":"caller-value"}}]}`)) {
+		t.Fatal("tool schema/input invented uploaded reference")
+	}
+}
+
+func TestNativePinnedNewPlacementHealth(t *testing.T) {
+	a, sc, key := poolRoutingFixture(t, v1.PoolStrategy_POOL_STRATEGY_PRIORITY)
+	p := admitRouting(t, a, key)
+	ctx := context.Background()
+	target := inference.Target{Provider: "logical", Model: "gpt-6-astra", Auth: inference.OAuth}
+	req := store.SelectionRequest{GroupID: "pool", Version: "config", Model: target.Model, PinnedID: "a"}
+	for _, id := range []string{"a", "b", "c"} {
+		_, v, e := a.s.GetPrivateVersion(ctx, sc, "provider", id)
+		if e != nil {
+			t.Fatal(e)
+		}
+		req.Candidates = append(req.Candidates, store.SelectionCandidate{ID: id, Version: v})
+	}
+	l, e := a.current(p)
+	if e != nil {
+		t.Fatal(e)
+	}
+	e = a.s.UpdateNativeHealth(ctx, l, nativeHealthKey(req.Candidates[0], store.NativeHealthTransient, ""), func(h store.NativeHealth) (store.NativeHealth, error) {
+		s := nativeHealthState{Degraded: true}
+		for i := 0; i < 20; i++ {
+			s.Samples = append(s.Samples, [2]int64{h.Now.UnixMilli(), 1})
+		}
+		h.Payload, _ = json.Marshal(s)
+		return h, nil
+	})
+	if e != nil {
+		t.Fatal(e)
+	}
+	opts := &v1.NativePoolOptions{Enabled: proto.Bool(false)}
+	a.selections = map[string]routeSelection{selectionKey(target): {pool: &v1.Pool{NativeOptions: opts}}}
+	got, e := a.preselectNative(ctx, p, target, "openai", req)
+	if e != nil || got.PinnedID != "a" {
+		t.Fatalf("default pin changed: %v %v", got, e)
+	}
+	opts.PinnedTransientPolicy = v1.NativePinnedTransientPolicy_NATIVE_PINNED_TRANSIENT_POLICY_DETOUR_NEW_THREADS.Enum()
+	got, e = a.preselectNative(ctx, p, target, "openai", req)
+	if e != nil || got.PinnedID != "" || len(got.Candidates) != 2 {
+		t.Fatalf("new pin detour: %v %v", got, e)
+	}
+	opts.FailureWindow = proto.Bool(false)
+	got, e = a.preselectNative(ctx, p, target, "openai", req)
+	if e != nil || got.PinnedID != "a" {
+		t.Fatalf("disabled window changed pin: %v %v", got, e)
+	}
+}
+
+func TestNativeFillFirstExcludedActiveSuccessor(t *testing.T) {
+	a, sc, key := poolRoutingFixture(t, v1.PoolStrategy_POOL_STRATEGY_PRIORITY)
+	p := admitRouting(t, a, key)
+	ctx := context.Background()
+	target := inference.Target{Provider: "logical", Model: "gpt-6-astra", Auth: inference.OAuth}
+	req := store.SelectionRequest{GroupID: "pool", Version: "config", Model: target.Model}
+	for _, id := range []string{"a", "b", "c"} {
+		_, v, e := a.s.GetPrivateVersion(ctx, sc, "provider", id)
+		if e != nil {
+			t.Fatal(e)
+		}
+		req.Candidates = append(req.Candidates, store.SelectionCandidate{ID: id, Version: v})
+	}
+	a.selections = map[string]routeSelection{selectionKey(target): {pool: &v1.Pool{NativeOptions: &v1.NativePoolOptions{Enabled: proto.Bool(true), Strategy: v1.NativePoolStrategy_NATIVE_POOL_STRATEGY_FILL_FIRST}}}}
+	l, e := a.current(p)
+	if e != nil {
+		t.Fatal(e)
+	}
+	group := "native/openai/pool/shared"
+	session := selectionVersion([]string{p.KeyID, "openai", "active"})
+	affinity, e := a.s.GetNativeAffinity(ctx, l, group, req.Version, session)
+	if e != nil {
+		t.Fatal(e)
+	}
+	e = a.s.FinishNativeAffinity(ctx, l, group, req.Version, session, "b", req.Candidates[1].Version, affinity.Epoch, true)
+	if e != nil {
+		t.Fatal(e)
+	}
+	now := time.Now()
+	q := nativeTestQuota(now, "weekly", 100)
+	reset := now.Add(time.Hour)
+	q.Windows[0].ResetAt = &reset
+	if e := a.writeNativeQuota(ctx, p, "b", req.Candidates[1].Version, q); e != nil {
+		t.Fatal(e)
+	}
+	got, e := a.preselectNative(ctx, p, target, "openai", req)
+	if e != nil || len(got.Candidates) == 0 || got.Candidates[0].ID != "c" {
+		t.Fatalf("successor: %v %v", got, e)
 	}
 }
