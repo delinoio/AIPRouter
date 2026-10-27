@@ -21,7 +21,7 @@ const (
 
 // responsesSocket makes exactly one create send. A close before the first event is
 // ambiguous, not permission to replay through HTTP, another account, or a combo.
-func (h *Handler) responsesSocket(ctx context.Context, p Principal, t Target, headers http.Header, payload object, rec *UsageRecord) (*http.Response, error) {
+func (h *Handler) responsesSocket(ctx context.Context, p Principal, t Target, credential Credential, headers http.Header, payload object, rec *UsageRecord) (*http.Response, error) {
 	if h.c.SocketDialer == nil || t.Wire != Responses {
 		return nil, ErrUnsupported
 	}
@@ -30,7 +30,29 @@ func (h *Handler) responsesSocket(ctx context.Context, p Principal, t Target, he
 		return nil, e
 	}
 	gateClient(client, ctx, p, h.c.Authorizer, func() { h.event(ctx, "upstream_socket_handshake") })
-	socket, e := h.c.SocketDialer.Dial(ctx, strings.TrimRight(t.BaseURL, "/")+"/responses", headers, client)
+	var socket Socket
+	var handshake *http.Response
+	if dialer, ok := h.c.SocketDialer.(HandshakeSocketDialer); ok {
+		socket, handshake, e = dialer.DialHandshake(ctx, strings.TrimRight(t.BaseURL, "/")+"/responses", headers, client)
+	} else {
+		socket, e = h.c.SocketDialer.Dial(ctx, strings.TrimRight(t.BaseURL, "/")+"/responses", headers, client)
+		if info, ok := socket.(SocketHandshake); ok {
+			status, headers := info.HandshakeResponse()
+			handshake = &http.Response{StatusCode: status, Header: headers}
+		}
+	}
+	if handshake != nil {
+		if handshake.Body != nil {
+			handshake.Body.Close()
+		}
+		if observed := h.observeResponse(ctx, p, t, credential, handshake); observed != nil {
+			if socket != nil {
+				socket.Close()
+			}
+			return nil, observed
+		}
+	}
+
 	if e != nil {
 		return nil, e
 	}
@@ -121,3 +143,10 @@ func (b *socketBody) Close() error {
 	b.once.Do(func() { b.cancel(); b.PipeReader.Close(); b.socket.Close(); <-b.done })
 	return nil
 }
+
+// HandshakeSocketDialer returns sanitized handshake metadata even for refused upgrades.
+// Response bodies must be closed; only status and headers are observed by the core.
+type HandshakeSocketDialer interface {
+	DialHandshake(context.Context, string, http.Header, *http.Client) (Socket, *http.Response, error)
+}
+type SocketHandshake interface{ HandshakeResponse() (int, http.Header) }

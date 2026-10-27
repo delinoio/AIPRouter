@@ -61,21 +61,22 @@ func (h *Handler) compactFallback(ctx context.Context, w http.ResponseWriter, p 
 	delete(prompt, "parallel_tool_calls")
 	filtered := make([]any, 0, len(history)+1)
 	users := []string{}
-	retained := []any{}
+	prefix := []any{}
+	retention := &compactionRetention{}
 	for _, v := range history {
 		m := obj(v)
-		if text := compactUserText(m); strings.TrimSpace(text) != "" {
-			users = append(users, text)
+		if m["role"] == "system" || m["role"] == "developer" {
+			prefix = append(prefix, v)
 		}
-		if m["type"] == "reasoning" {
-			retained = append(retained, v)
-			continue
+		if text := compactUserText(m); strings.TrimSpace(text) != "" && !strings.HasPrefix(text, retainedReasoningPrefix) {
+			users = append(users, text)
 		}
 		filtered = append(filtered, v)
 	}
 	prompt["input"] = append(filtered, compactMessage(checkpointPrompt))
 	buffer := &compactBuffer{header: make(http.Header)}
 	ctx = context.WithValue(ctx, compactionRouteKey{}, route)
+	ctx = context.WithValue(ctx, compactionRetentionKey{}, retention)
 	if e := h.execute(ctx, buffer, p, Responses, Generate, prompt, rec); e != nil {
 		return e
 	}
@@ -116,12 +117,12 @@ func (h *Handler) compactFallback(ctx context.Context, w http.ResponseWriter, p 
 		selected = append(selected, string(utf16.Decode(units)))
 		remaining -= len(units)
 	}
-	result := []any{}
+	result := append([]any{}, prefix...)
 	for i := len(selected) - 1; i >= 0; i-- {
 		result = append(result, compactMessage(selected[i]))
 	}
 	result = append(result, compactMessage(checkpointPrefix+"\n"+summary.String()))
-	result = append(result, retained...)
+	result = append(result, retention.retained...)
 	if e = h.guard(ctx, p); e != nil {
 		return e
 	}

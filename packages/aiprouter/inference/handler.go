@@ -410,6 +410,7 @@ func wait(ctx context.Context, d time.Duration) error {
 func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principal, in Wire, op Operation, b object, rec *UsageRecord) error {
 	ctx = context.WithValue(ctx, inboundWireKey{}, in)
 	rawBody, _ := json.Marshal(b)
+	boundOriginalHistory := issuerBoundHistory(b)
 	ctx = context.WithValue(ctx, routingRequestKey{}, routingRequest{h: h, p: p, record: rec, body: rawBody})
 	var route Route
 	var e error
@@ -512,7 +513,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 						continue
 					}
 					_, continued := ctx.Value(continuationKey{}).(Continuation)
-					if providerRefusal && typed.Status == 429 && logicalTarget.Retry.RotateOn429 && !continued && !issuerBoundHistory(b) {
+					if providerRefusal && typed.Status == 429 && logicalTarget.Retry.RotateOn429 && !continued && !boundOriginalHistory && !issuerBoundHistory(b) {
 						if e = h.guard(ctx, p); e != nil {
 							return e
 						}
@@ -550,9 +551,23 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 				}
 			}
 			scope := scopedAdapterState{h: h, p: p, t: t, c: cred}
-			if e = h.validateReplay(ctx, b, scope); e != nil {
-				return e
+			attemptBody, err := decode(rawBody)
+			if err != nil {
+				return err
 			}
+			attemptBody, err = h.expandCompactionReferences(ctx, scope, attemptBody)
+			if err != nil {
+				return err
+			}
+			if err = h.validateReplay(ctx, attemptBody, scope); err != nil {
+				return err
+			}
+			attemptBody, err = h.prepareCompactionRetention(ctx, scope, attemptBody)
+			if err != nil {
+				return err
+			}
+			b = attemptBody
+
 			attemptCtx := context.WithValue(attemptBase, replayScopeKey{}, scope)
 			if t.Policy != nil {
 				attemptCtx = context.WithValue(attemptCtx, responseRewriterKey{}, t.Policy.NewResponseRewriterForRequest(rawBody))
@@ -782,7 +797,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 					rec.Provider = t.Provider
 					rec.Model = str(payload["model"])
 					rec.AccountID = cred.AccountID
-					resp, err := h.responsesSocket(sendCtx, p, t, req.Header, payload, rec)
+					resp, err := h.responsesSocket(sendCtx, p, t, cred, req.Header, payload, rec)
 					if err != nil {
 						cancel()
 						return err
@@ -1000,7 +1015,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 						return e
 					}
 					_, continued := ctx.Value(continuationKey{}).(Continuation)
-					continued = continued || issuerBoundHistory(b)
+					continued = continued || boundOriginalHistory || issuerBoundHistory(b)
 					switch decision.Action {
 					case RecoveryRefresh:
 						if t.Auth != OAuth || refreshed {
@@ -1096,7 +1111,7 @@ func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, p Principa
 			retry := false
 			nextTarget := false
 			_, continued := ctx.Value(continuationKey{}).(Continuation)
-			continued = continued || issuerBoundHistory(b)
+			continued = continued || boundOriginalHistory || issuerBoundHistory(b)
 			allowed := rec.Sends < route.MaxSends && op != ImageGeneration && op != ImageEdit
 			if continued {
 				t.Retry.RotateOn429 = false
