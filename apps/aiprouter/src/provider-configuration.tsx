@@ -263,6 +263,44 @@ export function ConfigurationFields({
                 }
               />
             </Field>
+            {providerId === "google-vertex" && (
+              <fieldset>
+                <legend>Vertex AI</legend>
+                <p>
+                  OAuth and service-account credentials require an explicit
+                  project and location. API-key connections may use auto as the
+                  project for authorized discovery. Locations are validated by
+                  the server.
+                </p>
+                {(
+                  [
+                    ["vertexProject", "Vertex project"],
+                    ["vertexLocation", "Vertex location"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <div key={key}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={config[key] !== undefined}
+                        onChange={(e) =>
+                          update({ [key]: e.target.checked ? "" : undefined })
+                        }
+                      />
+                      Override {label.toLowerCase()}
+                    </label>
+                    {config[key] !== undefined && (
+                      <Field label={label}>
+                        <input
+                          value={config[key]}
+                          onChange={(e) => update({ [key]: e.target.value })}
+                        />
+                      </Field>
+                    )}
+                  </div>
+                ))}
+              </fieldset>
+            )}
             {providerId === "azure" && (
               <Field
                 label="Minimum output-token budget"

@@ -12,6 +12,8 @@ import {
   RouteSchema,
   JevDecisionConfigSchema,
   JevQuotaTiersSchema,
+  type ReasoningRetentionConfig,
+  ReasoningRetentionConfigSchema,
   RoutingStrategy,
   ConnectionState,
   OrganizationSchema,
@@ -104,6 +106,97 @@ async function edit() {
   );
 }
 describe("JEV routing payloads", () => {
+  it.each(["preserve", "zero", "omit-limits", "remove"] as const)(
+    "retention edit %s preserves generated payload presence",
+    async (mode) => {
+      const user = userEvent.setup(),
+        mutate = vi.fn((_request: unknown) => ({}));
+      mount(
+        create(RouteSchema, {
+          ...configured,
+          reasoningRetention: create(ReasoningRetentionConfigSchema, {
+            enabled: false,
+            maxContextPercent: 12.5,
+            maxTokens: 500,
+          }),
+        }),
+        mutate,
+      );
+      await edit();
+      await user.click(screen.getByText("Reasoning retention"));
+      if (mode === "remove")
+        await user.click(
+          screen.getByLabelText("Configure reasoning retention"),
+        );
+      if (mode === "zero" || mode === "omit-limits") {
+        for (const label of ["Context limit (%)", "Token limit"]) {
+          await user.clear(screen.getByLabelText(label));
+          if (mode === "zero")
+            await user.type(screen.getByLabelText(label), "0");
+        }
+      }
+      await user.click(screen.getByRole("button", { name: "Save routing" }));
+      const request = mutate.mock.calls[0]![0] as {
+        reasoningRetention?: ReasoningRetentionConfig;
+      };
+      if (mode === "remove") expect(request.reasoningRetention).toBeUndefined();
+      else {
+        expect(request.reasoningRetention?.enabled).toBe(false);
+        expect(request.reasoningRetention?.maxContextPercent).toBe(
+          mode === "zero" ? 0 : mode === "omit-limits" ? undefined : 12.5,
+        );
+        expect(request.reasoningRetention?.maxTokens).toBe(
+          mode === "zero" ? 0 : mode === "omit-limits" ? undefined : 500,
+        );
+      }
+    },
+  );
+  it("creates enabled retention with default limits and validates numeric bounds", async () => {
+    const user = userEvent.setup(),
+      mutate = vi.fn((_request: unknown) => ({}));
+    mount(undefined, mutate);
+    await screen.findByRole("heading", { name: "decision-alias" });
+    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await user.type(screen.getByLabelText("Model alias"), "retained");
+    await user.click(screen.getByRole("button", { name: "Add target" }));
+    await user.selectOptions(
+      screen.getByLabelText("Connection or pool"),
+      "connectionId:target",
+    );
+    await user.type(screen.getByLabelText("Provider model ID"), "model");
+    await user.click(screen.getByText("Reasoning retention"));
+    await user.click(screen.getByLabelText("Configure reasoning retention"));
+    await user.click(
+      screen.getByLabelText("Retain readable reasoning during compaction"),
+    );
+    for (const [label, invalid] of [
+      ["Context limit (%)", "101"],
+      ["Token limit", "4294967296"],
+      ["Token limit", "1.5"],
+    ]) {
+      await user.type(screen.getByLabelText(label!), invalid!);
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Save routing",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true);
+      await user.clear(screen.getByLabelText(label!));
+    }
+    await user.click(screen.getByRole("button", { name: "Save routing" }));
+    expect(mutate.mock.calls[0]![0]).toMatchObject({
+      reasoningRetention: { enabled: true },
+    });
+    const config = (
+      mutate.mock.calls[0]![0] as {
+        reasoningRetention: ReasoningRetentionConfig;
+      }
+    ).reasoningRetention;
+    expect(config.maxContextPercent).toBeUndefined();
+    expect(config.maxTokens).toBeUndefined();
+  });
+
   it("validates effective quota order while signals are off and allows explicit override removal", async () => {
     const user = userEvent.setup(),
       mutate = vi.fn((_request: unknown) => ({}));

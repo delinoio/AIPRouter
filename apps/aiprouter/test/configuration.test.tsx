@@ -75,7 +75,7 @@ function providerRoutes(
     listProviderCatalog: () => ({
       providers: [
         {
-          id: "custom",
+          id: source.providerId,
           displayName: "Custom",
           authKinds: [ProviderAuthKind.API_KEY],
         },
@@ -88,6 +88,85 @@ function providerRoutes(
   r.service(RoutingService, { listRoutes: () => ({}) });
 }
 describe("provider configuration mutations", () => {
+  it.each(["preserve", "omit", "empty", "auto", "reset"] as const)(
+    "sends Vertex configuration with %s presence through Connect",
+    async (mode) => {
+      const user = userEvent.setup();
+      const update = vi.fn((_request: unknown) => {
+        if (mode === "empty")
+          throw new ConnectError(
+            "Vertex project must not be empty",
+            Code.InvalidArgument,
+          );
+        return {};
+      });
+      const source = create(ProviderConnectionSchema, {
+        ...connection,
+        providerId: "google-vertex",
+        configuration: create(ProviderConfigurationSchema, {
+          vertexProject: "saved-project",
+          vertexLocation: "us-central1",
+        }),
+      });
+      mount(
+        <ProvidersPage organization={organization} session={session} />,
+        (r) => providerRoutes(r, update, source),
+      );
+      await user.click(
+        await screen.findByRole("button", { name: "Edit connection" }),
+      );
+      await user.click(screen.getByText("Advanced connection settings"));
+      await user.selectOptions(
+        screen.getByLabelText("Configuration changes"),
+        mode === "reset" ? "reset" : "replace",
+      );
+      if (mode === "omit") {
+        await user.click(screen.getByLabelText("Override vertex project"));
+        await user.click(screen.getByLabelText("Override vertex location"));
+      } else if (mode === "empty" || mode === "auto") {
+        await user.clear(screen.getByLabelText("Vertex project"));
+        if (mode === "auto")
+          await user.type(screen.getByLabelText("Vertex project"), "auto");
+      }
+      await user.click(screen.getByRole("button", { name: "Save connection" }));
+      expect(update).toHaveBeenCalledTimes(1);
+      const request = update.mock.calls[0]![0] as {
+        configuration?: { vertexProject?: string; vertexLocation?: string };
+        resetConfiguration: boolean;
+      };
+      if (mode === "reset") {
+        expect(request.configuration).toBeUndefined();
+        expect(request.resetConfiguration).toBe(true);
+      } else {
+        expect(request.configuration).toBeDefined();
+        expect(request.configuration!.vertexProject).toBe(
+          mode === "omit"
+            ? undefined
+            : mode === "empty"
+              ? ""
+              : mode === "auto"
+                ? "auto"
+                : "saved-project",
+        );
+        expect(request.configuration!.vertexLocation).toBe(
+          mode === "omit" ? undefined : "us-central1",
+        );
+      }
+      if (mode === "empty") {
+        await screen.findAllByText(
+          "Check the entered values and the allowed destination policy, then try again.",
+        );
+        expect(
+          (screen.getByLabelText("Vertex project") as HTMLInputElement).value,
+        ).toBe("");
+        expect(
+          (screen.getByLabelText("Override vertex project") as HTMLInputElement)
+            .checked,
+        ).toBe(true);
+      }
+    },
+  );
+
   it("preserves fast false and exact model false overrides during unrelated full configuration replacement", async () => {
     const user = userEvent.setup(),
       update = vi.fn((_request: unknown) => ({}));

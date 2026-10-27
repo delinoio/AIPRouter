@@ -16,6 +16,8 @@ import {
   RoutingStrategy,
   JevDecisionConfigSchema,
   JevQuotaTiersSchema,
+  ReasoningRetentionConfigSchema,
+  type ReasoningRetentionConfig,
   type JevDecisionConfig,
   ConnectionState,
   type Pool,
@@ -543,6 +545,7 @@ type TargetValue = {
   weight: number;
 };
 type RouteValues = {
+  reasoningRetention?: ReasoningRetentionConfig;
   jevDecision?: JevDecisionConfig;
   modelId: string;
   strategy: RoutingStrategy;
@@ -576,6 +579,19 @@ function RouteEditor({
   const [jev, setJev] = useState(() =>
     create(JevDecisionConfigSchema, route?.jevDecision),
   );
+  const [retention, setRetention] = useState<
+    ReasoningRetentionConfig | undefined
+  >(route?.reasoningRetention);
+  const validRetention =
+    !retention ||
+    ((retention.maxContextPercent === undefined ||
+      (Number.isFinite(retention.maxContextPercent) &&
+        retention.maxContextPercent >= 0 &&
+        retention.maxContextPercent <= 100)) &&
+      (retention.maxTokens === undefined ||
+        (Number.isInteger(retention.maxTokens) &&
+          retention.maxTokens >= 0 &&
+          retention.maxTokens <= 4294967295)));
   const [decisionSource, setDecisionSource] = useState(
     route?.jevDecision?.decisionModel ? "route" : "connection",
   );
@@ -630,6 +646,7 @@ function RouteEditor({
         onSubmit={(e) => {
           e.preventDefault();
           onSave({
+            reasoningRetention: retention,
             modelId: name.trim(),
             jevDecision: strategy === RoutingStrategy.JEV ? jev : undefined,
             strategy,
@@ -916,6 +933,95 @@ function RouteEditor({
           Saving replaces the complete route. Changing away from JEV removes its
           decision configuration.
         </p>
+        <details>
+          <summary>Reasoning retention</summary>
+          <label>
+            <input
+              type="checkbox"
+              checked={retention !== undefined}
+              onChange={(e) =>
+                setRetention(
+                  e.target.checked
+                    ? create(ReasoningRetentionConfigSchema)
+                    : undefined,
+                )
+              }
+            />
+            Configure reasoning retention
+          </label>
+          <p>Removing this configuration disables retention when saved.</p>
+          {retention && (
+            <>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={retention.enabled}
+                  onChange={(e) =>
+                    setRetention(
+                      create(ReasoningRetentionConfigSchema, {
+                        ...retention,
+                        enabled: e.target.checked,
+                      }),
+                    )
+                  }
+                />
+                Retain readable reasoning during compaction
+              </label>
+              <Field
+                label="Context limit (%)"
+                hint="Empty or zero uses 20% of the model context window."
+              >
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="any"
+                  value={retention.maxContextPercent ?? ""}
+                  onChange={(e) =>
+                    setRetention(
+                      create(ReasoningRetentionConfigSchema, {
+                        ...retention,
+                        maxContextPercent:
+                          e.target.value === ""
+                            ? undefined
+                            : Number(e.target.value),
+                      }),
+                    )
+                  }
+                />
+              </Field>
+              <Field
+                label="Token limit"
+                hint="Empty or zero uses 100,000 tokens."
+              >
+                <input
+                  type="number"
+                  min="0"
+                  max="4294967295"
+                  step="1"
+                  value={retention.maxTokens ?? ""}
+                  onChange={(e) =>
+                    setRetention(
+                      create(ReasoningRetentionConfigSchema, {
+                        ...retention,
+                        maxTokens:
+                          e.target.value === ""
+                            ? undefined
+                            : Number(e.target.value),
+                      }),
+                    )
+                  }
+                />
+              </Field>
+              {!validRetention && (
+                <Notice tone="warning">
+                  Use a percentage from 0 to 100 and a whole token limit from 0
+                  to 4,294,967,295.
+                </Notice>
+              )}
+            </>
+          )}
+        </details>
         <h3>Ordered targets</h3>
         {targets.map((t, i) => (
           <fieldset key={i}>
@@ -1114,6 +1220,7 @@ function RouteEditor({
             variant="primary"
             disabled={
               pending ||
+              !validRetention ||
               !name.trim() ||
               existingNames.includes(name.trim()) ||
               !targets.length ||
