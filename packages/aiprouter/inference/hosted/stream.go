@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/delinoio/AIPRouter/packages/aiprouter/inference"
 )
@@ -245,4 +246,30 @@ func (l *liveStream) progress(k Kind, id, status string, extra object) error {
 		item[key] = value
 	}
 	return l.write(object{"object": "chat.completion.chunk", "choices": []any{}, "hosted_outputs": []any{item}})
+}
+
+// Keep raw-byte progress alive while a bounded service operation waits (for
+// example video polling). Comments contain no content or operation identifiers.
+func (l *liveStream) keepalive(ctx context.Context) func() {
+	l.start()
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := io.WriteString(l.writer, ": heartbeat\n\n"); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	return func() { close(stop); <-done }
 }

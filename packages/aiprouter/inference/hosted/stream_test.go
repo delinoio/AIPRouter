@@ -350,3 +350,14 @@ func TestCrossWireFirstTextBeforeTerminal(t *testing.T) {
 		})
 	}
 }
+
+func TestConfiguredHelperTimeoutBounds(t *testing.T) {
+	c := defaults(Config{SearchTimeout: 600 * time.Second, VisionTimeout: 2147483647 * time.Millisecond, MediaTimeout: 300 * time.Second})
+	if c.SearchTimeout != 600*time.Second || c.VisionTimeout != 2147483647*time.Millisecond || c.MediaTimeout != 300*time.Second {
+		t.Fatal("valid service timeout narrowed", c)
+	}
+	c = defaults(Config{SearchTimeout: 600*time.Second + 1, VisionTimeout: 2147483647*time.Millisecond + 1, MediaTimeout: 300*time.Second + 1})
+	if c.SearchTimeout != 60*time.Second || c.VisionTimeout != 45*time.Second || c.MediaTimeout != 300*time.Second {
+		t.Fatal("invalid timeout did not use bounded default", c)
+	}
+}

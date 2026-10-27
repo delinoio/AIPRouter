@@ -487,6 +487,10 @@ func (t *turn) execute(ctx context.Context, tool tool, id string, args object) (
 	}
 	opctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if t.live != nil {
+		stop := t.live.keepalive(opctx)
+		defer stop()
+	}
 	raw, _ := json.Marshal(args)
 	req := OperationRequest{Principal: t.input.Principal, RequestID: t.input.RequestID, CallID: id, Kind: tool.kind, Declaration: append(json.RawMessage(nil), tool.declaration...), Arguments: raw}
 	executor, err := t.a.config.Resolver.Resolve(opctx, req)

@@ -111,10 +111,10 @@ func defaults(c Config) Config {
 	if c.MaxBytes <= 0 || c.MaxBytes > 32<<20 {
 		c.MaxBytes = 32 << 20
 	}
-	if c.SearchTimeout <= 0 || c.SearchTimeout > 300*time.Second {
+	if c.SearchTimeout <= 0 || c.SearchTimeout > 600*time.Second {
 		c.SearchTimeout = 60 * time.Second
 	}
-	if c.VisionTimeout <= 0 || c.VisionTimeout > 300*time.Second {
+	if c.VisionTimeout <= 0 || c.VisionTimeout > 2147483647*time.Millisecond {
 		c.VisionTimeout = 45 * time.Second
 	}
 	if c.MediaTimeout <= 0 || c.MediaTimeout > 300*time.Second {
