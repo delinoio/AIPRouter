@@ -77,19 +77,21 @@ export function ErrorNotice({
   const e = ConnectError.from(error);
   const detail = e.findDetails(ErrorDetailSchema)[0];
   const message =
-    e.code === Code.PermissionDenied
-      ? permissionMessage
-      : e.code === Code.Unauthenticated
-        ? "Your session expired. Sign in again before continuing."
-        : e.code === Code.Unavailable
-          ? "The service is unavailable. No change is confirmed. Try again when connected."
-          : e.code === Code.ResourceExhausted
-            ? "Rate limited. Wait before trying again."
-            : e.code === Code.FailedPrecondition
-              ? "This action is no longer valid. Refresh to check expiry and current state."
-              : e.code === Code.Aborted
-                ? "This record changed. Refresh and review before saving again."
-                : "The request failed. Your change is not confirmed.";
+    e.code === Code.Unimplemented
+      ? "This capability is not available on this server yet."
+      : e.code === Code.PermissionDenied
+        ? permissionMessage
+        : e.code === Code.Unauthenticated
+          ? "Your session expired. Sign in again before continuing."
+          : e.code === Code.Unavailable
+            ? "The service is unavailable. No change is confirmed. Try again when connected."
+            : e.code === Code.ResourceExhausted
+              ? "Rate limited. Wait before trying again."
+              : e.code === Code.FailedPrecondition
+                ? "This action is no longer valid. Refresh to check expiry and current state."
+                : e.code === Code.Aborted
+                  ? "This record changed. Refresh and review before saving again."
+                  : "The request failed. Your change is not confirmed.";
   return (
     <div role="alert" className="admin-error">
       <p>{message}</p>

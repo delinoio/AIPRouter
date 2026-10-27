@@ -288,6 +288,7 @@ export function Invitations() {
                   <div>
                     <h2>{invitation.email}</h2>
                     <p>Role: Member</p>
+                    <p>Created: Not reported</p>
                     <span className="admin-badge">{status}</span>
                     <p>Expires {date(invitation.expiresAt)}</p>
                     {status === "Delivery failed" && (
@@ -302,6 +303,12 @@ export function Invitations() {
                       </p>
                     )}
                     <p>Send attempts: {invitation.deliveryAttempts}</p>
+                    {!available && (
+                      <p>
+                        Resend timing is not reported. The server still enforces
+                        the one-minute cooldown.
+                      </p>
+                    )}
                     {waiting && (
                       <p id={`cooldown-${invitation.id}`}>
                         Resend available at{" "}
